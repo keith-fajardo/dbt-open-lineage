@@ -9,7 +9,7 @@ vi.mock("@xyflow/react", () => ({
   Position: { Left: "left", Right: "right" },
 }));
 
-import { DagNode, type DagNodeData } from "./nodes";
+import { DagNode, isDimmed, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
 
 const data = (label: string, extra: Partial<DagNodeData> = {}): DagNodeData => ({
@@ -170,6 +170,20 @@ describe("DagNode label-filter dimming", () => {
       </ViewContext.Provider>,
     );
     expect((container.firstElementChild as HTMLElement).style.opacity).toBe("0.18");
+  });
+});
+
+describe("isDimmed", () => {
+  const base = { selected: null, active: null, up: new Set<string>(), down: new Set<string>(), matched: null, spotlight: null, filtered: null };
+  it("open model is never dimmed", () => {
+    expect(isDimmed("m", { ...base, active: "m", filtered: new Set(["x"]) })).toBe(false);
+  });
+  it("filter dims non-members", () => {
+    expect(isDimmed("m", { ...base, filtered: new Set(["x"]) })).toBe(true);
+    expect(isDimmed("x", { ...base, filtered: new Set(["x"]) })).toBe(false);
+  });
+  it("spotlight and filter compose", () => {
+    expect(isDimmed("m", { ...base, spotlight: new Set(["m"]), filtered: new Set(["x"]) })).toBe(true);
   });
 });
 

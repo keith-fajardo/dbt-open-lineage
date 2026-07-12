@@ -5,7 +5,7 @@ import { NODE_W } from "./layout";
 interface CalloutOverlayProps {
   nodes: { id: string; meta?: Record<string, unknown> }[];
   positions: Map<string, Pt>;
-  dimmed: boolean;
+  dimmedIds: Set<string>;
 }
 
 function gistOf(node: { meta?: Record<string, unknown> }): string | null {
@@ -20,7 +20,7 @@ function gistOf(node: { meta?: Record<string, unknown> }): string | null {
  * gist or without a meta.callout placement gets none. Callouts do not track
  * hand-dragged nodes (they read the layout position map), matching the zone
  * overlay's behavior. */
-export function CalloutOverlay({ nodes, positions, dimmed }: CalloutOverlayProps) {
+export function CalloutOverlay({ nodes, positions, dimmedIds }: CalloutOverlayProps) {
   return (
     <ViewportPortal>
       {nodes.map((n) => {
@@ -32,7 +32,7 @@ export function CalloutOverlay({ nodes, positions, dimmed }: CalloutOverlayProps
         const bubbleLeft = anchorX - bubbleW / 2;
         const bubbleBottom = p.y - 14; // gap above node top
         return (
-          <div key={n.id} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", opacity: dimmed ? 0.25 : 1 }}>
+          <div key={n.id} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", opacity: dimmedIds.has(n.id) ? 0.25 : 1 }}>
             <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", width: 1, height: 1 }}>
               <line x1={anchorX} y1={bubbleBottom} x2={anchorX} y2={p.y - 1} stroke="#38bdf8" strokeWidth={2} />
               <circle cx={anchorX} cy={p.y - 1} r={3.5} fill="#38bdf8" />

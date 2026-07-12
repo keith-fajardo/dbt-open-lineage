@@ -9,7 +9,7 @@ import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, saveExport, openInIde } from "./bridge";
 import { layoutGraph } from "./layout";
 import { resolveSelector, focalName } from "./selector";
-import { nodeTypes, type DagNodeData } from "./nodes";
+import { nodeTypes, isDimmed, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
@@ -426,6 +426,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     onToggleFavorite,
   }), [selected, activeId, lineage, focus, matched, spotlight, filtered, searchQ, favorites, onToggleFavorite]);
 
+  const dimmedIds = useMemo(
+    () => (graph ? new Set(graph.nodes.filter((n) => isDimmed(n.id, view)).map((n) => n.id)) : new Set<string>()),
+    [graph, view],
+  );
+
   // Live match count over the nodes actually shown in the DAG.
   const searchHits = useMemo(() => {
     if (!searchQ) return 0;
@@ -446,14 +451,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           style: {
             opacity: hasSel
               ? (onLineage ? 0.95 : 0.06)
-              : !focus && !(matched.has(e.from) && matched.has(e.to)) ? 0.1 : 0.9,
+              : (isDimmed(e.from, view) || isDimmed(e.to, view)) ? 0.1 : 0.9,
             stroke: onLineage ? "#e5e7eb" : undefined,
             strokeWidth: onLineage ? 2 : undefined,
           },
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, matched, focus, selected, lineage]);
+  }, [graph, matched, focus, selected, lineage, view]);
 
   const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
   // Double-click a node → open its model/source file in the IDE editor
@@ -672,7 +677,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               <CalloutOverlay
                 nodes={graph?.nodes ?? []}
                 positions={positioned}
-                dimmed={selected != null || spotArea != null}
+                dimmedIds={dimmedIds}
               />
             )}
           </ReactFlow>

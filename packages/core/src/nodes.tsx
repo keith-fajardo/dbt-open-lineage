@@ -1,6 +1,20 @@
 import { useContext } from "react";
 import { Handle, Position } from "@xyflow/react";
-import { ViewContext } from "./viewContext";
+import { ViewContext, type ViewState } from "./viewContext";
+
+export type DimView = Pick<ViewState, "selected" | "active" | "up" | "down" | "matched" | "spotlight" | "filtered">;
+
+/** The single source of truth for whether a node is dimmed. The open model is
+ * never dimmed; a selection dims everything off its lineage; otherwise the
+ * selector (matched), area spotlight, and label/personal filter each dim
+ * non-members. */
+export function isDimmed(id: string, v: DimView): boolean {
+  if (id === v.active) return false;
+  if (v.selected != null) return !(id === v.selected || v.up.has(id) || v.down.has(id));
+  const spotlit = v.spotlight == null || v.spotlight.has(id);
+  const inFilter = v.filtered == null || v.filtered.has(id);
+  return (v.matched != null && !v.matched.has(id)) || !spotlit || !inFilter;
+}
 
 const LAYER_COLOR: Record<string, string> = {
   source: "#8b5cf6",
@@ -55,11 +69,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   // The model whose file is OPEN in the IDE: a persistent emphasis so it's
   // always obvious which node in the cone you're actually looking at.
   const active = id === view.active;
-  const spotlit = view.spotlight == null || view.spotlight.has(id);
-  const inFilter = view.filtered == null || view.filtered.has(id);
-  const dim = active ? false
-    : hasSel ? !inLineage
-    : (view.matched != null && !view.matched.has(id)) || !spotlit || !inFilter;
+  const dim = isDimmed(id, view);
   const emphasize = hasSel && !selected && inLineage;
   const searchHit = view.search !== "" && data.label.toLowerCase().includes(view.search);
   return (
