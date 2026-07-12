@@ -121,7 +121,7 @@
     "test": "vitest run",
     "pretest:integration": "npm run build && tsc test/integration/runTest.ts test/integration/open.test.ts --outDir out-test --rootDir test --module commonjs --target ES2022 --skipLibCheck --esModuleInterop",
     "test:integration": "node out-test/integration/runTest.js",
-    "package": "vsce package"
+    "package": "vsce package --no-dependencies"
   },
   "dependencies": {
     "@dbt-open-lineage/core": "*"

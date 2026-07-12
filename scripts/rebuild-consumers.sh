@@ -53,6 +53,16 @@ if [ "$VSCODE" = 1 ]; then
   [ -f packages/vscode/out/extension.js ]        || fail "vscode host build missing out/extension.js"
   [ -f packages/vscode/media/index.html ]        || fail "vscode webview build missing media/index.html (webview would render blank)"
   ls packages/vscode/media/assets/*.js >/dev/null 2>&1 || fail "vscode webview build produced no media/assets/*.js (webview would render blank)"
+
+  if [ "$PACK" = 1 ]; then
+    VSVER=$(node -p "require('./packages/vscode/package.json').version")
+    say "vscode pack   →  packages/vscode/dbt-open-lineage-$VSVER.vsix"
+    # Clear stale .vsix from older versions — an install-from-disk otherwise
+    # picks up whichever old file the user clicks (this bit us: 0.3.4 lingered).
+    rm -f packages/vscode/dbt-open-lineage-*.vsix
+    npm run package -w packages/vscode
+    [ -f "packages/vscode/dbt-open-lineage-$VSVER.vsix" ] || fail "vscode package produced no dbt-open-lineage-$VSVER.vsix"
+  fi
 fi
 
 say "done — rebuilt artifacts:"
@@ -63,4 +73,5 @@ fi
 if [ "$VSCODE" = 1 ]; then
   echo "  vscode host   : packages/vscode/out/extension.js"
   echo "  vscode webview: packages/vscode/media/"
+  [ "$PACK" = 1 ] && echo "  vscode vsix    : packages/vscode/dbt-open-lineage-$(node -p "require('./packages/vscode/package.json').version").vsix"
 fi

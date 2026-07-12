@@ -1,0 +1,19 @@
+# The extension host is esbuild-bundled into out/extension.js and the webview
+# into media/, so the .vsix only needs those + package.json + README/icon.
+# Everything else (source, workspace-symlinked node_modules, tsconfigs, tests)
+# must stay OUT — vsce follows the node_modules/@dbt-open-lineage/core workspace
+# symlink and chokes on paths that escape the package root otherwise.
+.vscode/**
+src/**
+node_modules/**
+test/**
+**/*.ts
+!out/**
+**/*.map
+**/tsconfig*.json
+vite.config.ts
+vitest.config.ts
+esbuild.js
+**/*.vsix
+.gitignore
+.eslintrc*
