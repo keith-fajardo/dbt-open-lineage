@@ -534,8 +534,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             opacity: hasSel
               ? (onLineage ? 0.95 : 0.06)
               : (isDimmed(e.from, view) || isDimmed(e.to, view)) ? 0.1 : 0.9,
-            stroke: onLineage ? "#e5e7eb" : undefined,
-            strokeWidth: onLineage ? 2 : undefined,
+            // Explicit stroke (not just the React Flow CSS class default) so the
+            // PNG/SVG export keeps the edges — html-to-image doesn't inline the
+            // external stylesheet's stroke, so undefined here = invisible lines.
+            stroke: onLineage ? "#e5e7eb" : "#b1b1b7",
+            strokeWidth: onLineage ? 2 : 1,
           },
         };
       });
