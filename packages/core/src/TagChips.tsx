@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { useCloseOnOutside } from "./useCloseOnOutside";
 
 interface TagChipsProps {
   tags: string[];
@@ -14,12 +15,15 @@ interface TagChipsProps {
 export function TagChips(p: TagChipsProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => { setOpen(false); setQuery(""); }, []);
+  useCloseOnOutside(open, ref, close);
   if (!p.tags.length) return null;
   const active = p.filter.size > 0;
   const q = query.trim().toLowerCase();
   const shown = q ? p.tags.filter((t) => t.toLowerCase().includes(q)) : p.tags;
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={ref} style={{ position: "relative" }}>
       <button
         aria-haspopup="menu"
         aria-expanded={open}

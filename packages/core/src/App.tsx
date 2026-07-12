@@ -99,12 +99,17 @@ function ChipEditor({
   allKeys: string[]; addLabel: string; listId: string;
 }) {
   const [input, setInput] = useState("");
-  const add = () => {
-    const v = input.trim();
-    if (v && !values.includes(v)) onChange([...values, v]);
+  const [focused, setFocused] = useState(false);
+  const addValue = (v: string) => {
+    const t = v.trim();
+    if (t && !values.includes(t)) onChange([...values, t]);
     setInput("");
   };
   const display = (k: string) => styles.get(k)?.name ?? k;
+  const q = input.trim().toLowerCase();
+  const suggestions = allKeys
+    .filter((k) => !values.includes(k) && (q === "" || k.toLowerCase().includes(q) || display(k).toLowerCase().includes(q)))
+    .slice(0, 8);
   return (
     <>
       <dt style={{ color: "#94a3b8", marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -137,26 +142,53 @@ function ChipEditor({
             ))}
           </div>
         )}
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ position: "relative", display: "flex", gap: 6 }}>
           <input
-            list={listId} value={input} placeholder={addLabel} aria-label={addLabel}
+            value={input} placeholder={addLabel} aria-label={addLabel}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setTimeout(() => setFocused(false), 120)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addValue(input); } }}
             style={{
               flex: 1, minWidth: 0, padding: "5px 9px", borderRadius: 7,
               border: "1px solid #334155", background: "#0b1220", color: "#e5e7eb",
               fontFamily: "inherit", fontSize: 12,
             }}
           />
-          <datalist id={listId}>{allKeys.map((k) => <option key={k} value={k} />)}</datalist>
           <button
-            type="button" onClick={add}
+            type="button" onClick={() => addValue(input)}
             style={{
               padding: "5px 11px", borderRadius: 7, border: "1px solid #334155",
               background: "#111827", color: "#e5e7eb", cursor: "pointer",
               fontFamily: "inherit", fontSize: 12,
             }}
           >Add</button>
+          {/* Custom (themed) suggestions — the native <datalist> popup renders
+              unreadably in the dark WKWebView. */}
+          {focused && suggestions.length > 0 && (
+            <div role="listbox" style={{
+              position: "absolute", left: 0, top: "calc(100% + 4px)", zIndex: 30,
+              minWidth: 180, maxHeight: 200, overflowY: "auto",
+              background: "#111827", border: "1px solid #334155", borderRadius: 7, padding: 4,
+              boxShadow: "0 12px 28px rgba(0,0,0,0.5)",
+            }}>
+              {suggestions.map((k) => (
+                <button
+                  key={k} type="button" role="option"
+                  onMouseDown={(e) => { e.preventDefault(); addValue(k); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                    background: "none", border: "none", color: "#e5e7eb", cursor: "pointer",
+                    fontFamily: "inherit", fontSize: 13, padding: "6px 8px", borderRadius: 6,
+                  }}
+                >
+                  <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                    background: styles.get(k)?.color ?? "#64748b" }} />
+                  {display(k)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </dd>
     </>

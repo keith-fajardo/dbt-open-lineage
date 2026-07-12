@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { useCloseOnOutside } from "./useCloseOnOutside";
 import { type Style } from "./styles";
 
 interface AreaControlProps {
@@ -46,6 +47,9 @@ const ddBtn = (active: boolean): React.CSSProperties => ({
  * No areas ⇒ renders nothing (keeps the toolbar clean for un-annotated projects). */
 export function AreaControl(p: AreaControlProps) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useCloseOnOutside(open, ref, close);
   if (!p.areas.length) return null;
   const toggle = (area: string) => {
     const next = new Set(p.visible);
@@ -54,10 +58,10 @@ export function AreaControl(p: AreaControlProps) {
   };
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-      <div style={{ position: "relative" }}>
+      <div ref={ref} style={{ position: "relative" }}>
         <button aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}
           style={ddBtn(p.visible.size < p.areas.length)}>
-          Areas · {p.visible.size}/{p.areas.length} ▾
+          Subject areas · {p.visible.size}/{p.areas.length} ▾
         </button>
         {open && (
           <div role="menu" style={{
