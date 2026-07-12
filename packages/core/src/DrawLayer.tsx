@@ -38,7 +38,7 @@ export function DrawLayer({ mode, color, width, strokes, onStrokesChange }: Draw
 
   const onPointerMove = (e: ReactPointerEvent) => {
     if (mode === "erase" && (e.buttons & 1)) { const pt = toFlow(e); onStrokesChange((prev) => eraseAt(prev, pt, ERASE_TOL)); return; }
-    if (mode !== "pen" || !drawing.current) return;
+    if (mode !== "pen" || !drawing.current || !(e.buttons & 1)) return;
     const pt = toFlow(e);
     onStrokesChange((prev) => {
       if (prev.length === 0) return prev;
@@ -57,6 +57,8 @@ export function DrawLayer({ mode, color, width, strokes, onStrokesChange }: Draw
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onLostPointerCapture={onPointerUp}
           style={{
             position: "absolute", inset: 0, zIndex: 10,
             cursor: mode === "erase" ? "cell" : "crosshair",
