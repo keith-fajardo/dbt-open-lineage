@@ -17,6 +17,8 @@ export interface ViewState {
   down: Set<string>;
   /** When set (focus off), nodes NOT in this set render dimmed. */
   matched: Set<string> | null;
+  /** When set (an area is spotlighted), nodes NOT in this set render dimmed. */
+  spotlight: Set<string> | null;
   /** Live search term (lowercased, "" = off): nodes whose name contains it
    * highlight the matching text and get an amber ring. */
   search: string;
@@ -28,5 +30,6 @@ export const ViewContext = createContext<ViewState>({
   up: new Set(),
   down: new Set(),
   matched: null,
+  spotlight: null,
   search: "",
 });
