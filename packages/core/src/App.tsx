@@ -16,6 +16,7 @@ import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
 import { nodeAreas, areaMembers } from "./zones";
 import { ZonesOverlay } from "./ZonesOverlay";
+import { AreaControl } from "./AreaControl";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -430,6 +431,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           <label style={{ color: "#94a3b8", fontSize: 13 }}>
             <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
           </label>
+          <AreaControl
+            areas={allAreas}
+            annotations={annotations}
+            visible={areasVisible}
+            onVisibleChange={setAreasVisible}
+            spot={spotArea}
+            onSpot={setSpotArea}
+            shape={zoneShape}
+            onShape={setZoneShape}
+          />
           <input
             aria-label="Search nodes"
             placeholder="search…"
