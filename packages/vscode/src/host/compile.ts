@@ -10,8 +10,11 @@ export function makeCompileTask(projectRoot: string): vscode.Task {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const vs = require("vscode") as typeof vscode;
   const exec = new vs.ShellExecution("dbt compile", { cwd: projectRoot });
+  // type must be "shell" (built-in) — a custom type here needs a registered
+  // vscode.TaskProvider, which this extension doesn't have, so VSCode refuses
+  // to run it ("no registered task type").
   const task = new vs.Task(
-    { type: "dbt-open-lineage" }, vs.TaskScope.Workspace,
+    { type: "shell" }, vs.TaskScope.Workspace,
     "dbt compile", "dbt Open Lineage", exec,
   );
   task.presentationOptions = { reveal: vs.TaskRevealKind.Always, panel: vs.TaskPanelKind.Shared };
@@ -32,8 +35,9 @@ export function makeCompileSelectTask(projectRoot: string, model: string): vscod
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const vs = require("vscode") as typeof vscode;
   const exec = new vs.ShellExecution("dbt", compileSelectArgs(model), { cwd: projectRoot });
+  // See makeCompileTask above: type must be "shell", not a custom type.
   const task = new vs.Task(
-    { type: "dbt-open-lineage" }, vs.TaskScope.Workspace,
+    { type: "shell" }, vs.TaskScope.Workspace,
     `dbt compile --select ${model}`, "dbt Open Lineage", exec,
   );
   task.presentationOptions = { reveal: vs.TaskRevealKind.Always, panel: vs.TaskPanelKind.Shared };
