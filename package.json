@@ -5,6 +5,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "rebuild": "bash scripts/rebuild-consumers.sh"
   }
 }
