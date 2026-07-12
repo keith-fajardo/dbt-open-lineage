@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseAnnotations, EMPTY_ANNOTATIONS } from "./annotations";
+import { parse } from "yaml"; // already imported in this file — reuse
+import { parseAnnotations, EMPTY_ANNOTATIONS, setSidecarColor } from "./annotations";
 
 describe("parseAnnotations", () => {
   it("returns empty for null/blank/garbage", () => {
@@ -39,5 +40,27 @@ describe("parseAnnotations", () => {
   it("rejects arrays in style maps", () => {
     const a = parseAnnotations("areas:\n  - foo\n  - bar\n");
     expect(a.areas).toEqual({});
+  });
+});
+
+describe("setSidecarColor", () => {
+  it("sets a color on an existing entry, preserving siblings + comments", () => {
+    const src = [
+      "labels:",
+      "  core: { name: \"Core\", color: \"#ef4444\" }  # important ones",
+      "  pii:  { name: \"PII\", color: \"#f59e0b\" }",
+    ].join("\n");
+    const out = setSidecarColor(src, "labels", "core", "#123456");
+    expect(out).toContain("# important ones");
+    const doc = parse(out);
+    expect(doc.labels.core.color).toBe("#123456");
+    expect(doc.labels.core.name).toBe("Core");    // name untouched
+    expect(doc.labels.pii.color).toBe("#f59e0b");  // sibling untouched
+  });
+
+  it("creates the entry (and section) when absent, seeding an empty doc", () => {
+    const out = setSidecarColor(null, "areas", "order_ledger", "#8b5cf6");
+    const doc = parse(out);
+    expect(doc.areas.order_ledger.color).toBe("#8b5cf6");
   });
 });

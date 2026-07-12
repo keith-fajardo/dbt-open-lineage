@@ -13,11 +13,12 @@ import { nodeTypes, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
-import { parseAnnotations, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
+import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
 import { nodeAreas, nodeLabels, areaMembers } from "./zones";
 import { ZonesOverlay } from "./ZonesOverlay";
 import { CalloutOverlay } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
+import { LabelBar } from "./LabelBar";
 import { resolveStyles, type Style } from "./styles";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
@@ -306,6 +307,28 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     finally { setGistBusy(false); }
   };
 
+  const onToggleLabel = (label: string) =>
+    setLabelFilter((prev) => {
+      const next = new Set(prev);
+      next.has(label) ? next.delete(label) : next.add(label);
+      return next;
+    });
+
+  const onLabelColor = async (label: string, color: string) => {
+    // Optimistic: update in-memory styles immediately, then persist the sidecar.
+    setAnnotations((a) => ({
+      ...a,
+      labels: { ...a.labels, [label]: { name: a.labels[label]?.name ?? label, color } },
+    }));
+    try {
+      const existing = await invoke<string | null>("fs.readText", { path: SIDECAR_PATH });
+      const text = setSidecarColor(existing, "labels", label, color);
+      await invoke<boolean>("fs.writeText", { path: SIDECAR_PATH, text });
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
+
   // The graph id of the OPEN model (focal name → node). null when the name
   // matches no node (a source, a method selector, or the standalone window).
   const activeId = useMemo(
@@ -471,6 +494,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             onSpot={setSpotArea}
             shape={zoneShape}
             onShape={setZoneShape}
+          />
+          <LabelBar
+            labels={allLabels}
+            styles={labelStyles}
+            filter={labelFilter}
+            onToggle={onToggleLabel}
+            onColor={(l, c) => void onLabelColor(l, c)}
           />
           <input
             aria-label="Search nodes"

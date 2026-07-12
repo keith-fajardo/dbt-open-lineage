@@ -1,4 +1,4 @@
-import { parse } from "yaml";
+import { parse, parseDocument } from "yaml";
 
 export interface AreaStyle { name: string; color: string }
 export interface LabelStyle { name: string; color: string }
@@ -46,4 +46,16 @@ export function parseAnnotations(text: string | null): Annotations {
   if (!doc || typeof doc !== "object") return EMPTY_ANNOTATIONS;
   const d = doc as { areas?: unknown; labels?: unknown };
   return { areas: toStyleMap(d.areas), labels: toStyleMap(d.labels) };
+}
+
+/** Set `<kind>.<key>.color` in the style sidecar, preserving comments and
+ * formatting of everything else (live-document edit, like yamlEdit). Seeds an
+ * empty `areas: {}\nlabels: {}` doc when the file does not exist yet. */
+export function setSidecarColor(
+  existingText: string | null, kind: "areas" | "labels", key: string, color: string,
+): string {
+  const base = existingText && existingText.trim() ? existingText : "areas: {}\nlabels: {}\n";
+  const doc = parseDocument(base);
+  doc.setIn([kind, key, "color"], color);
+  return doc.toString({ lineWidth: 0 });
 }
