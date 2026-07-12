@@ -13,10 +13,13 @@ import { nodeTypes, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
-import { parseAnnotations, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
-import { nodeAreas, areaMembers } from "./zones";
+import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
+import { nodeAreas, nodeLabels, areaMembers } from "./zones";
 import { ZonesOverlay } from "./ZonesOverlay";
+import { CalloutOverlay } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
+import { LabelBar } from "./LabelBar";
+import { resolveStyles } from "./styles";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -138,9 +141,20 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     return [...set].sort();
   }, [graph, annotations]);
 
+  const allLabels = useMemo(() => {
+    const set = new Set<string>(Object.keys(annotations.labels));
+    if (graph) for (const n of graph.nodes) for (const l of nodeLabels(n)) set.add(l);
+    return [...set].sort();
+  }, [graph, annotations]);
+
+  const areaStyles = useMemo(() => resolveStyles(annotations.areas, allAreas), [annotations, allAreas]);
+  const labelStyles = useMemo(() => resolveStyles(annotations.labels, allLabels), [annotations, allLabels]);
+
   const [areasVisible, setAreasVisible] = useState<Set<string>>(new Set());
   const [zoneShape, setZoneShape] = useState<"box" | "hull">("box");
   const [spotArea, setSpotArea] = useState<string | null>(null);
+  const [showCallouts, setShowCallouts] = useState(true);
+  const [labelFilter, setLabelFilter] = useState<Set<string>>(new Set());
 
   // Default: show every zone once the area list is known (and whenever it grows).
   useEffect(() => { setAreasVisible(new Set(allAreas)); }, [allAreas]);
@@ -206,15 +220,22 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           layer: n.layer,
           materialized: n.materialized ?? "",
           testCount: n.tests?.length ?? 0,
+          labelColors: nodeLabels(n)
+            .map((l) => labelStyles.get(l)?.color)
+            .filter((c): c is string => !!c),
         },
       }));
+  // Rebuild the node array when the layout OR the resolved label styles change
+  // (label colors live in node data). A drag never changes either, so this
+  // never rebuilds mid-drag — preserving node identity for React Flow.
+  const nodeBuildKey = useMemo(() => ({ positioned, labelStyles }), [positioned, labelStyles]);
   const [nodeState, setNodeState] = useState<{ base: unknown; nodes: Node<DagNodeData>[] }>(
     { base: null, nodes: [] },
   );
-  if (nodeState.base !== positioned) {
-    setNodeState({ base: positioned, nodes: buildNodes() }); // derived-state reset during render
+  if (nodeState.base !== nodeBuildKey) {
+    setNodeState({ base: nodeBuildKey, nodes: buildNodes() }); // derived-state reset during render
   }
-  const rfNodes = nodeState.base === positioned ? nodeState.nodes : buildNodes();
+  const rfNodes = nodeState.base === nodeBuildKey ? nodeState.nodes : buildNodes();
   const onNodesChange = useCallback((changes: NodeChange[]) =>
     setNodeState((prev) => ({ base: prev.base, nodes: applyNodeChanges(changes, prev.nodes) as Node<DagNodeData>[] })),
   []);
@@ -286,6 +307,60 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     finally { setGistBusy(false); }
   };
 
+  const onToggleLabel = (label: string) =>
+    setLabelFilter((prev) => {
+      const next = new Set(prev);
+      next.has(label) ? next.delete(label) : next.add(label);
+      return next;
+    });
+
+  // A native <input type="color"> fires onChange continuously while the user
+  // drags in the picker. Applying every value would (a) rebuild the whole
+  // node array on every frame (label colors live in node data, keyed off
+  // nodeBuildKey — see Invariant 1) and (b) launch an unserialized
+  // read-modify-write per frame that can clobber an in-flight sidecar write.
+  // So: debounce to the LATEST {label,color} and serialize the persist —
+  // only one read→modify→write in flight at a time, with a newer value that
+  // arrives mid-write flushed right after (never lost, never interleaved).
+  const labelColorRef = useRef<{ label: string; color: string } | null>(null);
+  const labelColorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const labelColorWriting = useRef(false);
+  const labelColorPending = useRef(false);
+
+  const persistLabelColor = async () => {
+    if (labelColorWriting.current) { labelColorPending.current = true; return; }
+    const next = labelColorRef.current;
+    if (!next) return;
+    labelColorWriting.current = true;
+    labelColorPending.current = false;
+    try {
+      const existing = await invoke<string | null>("fs.readText", { path: SIDECAR_PATH });
+      const text = setSidecarColor(existing, "labels", next.label, next.color);
+      await invoke<boolean>("fs.writeText", { path: SIDECAR_PATH, text });
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      labelColorWriting.current = false;
+      if (labelColorPending.current) void persistLabelColor();
+    }
+  };
+
+  const onLabelColor = (label: string, color: string) => {
+    labelColorRef.current = { label, color };
+    clearTimeout(labelColorTimer.current);
+    labelColorTimer.current = setTimeout(() => {
+      const next = labelColorRef.current;
+      if (!next) return;
+      // Optimistic: update in-memory styles once the drag settles, then
+      // persist the sidecar (same shape as before, just coalesced).
+      setAnnotations((a) => ({
+        ...a,
+        labels: { ...a.labels, [next.label]: { name: a.labels[next.label]?.name ?? next.label, color: next.color } },
+      }));
+      void persistLabelColor();
+    }, 150);
+  };
+
   // The graph id of the OPEN model (focal name → node). null when the name
   // matches no node (a source, a method selector, or the standalone window).
   const activeId = useMemo(
@@ -304,6 +379,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     [graph, spotArea],
   );
 
+  const filtered = useMemo(() => {
+    if (!graph || labelFilter.size === 0) return null;
+    return new Set(
+      graph.nodes.filter((n) => nodeLabels(n).some((l) => labelFilter.has(l))).map((n) => n.id),
+    );
+  }, [graph, labelFilter]);
+
   const view: ViewState = useMemo(() => ({
     selected,
     active: activeId,
@@ -312,8 +394,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     // With focus OFF, un-matched nodes dim; with focus ON they're filtered out.
     matched: focus ? null : matched,
     spotlight,
+    filtered,
     search: searchQ,
-  }), [selected, activeId, lineage, focus, matched, spotlight, searchQ]);
+  }), [selected, activeId, lineage, focus, matched, spotlight, filtered, searchQ]);
 
   // Live match count over the nodes actually shown in the DAG.
   const searchHits = useMemo(() => {
@@ -431,15 +514,25 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           <label style={{ color: "#94a3b8", fontSize: 13 }}>
             <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
           </label>
+          <label style={{ color: "#94a3b8", fontSize: 13 }}>
+            <input type="checkbox" checked={showCallouts} onChange={(e) => setShowCallouts(e.target.checked)} /> Callouts
+          </label>
           <AreaControl
             areas={allAreas}
-            annotations={annotations}
+            styles={areaStyles}
             visible={areasVisible}
             onVisibleChange={setAreasVisible}
             spot={spotArea}
             onSpot={setSpotArea}
             shape={zoneShape}
             onShape={setZoneShape}
+          />
+          <LabelBar
+            labels={allLabels}
+            styles={labelStyles}
+            filter={labelFilter}
+            onToggle={onToggleLabel}
+            onColor={(l, c) => void onLabelColor(l, c)}
           />
           <input
             aria-label="Search nodes"
@@ -529,10 +622,17 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             <ZonesOverlay
               nodes={graph?.nodes ?? []}
               positions={positioned}
-              annotations={annotations}
+              styles={areaStyles}
               areasVisible={areasVisible}
               shape={zoneShape}
             />
+            {showCallouts && (
+              <CalloutOverlay
+                nodes={graph?.nodes ?? []}
+                positions={positioned}
+                dimmed={selected != null || spotArea != null}
+              />
+            )}
           </ReactFlow>
           </ViewContext.Provider>
         </div>

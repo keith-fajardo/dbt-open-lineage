@@ -4,7 +4,7 @@
 
 **Goal:** Draw named subject-area zones (box or convex-hull) around the models that belong to them, and let the user spotlight one area so its members stay lit while the rest of the graph dims — all as a flow-space overlay that pans and zooms with the DAG.
 
-**Architecture:** A new SVG/div overlay is rendered inside React Flow's `ViewportPortal`, so it shares the viewport transform and stays glued to node positions through pan/zoom. Zone geometry is computed from the same `layoutGraph` position map the nodes use. Membership comes from each model's `meta.subject_areas` (a list, surfaced from `config.meta`); zone label + color come from a committed sidecar `lineage.annotations.yml`, read through the existing host `Bridge`. Spotlight dimming reuses the established pattern of pushing style state through `ViewContext` (never node data).
+**Architecture:** A new SVG/div overlay is rendered inside React Flow's `ViewportPortal`, so it shares the viewport transform and stays glued to node positions through pan/zoom. Zone geometry is computed from the same `layoutGraph` position map the nodes use. Membership comes from each model's `meta.subject_areas` (a list, surfaced from `config.meta`); zone label + color come from a committed sidecar `lineage.yml`, read through the existing host `Bridge`. Spotlight dimming reuses the established pattern of pushing style state through `ViewContext` (never node data).
 
 **Tech Stack:** React 19, `@xyflow/react` v12 (`ViewportPortal`), `yaml`, vitest. Package: `@dbt-open-lineage/core`.
 
@@ -226,7 +226,7 @@ git commit -m "feat(core): subject-area zone geometry (members, bbox, convex hul
   - `interface LabelStyle { label: string; color: string }`
   - `interface Annotations { areas: Record<string, AreaStyle>; labels: Record<string, LabelStyle> }`
   - `const EMPTY_ANNOTATIONS: Annotations`
-  - `const SIDECAR_PATH = "lineage.annotations.yml"`
+  - `const SIDECAR_PATH = "lineage.yml"`
   - `parseAnnotations(text: string | null): Annotations`
   - `fallbackColor(index: number): string`
 
@@ -289,7 +289,7 @@ export interface Annotations {
 export const EMPTY_ANNOTATIONS: Annotations = { areas: {}, labels: {} };
 
 /** Project-relative path of the committed style sidecar. */
-export const SIDECAR_PATH = "lineage.annotations.yml";
+export const SIDECAR_PATH = "lineage.yml";
 
 const PALETTE = [
   "#8b5cf6", "#14b8a6", "#6366f1", "#ef4444", "#22c55e",
@@ -337,7 +337,7 @@ Expected: PASS.
 
 ```bash
 git add packages/core/src/annotations.ts packages/core/src/annotations.test.ts
-git commit -m "feat(core): parse lineage.annotations.yml style sidecar"
+git commit -m "feat(core): parse lineage.yml style sidecar"
 ```
 
 ---
@@ -523,7 +523,7 @@ models:
         subject_areas: [order_ledger]
 ```
 
-with a `lineage.annotations.yml` at project root:
+with a `lineage.yml` at project root:
 
 ```yaml
 areas:
@@ -866,7 +866,7 @@ git commit -m "feat(core): area control — zone shape, visibility, and spotligh
 - Subject-area zones drawn from `meta.subject_areas` — Tasks 1, 4. ✓
 - Multi-area membership (a model in several zones) — `areaMembers` selects by `includes`; a node appears in every matching zone — Tasks 1, 4. ✓
 - Box **and** convex-hull shapes — Tasks 4, 5. ✓
-- Sidecar `lineage.annotations.yml` for area label/color, read via Bridge — Tasks 2, 3. ✓
+- Sidecar `lineage.yml` for area label/color, read via Bridge — Tasks 2, 3. ✓
 - Spotlight = dim non-members, no relayout (reuses the ViewContext style channel, never touches `layoutGraph`) — Task 6. ✓
 - Flow-space overlay that pans/zooms with the graph (`ViewportPortal`) — Task 4. ✓
 - Area visibility filter + shape toggle + spotlight UI — Task 7. ✓

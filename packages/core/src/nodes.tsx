@@ -18,6 +18,8 @@ export interface DagNodeData {
   materialized: string;
   /** Number of dbt tests attached — bottom-right corner badge (0 hides it). */
   testCount: number;
+  /** Resolved colors of this node's labels (meta.labels), left-edge stripes. */
+  labelColors?: string[];
   [key: string]: unknown;
 }
 
@@ -54,9 +56,10 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   // always obvious which node in the cone you're actually looking at.
   const active = id === view.active;
   const spotlit = view.spotlight == null || view.spotlight.has(id);
+  const inFilter = view.filtered == null || view.filtered.has(id);
   const dim = active ? false
     : hasSel ? !inLineage
-    : (view.matched != null && !view.matched.has(id)) || !spotlit;
+    : (view.matched != null && !view.matched.has(id)) || !spotlit || !inFilter;
   const emphasize = hasSel && !selected && inLineage;
   const searchHit = view.search !== "" && data.label.toLowerCase().includes(view.search);
   return (
@@ -84,6 +87,13 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
       }}
     >
       <Handle type="target" position={Position.Left} />
+      {data.labelColors && data.labelColors.length > 0 && (
+        <div aria-hidden style={{ position: "absolute", left: 3, top: 6, bottom: 6, display: "flex", gap: 2 }}>
+          {data.labelColors.map((c, i) => (
+            <span key={i} data-label-stripe style={{ width: 3, borderRadius: 3, background: c, display: "block" }} />
+          ))}
+        </div>
+      )}
       {/* Corner tag marking THE open model, so it reads even at low zoom. */}
       {active && (
         <span
