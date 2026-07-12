@@ -9,7 +9,7 @@ import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, saveExport, openInIde } from "./bridge";
 import { layoutGraph } from "./layout";
 import { resolveSelector, focalName } from "./selector";
-import { nodeTypes, type DagNodeData } from "./nodes";
+import { nodeTypes, isDimmed, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
@@ -20,6 +20,9 @@ import { CalloutOverlay } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
 import { LabelBar } from "./LabelBar";
 import { resolveStyles } from "./styles";
+import { loadFavorites, saveFavorites } from "./favorites";
+import { computeFiltered } from "./filters";
+import { TagChips } from "./TagChips";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -155,6 +158,31 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [spotArea, setSpotArea] = useState<string | null>(null);
   const [showCallouts, setShowCallouts] = useState(true);
   const [labelFilter, setLabelFilter] = useState<Set<string>>(new Set());
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  useEffect(() => { setFavorites(loadFavorites(projectPath)); }, [projectPath]);
+  const onToggleFavorite = useCallback((id: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      saveFavorites(projectPath, next);
+      return next;
+    });
+  }, [projectPath]);
+
+  const [favActive, setFavActive] = useState(false);
+  const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
+  const onToggleTag = (tag: string) =>
+    setTagFilter((prev) => {
+      const next = new Set(prev);
+      next.has(tag) ? next.delete(tag) : next.add(tag);
+      return next;
+    });
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    if (graph) for (const n of graph.nodes) for (const t of n.tags ?? []) set.add(t);
+    return [...set].sort();
+  }, [graph]);
 
   // Default: show every zone once the area list is known (and whenever it grows).
   useEffect(() => { setAreasVisible(new Set(allAreas)); }, [allAreas]);
@@ -379,12 +407,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     [graph, spotArea],
   );
 
-  const filtered = useMemo(() => {
-    if (!graph || labelFilter.size === 0) return null;
-    return new Set(
-      graph.nodes.filter((n) => nodeLabels(n).some((l) => labelFilter.has(l))).map((n) => n.id),
-    );
-  }, [graph, labelFilter]);
+  const filtered = useMemo(
+    () => (graph ? computeFiltered(graph.nodes, { favActive, favorites, labels: labelFilter, tags: tagFilter }) : null),
+    [graph, favActive, favorites, labelFilter, tagFilter],
+  );
 
   const view: ViewState = useMemo(() => ({
     selected,
@@ -396,7 +422,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     spotlight,
     filtered,
     search: searchQ,
-  }), [selected, activeId, lineage, focus, matched, spotlight, filtered, searchQ]);
+    favorites,
+    onToggleFavorite,
+  }), [selected, activeId, lineage, focus, matched, spotlight, filtered, searchQ, favorites, onToggleFavorite]);
+
+  const dimmedIds = useMemo(
+    () => (graph ? new Set(graph.nodes.filter((n) => isDimmed(n.id, view)).map((n) => n.id)) : new Set<string>()),
+    [graph, view],
+  );
 
   // Live match count over the nodes actually shown in the DAG.
   const searchHits = useMemo(() => {
@@ -418,14 +451,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           style: {
             opacity: hasSel
               ? (onLineage ? 0.95 : 0.06)
-              : !focus && !(matched.has(e.from) && matched.has(e.to)) ? 0.1 : 0.9,
+              : (isDimmed(e.from, view) || isDimmed(e.to, view)) ? 0.1 : 0.9,
             stroke: onLineage ? "#e5e7eb" : undefined,
             strokeWidth: onLineage ? 2 : undefined,
           },
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, matched, focus, selected, lineage]);
+  }, [graph, matched, focus, selected, lineage, view]);
 
   const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
   // Double-click a node → open its model/source file in the IDE editor
@@ -534,6 +567,20 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             onToggle={onToggleLabel}
             onColor={(l, c) => void onLabelColor(l, c)}
           />
+          <button
+            onClick={() => setFavActive((v) => !v)}
+            aria-pressed={favActive}
+            title="Show only favorites"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+              borderRadius: 20, border: `1px solid ${favActive ? "#3b82f6" : "#334155"}`,
+              background: favActive ? "#16233d" : "#111827",
+              color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+            }}
+          >
+            <span style={{ color: favActive ? "#fbbf24" : "#64748b" }}>★</span> Favorites
+          </button>
+          <TagChips tags={allTags} filter={tagFilter} onToggle={onToggleTag} />
           <input
             aria-label="Search nodes"
             placeholder="search…"
@@ -630,7 +677,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               <CalloutOverlay
                 nodes={graph?.nodes ?? []}
                 positions={positioned}
-                dimmed={selected != null || spotArea != null}
+                dimmedIds={dimmedIds}
               />
             )}
           </ReactFlow>
