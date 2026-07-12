@@ -115,4 +115,61 @@ describe("upsertModelDoc", () => {
     expect(doc.models[0].description).toBe("d");
     expect(doc.models[0].config.meta.gist).toBe("g");
   });
+
+  it("sets config.meta.callout when a placement string is passed", () => {
+    const doc = parse(upsertModelDoc(null, "stg_orders", "d", "g", "top"));
+    expect(doc.models[0].config.meta.callout).toBe("top");
+    expect(doc.models[0].config.meta.gist).toBe("g"); // gist still written
+  });
+
+  it("removes config.meta.callout when null is passed", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    description: old",
+      "    config:",
+      "      meta:",
+      "        gist: g",
+      "        callout: top",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", null));
+    expect(doc.models[0].config.meta.callout).toBeUndefined();
+    expect(doc.models[0].config.meta.gist).toBe("g"); // sibling meta kept
+  });
+
+  it("removes config.meta.callout when an empty string is passed", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    config:",
+      "      meta:",
+      "        callout: top",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", ""));
+    expect(doc.models[0].config.meta.callout).toBeUndefined();
+  });
+
+  it("tolerates removing callout when none exists", () => {
+    const doc = parse(upsertModelDoc(null, "stg_orders", "d", "g", null));
+    expect(doc.models[0].config.meta.callout).toBeUndefined();
+    expect(doc.models[0].config.meta.gist).toBe("g");
+  });
+
+  it("leaves an existing callout intact when the arg is omitted (undefined)", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    description: old",
+      "    config:",
+      "      meta:",
+      "        gist: g",
+      "        callout: top",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "new gist"));
+    expect(doc.models[0].config.meta.callout).toBe("top"); // untouched
+    expect(doc.models[0].config.meta.gist).toBe("new gist");
+  });
 });

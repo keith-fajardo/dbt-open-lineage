@@ -105,7 +105,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
             title={fav ? "Unfavorite" : "Favorite"}
             onClick={(e) => { e.stopPropagation(); view.onToggleFavorite(id); }}
             style={{
-              position: "absolute", right: 1, top: -9, padding: 2, lineHeight: 1,
+              position: "absolute", right: 5, top: 3, padding: 0, lineHeight: 1,
               background: "none", border: "none", cursor: "pointer",
               color: fav ? "#fbbf24" : "#475569", fontSize: 12,
             }}

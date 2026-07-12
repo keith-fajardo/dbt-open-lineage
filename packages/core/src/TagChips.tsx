@@ -13,14 +13,17 @@ interface TagChipsProps {
  * does not. Renders nothing when the project has no tags. */
 export function TagChips(p: TagChipsProps) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   if (!p.tags.length) return null;
   const active = p.filter.size > 0;
+  const q = query.trim().toLowerCase();
+  const shown = q ? p.tags.filter((t) => t.toLowerCase().includes(q)) : p.tags;
   return (
     <div style={{ position: "relative" }}>
       <button
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((v) => { if (v) setQuery(""); return !v; })}
         style={{
           padding: "6px 10px", borderRadius: 7,
           border: `1px solid ${active ? "#3b82f6" : "#334155"}`,
@@ -36,7 +39,22 @@ export function TagChips(p: TagChipsProps) {
           background: "#111827", border: "1px solid #334155", borderRadius: 8, padding: 4,
           boxShadow: "0 16px 34px rgba(0,0,0,0.5)",
         }}>
-          {p.tags.map((tag) => {
+          <input
+            aria-label="Filter tags"
+            placeholder="Filter tags…"
+            value={query}
+            autoFocus
+            onChange={(e) => setQuery(e.target.value)}
+            style={{
+              display: "block", width: "100%", boxSizing: "border-box", margin: "2px 0 4px",
+              padding: "5px 8px", borderRadius: 6, border: "1px solid #334155",
+              background: "#0b1220", color: "#e5e7eb", fontFamily: "inherit", fontSize: 12,
+            }}
+          />
+          {shown.length === 0 && (
+            <div style={{ padding: "6px 8px", color: "#64748b", fontSize: 12 }}>No tags match</div>
+          )}
+          {shown.map((tag) => {
             const on = p.filter.has(tag);
             return (
               <label key={tag} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",

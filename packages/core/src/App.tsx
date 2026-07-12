@@ -308,6 +308,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // selected node changes; nothing hits disk until Save.
   const [descDraft, setDescDraft] = useState("");
   const [gistDraft, setGistDraft] = useState("");
+  const [calloutDraft, setCalloutDraft] = useState(false); // show gist as a DAG callout
   const [gistBusy, setGistBusy] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null); // transient success pill
@@ -320,6 +321,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   useEffect(() => {
     setDescDraft(selectedNode?.description ?? "");
     setGistDraft(typeof selectedNode?.meta?.gist === "string" ? (selectedNode.meta.gist as string) : "");
+    setCalloutDraft(!!selectedNode?.meta?.callout);
     setGistBusy(false);
     setSaveErr(null);
     setToast(null);
@@ -328,7 +330,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const editable = !!selectedNode && selectedNode.resource_type !== "source";
   const dirty = editable &&
     (descDraft !== (selectedNode!.description ?? "") ||
-     gistDraft !== (typeof selectedNode!.meta?.gist === "string" ? selectedNode!.meta!.gist : ""));
+     gistDraft !== (typeof selectedNode!.meta?.gist === "string" ? selectedNode!.meta!.gist : "") ||
+     calloutDraft !== !!selectedNode!.meta?.callout);
 
   const onSave = async () => {
     if (!selectedNode) return;
@@ -336,14 +339,17 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     try {
       const path = targetYamlPath(selectedNode);
       const existing = await invoke<string | null>("fs.readText", { path });
-      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft);
+      const nextCallout = calloutDraft ? "top" : null;
+      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, nextCallout);
       await invoke<boolean>("fs.writeText", { path, text });
       // Optimistic in-memory update: the manifest on disk is stale until the
       // next `dbt compile`, but the panel should reflect the save immediately.
+      // meta.callout drives the CalloutOverlay bubble, so set it here too and
+      // the bubble appears/disappears without waiting for a recompile.
       setGraph((g) => g && {
         ...g,
         nodes: g.nodes.map((n) => n.id === selectedNode.id
-          ? { ...n, description: descDraft, meta: { ...(n.meta ?? {}), gist: gistDraft } } : n),
+          ? { ...n, description: descDraft, meta: { ...(n.meta ?? {}), gist: gistDraft, callout: nextCallout ?? undefined } } : n),
       });
       flashToast("✓ Saved to YAML");
     } catch (e) { setSaveErr(String((e as Error).message ?? e)); }
@@ -882,6 +888,32 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   >
                     <div style={{ width: 28, height: 3, borderRadius: 2, background: "#334155" }} />
                   </div>
+                  {/* A callout bubble only renders when the model has BOTH a gist
+                      and meta.callout; a callout with no gist shows nothing, so
+                      the toggle is disabled until a gist exists. */}
+                  {(() => {
+                    const hasGist = gistDraft.trim() !== "";
+                    return (
+                      <label
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8, marginTop: 8,
+                          fontSize: 12, color: hasGist ? "#e5e7eb" : "#64748b",
+                          cursor: hasGist ? "pointer" : "default",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={calloutDraft && hasGist}
+                          disabled={!hasGist}
+                          onChange={(e) => setCalloutDraft(e.target.checked)}
+                        />
+                        Show as callout on the DAG
+                        {!hasGist && (
+                          <span style={{ color: "#64748b", fontSize: 11 }}>· add a gist first</span>
+                        )}
+                      </label>
+                    );
+                  })()}
                 </dd>
                 <dd style={{ margin: "10px 0 0", display: "flex", gap: 8 }}>
                   <button
@@ -892,7 +924,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   >Save</button>
                   <button
                     onClick={() => { setDescDraft(selectedNode.description ?? "");
-                      setGistDraft(typeof selectedNode.meta?.gist === "string" ? selectedNode.meta.gist : ""); }}
+                      setGistDraft(typeof selectedNode.meta?.gist === "string" ? selectedNode.meta.gist : "");
+                      setCalloutDraft(!!selectedNode.meta?.callout); }}
                     disabled={!dirty}
                     style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #334155",
                       background: "#111827", color: "#94a3b8",

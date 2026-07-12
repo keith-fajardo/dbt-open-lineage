@@ -20,9 +20,16 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
  * and formatting of `existingText`. An existing `config:` block is kept intact
  * (only `meta.gist` is set inside it); a newly-created `config:` is positioned
  * right under `description`. Seeds a fresh `version: 2` doc when the file does
- * not exist yet. Returns serialized YAML. */
+ * not exist yet. Returns serialized YAML.
+ *
+ * `callout` controls `config.meta.callout` (the placement that makes a gist
+ * render as a bubble on the DAG):
+ *   - `undefined` → leave any existing callout untouched (default).
+ *   - a non-empty string → set it (e.g. "top").
+ *   - `null` or `""` → remove it. */
 export function upsertModelDoc(
   existingText: string | null, name: string, description: string, gist: string,
+  callout?: string | null,
 ): string {
   const base = existingText && existingText.trim() ? existingText : "version: 2\nmodels: []\n";
   const doc: Document.Parsed = parseDocument(base);
@@ -49,6 +56,15 @@ export function upsertModelDoc(
   // Existing config is preserved in place — setIn only writes the meta.gist
   // leaf, keeping materialized/tags/other meta keys.
   doc.setIn(["models", idx, "config", "meta", "gist"], gist);
+  // callout placement: set when a non-empty string, delete on null/"", and
+  // leave untouched when omitted (undefined) so 4-arg callers don't disturb it.
+  if (typeof callout === "string" && callout) {
+    doc.setIn(["models", idx, "config", "meta", "callout"], callout);
+  } else if (callout === null || callout === "") {
+    if (doc.hasIn(["models", idx, "config", "meta", "callout"])) {
+      doc.deleteIn(["models", idx, "config", "meta", "callout"]);
+    }
+  }
 
   // A config block we just created lands at the end of the map; move it right
   // under `description` (or `name`) so it reads where dbt authors expect it.
