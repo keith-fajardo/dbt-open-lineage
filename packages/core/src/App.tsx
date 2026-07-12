@@ -14,7 +14,7 @@ import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
-import { nodeAreas, nodeLabels, areaMembers } from "./zones";
+import { nodeAreas, nodeLabels } from "./zones";
 import { ZonesOverlay } from "./ZonesOverlay";
 import { CalloutOverlay, estimateCalloutHeight } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
@@ -54,6 +54,10 @@ const TOGGLE_PILL: React.CSSProperties = {
 const sameList = (a: string[], b: string[]) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
+/** Stable empty style map — tags carry no custom name/colour, so their
+ * ChipEditor renders keys verbatim with the fallback grey dot. */
+const EMPTY_STYLES: Map<string, { name: string; color: string }> = new Map();
+
 /** A quiet ⓘ affordance next to an editor header. Focusable and labelled;
  * reveals a short explanation on hover, focus, or click (and the native
  * title tooltip as a keyboard/hover fallback). */
@@ -75,10 +79,12 @@ function InfoIcon({ label, text }: { label: string; text: string }) {
       >i</button>
       {open && (
         <span role="tooltip" style={{
-          position: "absolute", top: "135%", left: 0, zIndex: 30, width: 218,
+          position: "absolute", top: "135%", left: 0, zIndex: 30, width: 250, maxWidth: "80vw",
           background: "#0b1220", border: "1px solid #334155", borderRadius: 6,
           padding: "7px 9px", fontSize: 11, lineHeight: 1.45, color: "#cbd5e1",
           fontWeight: 400, textTransform: "none", letterSpacing: 0,
+          // Preserve the YAML example's newlines + indentation.
+          whiteSpace: "pre-wrap",
           boxShadow: "0 10px 24px rgba(0,0,0,0.5)",
         }}>{text}</span>
       )}
@@ -316,7 +322,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const areaStyles = useMemo(() => resolveStyles(annotations.areas, allAreas), [annotations, allAreas]);
   const labelStyles = useMemo(() => resolveStyles(annotations.labels, allLabels), [annotations, allLabels]);
 
-  const [spotArea, setSpotArea] = useState<string | null>(null);
+  const [areaFilter, setAreaFilter] = useState<Set<string>>(new Set());
+  const onToggleArea = (area: string) =>
+    setAreaFilter((prev) => {
+      const next = new Set(prev);
+      next.has(area) ? next.delete(area) : next.add(area);
+      return next;
+    });
   const [showCallouts, setShowCallouts] = useState(true);
   const [labelFilter, setLabelFilter] = useState<Set<string>>(new Set());
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
@@ -345,12 +357,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     return [...set].sort();
   }, [graph]);
 
-  // Default: show every zone once the area list is known (and whenever it grows).
-  // Which zones are drawn follows the spotlight: spotlight one area → only its
-  // zone shows (others dim); none → show every area's zone.
+  // Which zones are drawn follows the subject-area filter: filter on some areas
+  // → only their zones show (and the DAG narrows to their members); none → show
+  // every area's zone.
   const areasVisible = useMemo(
-    () => (spotArea ? new Set([spotArea]) : new Set(allAreas)),
-    [spotArea, allAreas],
+    () => (areaFilter.size ? new Set(areaFilter) : new Set(allAreas)),
+    [areaFilter, allAreas],
   );
 
   // The host pushes a new context whenever the active model changes in the
@@ -506,9 +518,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [descDraft, setDescDraft] = useState("");
   const [gistDraft, setGistDraft] = useState("");
   const [calloutDraft, setCalloutDraft] = useState(false); // show gist as a DAG callout
-  // Membership drafts: which subject areas / labels this model belongs to.
+  // Membership drafts: which subject areas / labels / tags this model belongs to.
   const [areasDraft, setAreasDraft] = useState<string[]>([]);
   const [labelsDraft, setLabelsDraft] = useState<string[]>([]);
+  const [tagsDraft, setTagsDraft] = useState<string[]>([]);
   const [editingCallout, setEditingCallout] = useState(false); // inline-editing a callout bubble
   const [gistBusy, setGistBusy] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
@@ -525,6 +538,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setCalloutDraft(!!selectedNode?.meta?.callout);
     setAreasDraft(selectedNode ? nodeAreas(selectedNode) : []);
     setLabelsDraft(selectedNode ? nodeLabels(selectedNode) : []);
+    setTagsDraft(selectedNode?.tags ?? []);
     setEditingCallout(false);
     setGistBusy(false);
     setSaveErr(null);
@@ -537,7 +551,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
      gistDraft !== (typeof selectedNode!.meta?.gist === "string" ? selectedNode!.meta!.gist : "") ||
      calloutDraft !== !!selectedNode!.meta?.callout ||
      !sameList(areasDraft, nodeAreas(selectedNode!)) ||
-     !sameList(labelsDraft, nodeLabels(selectedNode!)));
+     !sameList(labelsDraft, nodeLabels(selectedNode!)) ||
+     !sameList(tagsDraft, selectedNode!.tags ?? []));
 
   const onSave = async () => {
     if (!selectedNode) return;
@@ -546,7 +561,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       const path = targetYamlPath(selectedNode);
       const existing = await invoke<string | null>("fs.readText", { path });
       const nextCallout = calloutDraft ? "top" : null;
-      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, nextCallout, areasDraft, labelsDraft);
+      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, nextCallout, areasDraft, labelsDraft, tagsDraft);
       await invoke<boolean>("fs.writeText", { path, text });
       // Optimistic in-memory update: the manifest on disk is stale until the
       // next `dbt compile`, but the panel should reflect the save immediately.
@@ -556,7 +571,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       setGraph((g) => g && {
         ...g,
         nodes: g.nodes.map((n) => n.id === selectedNode.id
-          ? { ...n, description: descDraft, meta: { ...(n.meta ?? {}), gist: gistDraft, callout: nextCallout ?? undefined, subject_areas: areasDraft, labels: labelsDraft } } : n),
+          ? { ...n, description: descDraft, tags: tagsDraft, meta: { ...(n.meta ?? {}), gist: gistDraft, callout: nextCallout ?? undefined, subject_areas: areasDraft, labels: labelsDraft } } : n),
       });
       flashToast("✓ Saved to YAML");
     } catch (e) { setSaveErr(String((e as Error).message ?? e)); }
@@ -640,14 +655,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const hasSel = selected != null;
   const searchQ = search.trim().toLowerCase();
 
-  const spotlight = useMemo(
-    () => (graph && spotArea ? new Set(areaMembers(graph.nodes, spotArea)) : null),
-    [graph, spotArea],
-  );
-
   const filtered = useMemo(
-    () => (graph ? computeFiltered(graph.nodes, { favActive, favorites, labels: labelFilter, tags: tagFilter }) : null),
-    [graph, favActive, favorites, labelFilter, tagFilter],
+    () => (graph ? computeFiltered(graph.nodes, { favActive, favorites, areas: areaFilter, labels: labelFilter, tags: tagFilter }) : null),
+    [graph, favActive, favorites, areaFilter, labelFilter, tagFilter],
   );
 
   const view: ViewState = useMemo(() => ({
@@ -657,12 +667,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     down: lineage.down,
     // With focus OFF, un-matched nodes dim; with focus ON they're filtered out.
     matched: focus ? null : matched,
-    spotlight,
+    // Subject areas now filter (folded into `filtered`), so nothing drives the
+    // separate spotlight channel — it stays a valid but unused dim path.
+    spotlight: null,
     filtered,
     search: searchQ,
     favorites,
     onToggleFavorite,
-  }), [selected, activeId, lineage, focus, matched, spotlight, filtered, searchQ, favorites, onToggleFavorite]);
+  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite]);
 
   const dimmedIds = useMemo(
     () => (graph ? new Set(graph.nodes.filter((n) => isDimmed(n.id, view)).map((n) => n.id)) : new Set<string>()),
@@ -847,18 +859,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             </div>
           </div>
 
-          {/* Row 1 — VIEW: what's drawn over the graph. Callouts, subject-area
-              zones (Areas ▾ + Zone shape + Spotlight, via AreaControl), Draw. */}
+          {/* Row 1 — VIEW: what's drawn over the graph. Callouts, Draw. */}
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <label style={TOGGLE_PILL}>
               <input type="checkbox" checked={showCallouts} onChange={(e) => setShowCallouts(e.target.checked)} /> Callouts
             </label>
-            <AreaControl
-              areas={allAreas}
-              styles={areaStyles}
-              spot={spotArea}
-              onSpot={setSpotArea}
-            />
             <span style={SECTION_LABEL}>Draw</span>
             <div style={{ display: "inline-flex", background: "#0b1220", border: "1px solid #334155", borderRadius: 7, overflow: "hidden" }}>
               {(["off", "pen", "erase"] as const).map((m, i) => (
@@ -916,6 +921,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             >
               <span style={{ color: favActive ? "#fbbf24" : "#64748b" }}>★</span> Favorites
             </button>
+            <AreaControl
+              areas={allAreas}
+              styles={areaStyles}
+              filter={areaFilter}
+              onToggle={onToggleArea}
+            />
             <LabelBar
               labels={allLabels}
               styles={labelStyles}
@@ -1034,16 +1045,20 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             <dt style={{ color: "#94a3b8", marginTop: 8 }}>path</dt>
             <dd style={{ margin: 0, wordBreak: "break-all" }}>{selectedNode.path}</dd>
 
-            <dt style={{ color: "#94a3b8", marginTop: 8 }}>tags</dt>
-            <dd style={{ margin: 0 }}>
-              {selectedNode.tags?.length
-                ? selectedNode.tags.map((t) => (
-                    <span key={t} style={{
-                      display: "inline-block", margin: "2px 4px 2px 0", padding: "1px 8px",
-                      borderRadius: 10, background: "#1f2937", border: "1px solid #334155", fontSize: 12,
-                    }}>{t}</span>))
-                : "—"}
-            </dd>
+            {!editable && (
+              <>
+                <dt style={{ color: "#94a3b8", marginTop: 8 }}>tags</dt>
+                <dd style={{ margin: 0 }}>
+                  {selectedNode.tags?.length
+                    ? selectedNode.tags.map((t) => (
+                        <span key={t} style={{
+                          display: "inline-block", margin: "2px 4px 2px 0", padding: "1px 8px",
+                          borderRadius: 10, background: "#1f2937", border: "1px solid #334155", fontSize: 12,
+                        }}>{t}</span>))
+                    : "—"}
+                </dd>
+              </>
+            )}
 
             <dt style={{ color: "#94a3b8", marginTop: 8 }}>description</dt>
             <dd style={{ margin: 0 }}>
@@ -1133,7 +1148,15 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
 
                 <ChipEditor
                   title="subject areas"
-                  info="Group related models into a named, bounded zone on the DAG (e.g. 'Order Ledger'). A model can belong to several. Set each zone's display name + colour in lineage.yml."
+                  info={
+                    "Group related models into a named, bounded zone on the DAG (e.g. 'Order Ledger'). A model can belong to several.\n\n" +
+                    "Customise a zone's display name + colour in lineage.yml at your dbt project root:\n\n" +
+                    "areas:\n" +
+                    "  order_ledger:\n" +
+                    "    name: 'Order Ledger'\n" +
+                    "    color: '#8b5cf6'\n\n" +
+                    "The key (order_ledger) is what you type here; without an entry the key is shown as-is in grey."
+                  }
                   values={areasDraft}
                   onChange={setAreasDraft}
                   styles={areaStyles}
@@ -1143,13 +1166,34 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 />
                 <ChipEditor
                   title="labels"
-                  info="Tag models with a coloured stripe + a filter chip (e.g. Core, PII). A model can have several. Recolour them from the Label chips in the toolbar."
+                  info={
+                    "Tag models with a coloured stripe + a filter chip (e.g. Core, PII). A model can have several.\n\n" +
+                    "Customise a label's display name + colour in lineage.yml at your dbt project root:\n\n" +
+                    "labels:\n" +
+                    "  core:\n" +
+                    "    name: 'Core'\n" +
+                    "    color: '#22d3ee'\n\n" +
+                    "The key (core) is what you type here; without an entry the key is shown as-is in grey."
+                  }
                   values={labelsDraft}
                   onChange={setLabelsDraft}
                   styles={labelStyles}
                   allKeys={allLabels}
                   addLabel="add label…"
                   listId="dol-labels-list"
+                />
+                <ChipEditor
+                  title="tags"
+                  info={
+                    "dbt's native tags (config.tags) — saved straight to your model's YAML. Use them to group or filter models (e.g. nightly, adhoc). A model can have several.\n\n" +
+                    "Tags have no custom colour; add one here and it becomes a filter chip in the toolbar."
+                  }
+                  values={tagsDraft}
+                  onChange={setTagsDraft}
+                  styles={EMPTY_STYLES}
+                  allKeys={allTags}
+                  addLabel="add tag…"
+                  listId="dol-tags-list"
                 />
 
                 <dd style={{ margin: "10px 0 0", display: "flex", gap: 8 }}>
@@ -1164,7 +1208,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                       setGistDraft(typeof selectedNode.meta?.gist === "string" ? selectedNode.meta.gist : "");
                       setCalloutDraft(!!selectedNode.meta?.callout);
                       setAreasDraft(nodeAreas(selectedNode));
-                      setLabelsDraft(nodeLabels(selectedNode)); }}
+                      setLabelsDraft(nodeLabels(selectedNode));
+                      setTagsDraft(selectedNode.tags ?? []); }}
                     disabled={!dirty}
                     style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #334155",
                       background: "#111827", color: "#94a3b8",

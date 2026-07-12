@@ -248,4 +248,28 @@ describe("upsertModelDoc", () => {
     expect(doc.models[0].config.meta.subject_areas).toEqual(["billing"]);
     expect(doc.models[0].config.meta.labels).toEqual(["core"]);
   });
+
+  it("writes tags to config.tags (dbt-native, not under meta)", () => {
+    const out = upsertModelDoc(null, "stg_orders", "d", "g", undefined, undefined, undefined, ["nightly", "core"]);
+    const doc = parse(out);
+    expect(doc.models[0].config.tags).toEqual(["nightly", "core"]);
+    expect(doc.models[0].config.meta?.tags).toBeUndefined(); // NOT under meta
+    expect(out).not.toContain('["nightly"'); // a real sequence, not an inline literal
+  });
+
+  it("removes config.tags when an empty array is passed, and leaves it untouched when omitted", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    config:",
+      "      tags: [nightly]",
+    ].join("\n");
+    // omitted → untouched
+    expect(parse(upsertModelDoc(src, "stg_orders", "d", "g")).models[0].config.tags).toEqual(["nightly"]);
+    // [] → key removed
+    const out = upsertModelDoc(src, "stg_orders", "d", "g", undefined, undefined, undefined, []);
+    expect(parse(out).models[0].config.tags).toBeUndefined();
+    expect(out).not.toContain("tags:");
+  });
 });

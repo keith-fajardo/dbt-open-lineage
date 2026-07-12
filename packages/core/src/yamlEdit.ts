@@ -29,14 +29,15 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
  *   - `null` or `""` → remove it.
  *
  * `subjectAreas` / `labels` control `config.meta.subject_areas` /
- * `config.meta.labels` (a model's membership in named zones / label stripes).
- * Each follows the same convention as `callout`:
+ * `config.meta.labels` (a model's membership in named zones / label stripes),
+ * and `tags` controls `config.tags` (dbt's native tag list). Each follows the
+ * same convention as `callout`:
  *   - `undefined` → leave any existing list untouched (default).
  *   - a non-empty `string[]` → set it as a YAML sequence.
  *   - an empty `[]` → remove the key (never writes `subject_areas: []`). */
 export function upsertModelDoc(
   existingText: string | null, name: string, description: string, gist: string,
-  callout?: string | null, subjectAreas?: string[], labels?: string[],
+  callout?: string | null, subjectAreas?: string[], labels?: string[], tags?: string[],
 ): string {
   const base = existingText && existingText.trim() ? existingText : "version: 2\nmodels: []\n";
   const doc: Document.Parsed = parseDocument(base);
@@ -77,14 +78,17 @@ export function upsertModelDoc(
   // A non-empty array is written as a proper YAML sequence (createNode so it
   // serializes as a list, not an inline JS array); an empty array removes the
   // key so we never persist `subject_areas: []`; undefined leaves it untouched.
-  const setList = (key: string, arr: string[] | undefined) => {
+  const setListAt = (path: (string | number)[], arr: string[] | undefined) => {
     if (arr === undefined) return;
-    const path = ["models", idx, "config", "meta", key];
     if (arr.length) doc.setIn(path, doc.createNode(arr));
     else if (doc.hasIn(path)) doc.deleteIn(path);
   };
+  const setList = (key: string, arr: string[] | undefined) =>
+    setListAt(["models", idx, "config", "meta", key], arr);
   setList("subject_areas", subjectAreas);
   setList("labels", labels);
+  // Tags are dbt-native: they live at config.tags, not under meta.
+  setListAt(["models", idx, "config", "tags"], tags);
 
   // A config block we just created lands at the end of the map; move it right
   // under `description` (or `name`) so it reads where dbt authors expect it.
