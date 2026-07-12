@@ -1,0 +1,15 @@
+{
+  "nodes": {
+    "model.proj.stg_orders": { "name": "stg_orders", "resource_type": "model", "original_file_path": "models/staging/stg_orders.sql", "description": "raw orders", "tags": ["staging"], "config": { "materialized": "view", "meta": { "owner": "data" } } },
+    "model.proj.mrt_orders": { "name": "mrt_orders", "resource_type": "model", "original_file_path": "models/marts/mrt_orders.sql", "description": "orders mart", "tags": ["mart","daily"], "config": { "materialized": "table", "meta": {} } },
+    "test.proj.not_null_stg_orders_id": { "name": "not_null_stg_orders_id", "resource_type": "test", "original_file_path": "models/staging/schema.yml", "description": "", "attached_node": "model.proj.stg_orders" }
+  },
+  "sources": {
+    "source.proj.raw.orders": { "name": "orders", "resource_type": "source", "source_name": "raw", "description": "source orders" }
+  },
+  "child_map": {
+    "source.proj.raw.orders": ["model.proj.stg_orders"],
+    "model.proj.stg_orders": ["model.proj.mrt_orders", "test.proj.not_null_stg_orders_id"],
+    "model.proj.mrt_orders": []
+  }
+}

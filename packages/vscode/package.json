@@ -1,0 +1,142 @@
+{
+  "name": "dbt-open-lineage",
+  "displayName": "dbt Open Lineage",
+  "description": "Interactive dbt model lineage graph with dbt node-selection filtering.",
+  "version": "0.3.4",
+  "publisher": "keithfajardo",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/keithfajardo/dbt-open-lineage-vscode"
+  },
+  "activationEvents": [
+    "onCommand:dbt-open-lineage.open",
+    "onView:dbtOpenLineage.graph"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dbt-open-lineage.open",
+        "title": "dbt: Open Lineage",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "dbt-open-lineage.compile",
+        "title": "dbt: Compile Model",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "dbt-open-lineage.recompile",
+        "title": "dbt: Recompile Model",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "dbt-open-lineage.open",
+          "when": "resourceExtname == .sql",
+          "group": "navigation"
+        },
+        {
+          "command": "dbt-open-lineage.compile",
+          "when": "resourceExtname == .sql && dbtOpenLineage.activeIsModel",
+          "group": "navigation"
+        },
+        {
+          "command": "dbt-open-lineage.recompile",
+          "when": "resourceScheme == dbt-compiled",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "dbt-open-lineage.open",
+          "when": "resourceExtname == .sql",
+          "group": "navigation"
+        },
+        {
+          "command": "dbt-open-lineage.compile",
+          "when": "resourceExtname == .sql && dbtOpenLineage.activeIsModel",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "dbtOpenLineage",
+          "title": "dbt Lineage",
+          "icon": "$(type-hierarchy)"
+        }
+      ]
+    },
+    "views": {
+      "dbtOpenLineage": [
+        {
+          "id": "dbtOpenLineage.graph",
+          "name": "",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "dbt Open Lineage",
+      "properties": {
+        "dbt-open-lineage.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the dbt project root (contains dbt_project.yml). Empty = auto-detect."
+        },
+        "dbt-open-lineage.ai.provider": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "custom"
+          ],
+          "default": "claude-code",
+          "description": "AI CLI used by the ✨ gist button. Presets fill ai.command; choose 'custom' to set your own."
+        },
+        "dbt-open-lineage.ai.command": {
+          "type": "string",
+          "default": "claude -p \"{prompt}\"",
+          "description": "Command template run to draft a gist. {prompt} is passed as a single argument (no shell)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:host": "node esbuild.js",
+    "build:webview": "vite build",
+    "build": "npm run build:host && npm run build:webview",
+    "watch": "node esbuild.js --watch",
+    "test": "vitest run",
+    "pretest:integration": "npm run build && tsc test/integration/runTest.ts test/integration/open.test.ts --outDir out-test --rootDir test --module commonjs --target ES2022 --skipLibCheck --esModuleInterop",
+    "test:integration": "node out-test/integration/runTest.js",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "@dbt-open-lineage/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/vscode": "^1.90.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.27.0",
+    "typescript": "^5.6.0",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.10"
+  }
+}
