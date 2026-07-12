@@ -58,7 +58,7 @@ export function DrawLayer({ mode, color, width, strokes, onStrokesChange }: Draw
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           style={{
-            position: "absolute", inset: 0, zIndex: 5,
+            position: "absolute", inset: 0, zIndex: 10,
             cursor: mode === "erase" ? "cell" : "crosshair",
             touchAction: "none",
           }}

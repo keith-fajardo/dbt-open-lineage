@@ -23,6 +23,8 @@ import { resolveStyles } from "./styles";
 import { loadFavorites, saveFavorites } from "./favorites";
 import { computeFiltered } from "./filters";
 import { TagChips } from "./TagChips";
+import { DrawLayer, type DrawMode } from "./DrawLayer";
+import { type Stroke } from "./drawing";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -227,6 +229,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     () => (visibleGraph ? layoutGraph(visibleGraph) : new Map()),
     [visibleGraph],
   );
+
+  const [drawMode, setDrawMode] = useState<DrawMode>("off");
+  const [penColor, setPenColor] = useState("#f8fafc");
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  // Ink is pinned in flow-space; when the layout changes (filter/selector/graph
+  // change → new `positioned`), the nodes move out from under it, so clear it.
+  useEffect(() => { setStrokes([]); }, [positioned]);
 
   // Nodes live in STATE, keyed to the layout they were built from. Drags are
   // applied with applyNodeChanges, which preserves the identity of every node
@@ -550,6 +559,43 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           <label style={{ color: "#94a3b8", fontSize: 13 }}>
             <input type="checkbox" checked={showCallouts} onChange={(e) => setShowCallouts(e.target.checked)} /> Callouts
           </label>
+          <div style={{ display: "inline-flex", border: "1px solid #334155", borderRadius: 6, overflow: "hidden" }}>
+            {(["off", "pen", "erase"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setDrawMode(m)}
+                style={{
+                  padding: "6px 10px", border: "none", borderRadius: 0, cursor: "pointer",
+                  fontFamily: "inherit", fontSize: 13,
+                  background: drawMode === m ? "#2563eb" : "#111827",
+                  color: drawMode === m ? "#e5e7eb" : "#94a3b8",
+                }}
+              >{m === "off" ? "Draw off" : m === "pen" ? "✎ Pen" : "⌫ Erase"}</button>
+            ))}
+          </div>
+          {drawMode !== "off" && (
+            <>
+              {["#f8fafc", "#22d3ee", "#f0abfc", "#fde047"].map((c) => (
+                <button
+                  key={c}
+                  aria-label={`pen color ${c}`}
+                  onClick={() => setPenColor(c)}
+                  style={{
+                    width: 18, height: 18, borderRadius: "50%", cursor: "pointer",
+                    background: c, border: penColor === c ? "2px solid #e5e7eb" : "1px solid #334155",
+                    padding: 0,
+                  }}
+                />
+              ))}
+              <button
+                onClick={() => setStrokes([])}
+                style={{
+                  padding: "6px 10px", borderRadius: 6, border: "1px solid #334155",
+                  background: "#111827", color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 13,
+                }}
+              >Clear</button>
+            </>
+          )}
           <AreaControl
             areas={allAreas}
             styles={areaStyles}
@@ -646,7 +692,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             /* No onlyRenderVisibleElements: viewport virtualization culls
                nodes mid-drag (the whole graph "disappears" while dragging),
                and a few hundred nodes render fine without it. */
-            nodesDraggable
+            nodesDraggable={drawMode === "off"}
+            panOnDrag={drawMode === "off"}
+            elementsSelectable={drawMode === "off"}
             /* No auto-pan while dragging nodes: in the sandboxed WKWebView
                iframe the pointerup can be lost at the frame boundary, and a
                drag near the pane edge then pans the viewport away forever —
@@ -680,6 +728,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 dimmedIds={dimmedIds}
               />
             )}
+            <DrawLayer
+              mode={drawMode}
+              color={penColor}
+              width={3}
+              strokes={strokes}
+              onStrokesChange={setStrokes}
+            />
           </ReactFlow>
           </ViewContext.Provider>
         </div>
