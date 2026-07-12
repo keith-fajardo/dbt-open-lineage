@@ -276,7 +276,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
     };
     const down = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !typing(e.target)) { e.preventDefault(); setSpaceHeld(true); }
+      if (typing(e.target)) return; // let text inputs keep Space / Cmd-Z
+      if (e.code === "Space") { e.preventDefault(); setSpaceHeld(true); }
+      // Cmd/Ctrl+Z → undo the last pen stroke.
+      else if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z") && !e.shiftKey) {
+        e.preventDefault();
+        setStrokes((prev) => prev.slice(0, -1));
+      }
     };
     const up = (e: KeyboardEvent) => { if (e.code === "Space") setSpaceHeld(false); };
     window.addEventListener("keydown", down);
@@ -715,7 +721,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             </div>
             {drawMode !== "off" && (
               <>
-                {["#f8fafc", "#22d3ee", "#f0abfc", "#fde047"].map((c) => (
+                {["#f8fafc", "#ef4444", "#22d3ee", "#f0abfc", "#fde047"].map((c) => (
                   <button
                     key={c}
                     aria-label={`pen color ${c}`}
