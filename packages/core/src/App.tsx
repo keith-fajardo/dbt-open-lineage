@@ -13,6 +13,8 @@ import { nodeTypes, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
+import { parseAnnotations, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
+import { nodeAreas } from "./zones";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -117,6 +119,29 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     catch (e) { setError(String((e as Error).message ?? e)); }
   };
   useEffect(() => { void load("dbt.manifest"); /* eslint-disable-next-line */ }, []);
+
+  const [annotations, setAnnotations] = useState<Annotations>(EMPTY_ANNOTATIONS);
+  useEffect(() => {
+    let live = true;
+    void invoke<string | null>("fs.readText", { path: SIDECAR_PATH })
+      .then((t) => { if (live) setAnnotations(parseAnnotations(t)); })
+      .catch(() => { if (live) setAnnotations(EMPTY_ANNOTATIONS); });
+    return () => { live = false; };
+  }, [projectPath]);
+
+  // Every area key referenced by a node or defined in the sidecar, sorted.
+  const allAreas = useMemo(() => {
+    const set = new Set<string>(Object.keys(annotations.areas));
+    if (graph) for (const n of graph.nodes) for (const a of nodeAreas(n)) set.add(a);
+    return [...set].sort();
+  }, [graph, annotations]);
+
+  const [areasVisible, setAreasVisible] = useState<Set<string>>(new Set());
+  const [zoneShape, setZoneShape] = useState<"box" | "hull">("box");
+  const [spotArea, setSpotArea] = useState<string | null>(null);
+
+  // Default: show every zone once the area list is known (and whenever it grows).
+  useEffect(() => { setAreasVisible(new Set(allAreas)); }, [allAreas]);
 
   // The host pushes a new context whenever the active model changes in the
   // IDE — retarget the DAG exactly as if the user typed it and hit Enter.
