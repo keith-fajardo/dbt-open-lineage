@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, useRef } from "react";
+import { type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useRef } from "react";
 import { ViewportPortal, useReactFlow } from "@xyflow/react";
 import { type Stroke, type Point, strokePath, eraseAt } from "./drawing";
 
@@ -10,6 +10,8 @@ interface DrawLayerProps {
   width: number;
   strokes: Stroke[];
   onStrokesChange: (updater: (prev: Stroke[]) => Stroke[]) => void;
+  /** Temporarily suspend capture (e.g. Space held) so the pane can pan. */
+  paused?: boolean;
 }
 
 const ERASE_TOL = 8; // flow units
@@ -18,13 +20,21 @@ const ERASE_TOL = 8; // flow units
  * pen/erase mode) turns pointer input into strokes stored in flow coordinates;
  * the strokes render in a ViewportPortal so they pan/zoom with the graph. Must
  * be rendered inside <ReactFlow> (uses useReactFlow). */
-export function DrawLayer({ mode, color, width, strokes, onStrokesChange }: DrawLayerProps) {
+export function DrawLayer({ mode, color, width, strokes, onStrokesChange, paused = false }: DrawLayerProps) {
   const rf = useReactFlow();
   const drawing = useRef(false);
 
   const toFlow = (e: ReactPointerEvent): Point => {
     const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
     return [p.x, p.y];
+  };
+
+  // The capture surface sits over the pane and would otherwise swallow scroll,
+  // so forward wheel to React Flow's zoom (keeps zoom working while drawing).
+  const onWheel = (e: ReactWheelEvent) => {
+    const z = rf.getZoom();
+    const next = z * (e.deltaY < 0 ? 1.1 : 0.9);
+    rf.zoomTo(Math.min(4, Math.max(0.05, next)), { duration: 0 });
   };
 
   const onPointerDown = (e: ReactPointerEvent) => {
@@ -52,13 +62,14 @@ export function DrawLayer({ mode, color, width, strokes, onStrokesChange }: Draw
 
   return (
     <>
-      {mode !== "off" && (
+      {mode !== "off" && !paused && (
         <div
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onLostPointerCapture={onPointerUp}
+          onWheel={onWheel}
           style={{
             position: "absolute", inset: 0, zIndex: 10,
             cursor: mode === "erase" ? "cell" : "crosshair",

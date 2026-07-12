@@ -266,6 +266,28 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // change → new `positioned`), the nodes move out from under it, so clear it.
   useEffect(() => { setStrokes([]); }, [positioned]);
 
+  // While drawing, hold Space to temporarily pan (like design tools). Only
+  // active in draw mode; ignored while typing so Space still types a space.
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  useEffect(() => {
+    if (drawMode === "off") { setSpaceHeld(false); return; }
+    const typing = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !typing(e.target)) { e.preventDefault(); setSpaceHeld(true); }
+    };
+    const up = (e: KeyboardEvent) => { if (e.code === "Space") setSpaceHeld(false); };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      setSpaceHeld(false);
+    };
+  }, [drawMode]);
+
   // Nodes live in STATE, keyed to the layout they were built from. Drags are
   // applied with applyNodeChanges, which preserves the identity of every node
   // object except the one being dragged — rebuilding the whole array per drag
@@ -758,7 +780,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                nodes mid-drag (the whole graph "disappears" while dragging),
                and a few hundred nodes render fine without it. */
             nodesDraggable={drawMode === "off"}
-            panOnDrag={drawMode === "off"}
+            panOnDrag={drawMode === "off" || spaceHeld}
             elementsSelectable={drawMode === "off"}
             /* No auto-pan while dragging nodes: in the sandboxed WKWebView
                iframe the pointerup can be lost at the frame boundary, and a
@@ -807,6 +829,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               width={3}
               strokes={strokes}
               onStrokesChange={setStrokes}
+              paused={spaceHeld}
             />
           </ReactFlow>
           </ViewContext.Provider>
