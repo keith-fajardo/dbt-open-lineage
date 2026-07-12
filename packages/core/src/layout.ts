@@ -7,12 +7,12 @@ const COL_GAP = 80;
 const ROW_GAP = 24;
 
 /** Only the raw/input layers get column-locked so each lines up vertically;
- * everything downstream (intermediate, marts, reports, …) keeps a
- * topology-driven dagre flow — int chains still step rightward naturally.
- * Sources and seeds are both raw inputs, so they SHARE one column (a source
- * `netsuite` and a seed `seed_netsuite` line up together); staging gets its
- * own. */
-const COLUMN_GROUPS: string[][] = [["source", "seed"], ["staging"]];
+ * everything downstream (staging, intermediate, marts, reports, …) keeps a
+ * topology-driven dagre flow — chains step rightward naturally. Sources and
+ * seeds are both raw inputs, so they SHARE one column (a source `netsuite`
+ * and a seed `seed_netsuite` line up together). Staging is intentionally NOT
+ * locked — it flows with the free subgraph like the rest of the model layers. */
+const COLUMN_GROUPS: string[][] = [["source", "seed"]];
 const LOCKED_LAYERS = COLUMN_GROUPS.flat();
 
 /** Compute a left→right layout once. The free (non-locked) subgraph gets its

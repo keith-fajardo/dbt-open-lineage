@@ -24,7 +24,7 @@ describe("layoutGraph", () => {
     expect(pos.get("b")!.x).toBeGreaterThan(pos.get("a")!.x);
   });
 
-  it("puts sources and seeds in ONE shared column, staging in its own", () => {
+  it("puts sources and seeds in ONE shared column; staging is NOT locked (flows by topology)", () => {
     const chain: Graph = {
       nodes: [
         node("src1", "source"), node("src2", "source"),
@@ -34,27 +34,26 @@ describe("layoutGraph", () => {
       edges: [
         { from: "src1", to: "stg1" },
         { from: "src2", to: "stg2" },
-        // stg2 → stg3: same-layer edge must NOT split the staging column
-        // (plain dagre would push stg3 a rank right).
+        // stg2 → stg3: staging is free now, so this same-layer edge SHOULD
+        // step stg3 a rank right of stg2 (topology-driven, no column lock).
         { from: "stg2", to: "stg3" },
         { from: "seed1", to: "stg3" },
       ],
     };
     const pos = layoutGraph(chain);
     const xs = (ids: string[]) => new Set(ids.map((id) => pos.get(id)!.x));
-    // Sources AND seeds share one x (seed_netsuite lines up with netsuite).
+    // Sources AND seeds still share one x (seed_netsuite lines up with netsuite).
     expect(xs(["src1", "src2", "seed1"]).size).toBe(1);
-    expect(xs(["stg1", "stg2", "stg3"]).size).toBe(1);
-    // Column order: raw inputs < staging.
+    // Staging no longer forced into one column: stg1/stg2 sit at the same rank,
+    // but stg3 (downstream of stg2) steps to the right.
+    expect(pos.get("stg1")!.x).toBe(pos.get("stg2")!.x);
+    expect(pos.get("stg3")!.x).toBeGreaterThan(pos.get("stg2")!.x);
+    // Raw inputs still sit left of staging.
     expect(pos.get("src1")!.x).toBeLessThan(pos.get("stg1")!.x);
-    // Stacked nodes never overlap (44px tall + 24px gap) — including the
-    // seed stacked among the sources.
+    // Stacked raw inputs never overlap (44px tall + 24px gap).
     const raws = ["src1", "src2", "seed1"].map((id) => pos.get(id)!.y).sort((a, b) => a - b);
     expect(raws[1] - raws[0]).toBeGreaterThanOrEqual(44 + 24);
     expect(raws[2] - raws[1]).toBeGreaterThanOrEqual(44 + 24);
-    const ys = ["stg1", "stg2", "stg3"].map((id) => pos.get(id)!.y).sort((a, b) => a - b);
-    expect(ys[1] - ys[0]).toBeGreaterThanOrEqual(44 + 24);
-    expect(ys[2] - ys[1]).toBeGreaterThanOrEqual(44 + 24);
   });
 
   it("does NOT column-lock downstream layers: an int chain still steps right", () => {
@@ -73,7 +72,7 @@ describe("layoutGraph", () => {
     const pos = layoutGraph(chain);
     expect(pos.get("int_b")!.x).toBeGreaterThan(pos.get("int_a")!.x);
     expect(pos.get("mrt")!.x).toBeGreaterThan(pos.get("int_b")!.x);
-    // And every free node sits right of the locked staging column.
+    // Staging is free now too, but still upstream, so int_a sits right of it.
     expect(pos.get("int_a")!.x).toBeGreaterThan(pos.get("stg")!.x);
   });
 
@@ -115,8 +114,8 @@ describe("layoutGraph", () => {
   });
 
   it("collapses locked columns that are empty", () => {
-    // No sources or seeds: staging is the ONLY locked column, at x = 0,
-    // and free nodes start one column later.
+    // No sources or seeds at all → no locked columns. The free subgraph
+    // (staging a → mart b) starts at x = 0 and steps right by one column.
     const pos = layoutGraph(g);
     expect(pos.get("a")!.x).toBe(0);
     expect(pos.get("b")!.x).toBe(180 + 80);

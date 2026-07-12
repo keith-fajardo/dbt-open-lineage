@@ -329,7 +329,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       next.has(area) ? next.delete(area) : next.add(area);
       return next;
     });
-  const [showCallouts, setShowCallouts] = useState(true);
+  const [showCallouts, setShowCallouts] = useState(false);
   const [labelFilter, setLabelFilter] = useState<Set<string>>(new Set());
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   useEffect(() => { setFavorites(loadFavorites(projectPath)); }, [projectPath]);
@@ -385,8 +385,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     return () => clearTimeout(timer.current);
   }, [raw, debounceMs]);
 
+  // An empty selector matches NOTHING (not everything): the DAG starts blank
+  // and the user picks a model/selector to populate it. resolveSelector's own
+  // "empty = all" convention still holds for other callers; we gate it here.
   const matched = useMemo(
-    () => (graph ? resolveSelector(graph, selector) : new Set<string>()),
+    () => (graph && selector.trim() ? resolveSelector(graph, selector) : new Set<string>()),
     [graph, selector],
   );
 
@@ -395,12 +398,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // filter on, lay out the visible SUBGRAPH instead, so the remaining nodes
   // sit compactly together rather than keeping their full-graph positions.
   const visibleGraph = useMemo(() => {
-    if (!graph || !focus) return graph;
+    if (!graph) return graph;
+    // Empty selector → empty DAG (no default "show every model"). The user
+    // types a model/selector to populate it.
+    if (!selector.trim()) return { nodes: [], edges: [] };
+    if (!focus) return graph;
     return {
       nodes: graph.nodes.filter((n) => matched.has(n.id)),
       edges: graph.edges.filter((e) => matched.has(e.from) && matched.has(e.to)),
     };
-  }, [graph, focus, matched]);
+  }, [graph, focus, matched, selector]);
   // Reserve layout space for callout bubbles: when callouts are on, a model
   // that actually has a callout gets extra height in dagre (see layout.ts), so
   // its bubble no longer overlaps the row above. Empty when callouts are off →
@@ -463,7 +470,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // positions DURING RENDER, so a remount + fitView never sees stale ones.
   // Selection/dim styling rides in ViewContext, not node data (see nodes.tsx).
   const buildNodes = (): Node<DagNodeData>[] =>
-    !graph ? [] : graph.nodes
+    // Empty selector → render nothing (the DAG starts blank; no default
+    // "show every model"). Otherwise focus filters to the matched set, and
+    // without focus every node renders (dimming handles emphasis).
+    !graph || !selector.trim() ? [] : graph.nodes
       .filter((n) => (focus ? matched.has(n.id) : true))
       .map((n) => ({
         id: n.id,
@@ -697,7 +707,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   }, [rfNodes, searchQ]);
 
   const rfEdges: Edge[] = useMemo(() => {
-    if (!graph) return [];
+    if (!graph || !selector.trim()) return []; // empty selector → blank DAG
     return graph.edges
       .filter((e) => (focus ? matched.has(e.from) && matched.has(e.to) : true))
       .map((e) => {
@@ -720,7 +730,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, matched, focus, selected, lineage, view]);
+  }, [graph, matched, focus, selected, lineage, view, selector]);
 
   const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
   // Double-click a node → open its model/source file in the IDE editor
@@ -799,18 +809,24 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             <input
               placeholder="select… e.g. stg_orders+ or tag:mart --exclude config.materialized:view  (Enter shows only the selection)"
               value={raw}
-              onChange={(e) => setRaw(e.target.value)}
+              // macOS "smart dashes" in the WKWebView rewrites a typed `--` to a
+              // single em-dash (U+2014), which silently breaks `--exclude`. dbt
+              // selectors never contain real em/en-dashes, so normalize any back
+              // to `--`. (fontVariantLigatures:none below also stops a purely
+              // cosmetic `--`→long-dash ligature.)
+              onChange={(e) => setRaw(e.target.value.replace(/[–—]/g, "--"))}
               onKeyDown={(e) => {
                 // Enter commits the selector: apply it immediately (skip the
-                // debounce) and filter the DAG to only the matched nodes. An
-                // empty selector matches everything, so clear + Enter restores
-                // the full graph.
+                // debounce) and filter the DAG to only the matched nodes.
                 if (e.key === "Enter") {
                   setSelector(raw);
                   setFocus(true);
                 }
               }}
-              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit" }}
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontVariantLigatures: "none" }}
             />
             <label style={TOGGLE_PILL}>
               <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
@@ -948,7 +964,25 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         </div>
         {error && <div style={{ color: "#fca5a5", padding: 8 }}>{error}</div>}
         {exportErr && <div style={{ color: "#fca5a5", padding: 8 }}>export failed: {exportErr}</div>}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, position: "relative" }}>
+          {graph && !error && !selector.trim() && (
+            <div
+              aria-label="empty selector hint"
+              style={{
+                position: "absolute", inset: 0, zIndex: 5, pointerEvents: "none",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexDirection: "column", gap: 6, textAlign: "center", padding: 24,
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#cbd5e1" }}>
+                Type a model or dbt selector to view its lineage
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b", maxWidth: 360 }}>
+                e.g. <code style={{ color: "#94a3b8" }}>+my_model+</code> or{" "}
+                <code style={{ color: "#94a3b8" }}>stg_orders,dim_account</code>
+              </div>
+            </div>
+          )}
           <ViewContext.Provider value={view}>
           <ReactFlow
             // Remount when the committed filter changes so fitView re-frames
