@@ -14,7 +14,7 @@ import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
-import { nodeAreas } from "./zones";
+import { nodeAreas, areaMembers } from "./zones";
 import { ZonesOverlay } from "./ZonesOverlay";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
@@ -297,6 +297,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // lineage edges turn into animated dashes flowing source→target.
   const hasSel = selected != null;
   const searchQ = search.trim().toLowerCase();
+
+  const spotlight = useMemo(
+    () => (graph && spotArea ? new Set(areaMembers(graph.nodes, spotArea)) : null),
+    [graph, spotArea],
+  );
+
   const view: ViewState = useMemo(() => ({
     selected,
     active: activeId,
@@ -304,8 +310,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     down: lineage.down,
     // With focus OFF, un-matched nodes dim; with focus ON they're filtered out.
     matched: focus ? null : matched,
+    spotlight,
     search: searchQ,
-  }), [selected, activeId, lineage, focus, matched, searchQ]);
+  }), [selected, activeId, lineage, focus, matched, spotlight, searchQ]);
 
   // Live match count over the nodes actually shown in the DAG.
   const searchHits = useMemo(() => {

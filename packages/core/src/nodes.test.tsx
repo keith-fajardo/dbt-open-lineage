@@ -63,7 +63,7 @@ describe("DagNode corner badges", () => {
 describe("DagNode search highlight", () => {
   const withSearch = (label: string, search: string) =>
     render(
-      <ViewContext.Provider value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, search }}>
+      <ViewContext.Provider value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, search }}>
         <DagNode id="n1" data={data(label)} />
       </ViewContext.Provider>,
     );
@@ -95,7 +95,7 @@ describe("DagNode open-model emphasis", () => {
   const withView = (id: string, view: Partial<ViewState>) =>
     render(
       <ViewContext.Provider
-        value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, search: "", ...view }}
+        value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, search: "", ...view }}
       >
         <DagNode id={id} data={data("dim_date")} />
       </ViewContext.Provider>,
@@ -119,5 +119,21 @@ describe("DagNode open-model emphasis", () => {
     withView("n1", { active: "n2" });
     expect(screen.queryByLabelText("open model")).toBeNull();
     expect(screen.getByTitle("dim_date")).toBeInTheDocument();
+  });
+});
+
+describe("DagNode spotlight dimming", () => {
+  it("dims a node that is not in the spotlight set", () => {
+    const view = {
+      selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
+      matched: null, search: "", spotlight: new Set<string>(["keepme"]),
+    };
+    const { container } = render(
+      <ViewContext.Provider value={view}>
+        <DagNode id="other" data={{ label: "other", layer: "model", materialized: "", testCount: 0 }} />
+      </ViewContext.Provider>,
+    );
+    const box = container.firstElementChild as HTMLElement;
+    expect(box.style.opacity).toBe("0.18");
   });
 });

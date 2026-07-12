@@ -53,7 +53,10 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   // The model whose file is OPEN in the IDE: a persistent emphasis so it's
   // always obvious which node in the cone you're actually looking at.
   const active = id === view.active;
-  const dim = active ? false : hasSel ? !inLineage : view.matched != null && !view.matched.has(id);
+  const spotlit = view.spotlight == null || view.spotlight.has(id);
+  const dim = active ? false
+    : hasSel ? !inLineage
+    : (view.matched != null && !view.matched.has(id)) || !spotlit;
   const emphasize = hasSel && !selected && inLineage;
   const searchHit = view.search !== "" && data.label.toLowerCase().includes(view.search);
   return (
