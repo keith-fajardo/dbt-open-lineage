@@ -1194,11 +1194,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   info={
                     "Group related models into a named, bounded zone on the DAG (e.g. 'Order Ledger'). A model can belong to several.\n\n" +
                     "The chip text you type IS the key. Give it a display name + colour by adding an entry with that SAME key to lineage.yml at your dbt project root:\n\n" +
-                    "areas:\n" +
+                    "subject_areas:\n" +
                     "  order_ledger:\n" +
                     "    name: 'Order Ledger'\n" +
                     "    color: '#8b5cf6'\n\n" +
-                    "So a chip typed `order_ledger` shows as 'Order Ledger'. No entry → the chip shows the raw key in grey. Tip: type a short lowercase key (journals), let name do the capitalizing."
+                    "So a chip typed `order_ledger` shows as 'Order Ledger'. Type a short lowercase key and let name do the capitalizing.\n\n" +
+                    "Prefer typing the words directly? Type `Journal Entries` — then quote the key (no name needed):\n\n" +
+                    "subject_areas:\n" +
+                    "  'Journal Entries':\n" +
+                    "    color: '#f59e0b'\n\n" +
+                    "No entry → the chip shows the raw key in grey."
                   }
                   values={areasDraft}
                   onChange={setAreasDraft}

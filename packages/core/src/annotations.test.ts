@@ -9,9 +9,9 @@ describe("parseAnnotations", () => {
     expect(parseAnnotations("just a string")).toEqual(EMPTY_ANNOTATIONS);
   });
 
-  it("parses area and label styles (block form)", () => {
+  it("parses subject_area and label styles (block form)", () => {
     const src = [
-      "areas:",
+      "subject_areas:",
       "  order_ledger:",
       '    name: "Order Ledger"',
       '    color: "#8b5cf6"',
@@ -25,8 +25,18 @@ describe("parseAnnotations", () => {
     expect(a.labels.core).toEqual({ name: "Core", color: "#ef4444" });
   });
 
+  it("still accepts the legacy `areas:` alias", () => {
+    const a = parseAnnotations('areas:\n  order_ledger: { color: "#8b5cf6" }\n');
+    expect(a.areas.order_ledger.color).toBe("#8b5cf6");
+  });
+
+  it("quoted multi-word key is used as-is (name falls back to the key)", () => {
+    const a = parseAnnotations("subject_areas:\n  'Journal Entries':\n    color: '#f59e0b'\n");
+    expect(a.areas["Journal Entries"]).toEqual({ name: "Journal Entries", color: "#f59e0b" });
+  });
+
   it("defaults a missing name to the key and a missing color to the fallback palette", () => {
-    const a = parseAnnotations("areas:\n  web_session: {}\n");
+    const a = parseAnnotations("subject_areas:\n  web_session: {}\n");
     expect(a.areas.web_session.name).toBe("web_session");
     expect(a.areas.web_session.color).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
@@ -38,7 +48,7 @@ describe("parseAnnotations", () => {
   });
 
   it("rejects arrays in style maps", () => {
-    const a = parseAnnotations("areas:\n  - foo\n  - bar\n");
+    const a = parseAnnotations("subject_areas:\n  - foo\n  - bar\n");
     expect(a.areas).toEqual({});
   });
 });
@@ -61,6 +71,7 @@ describe("setSidecarColor", () => {
   it("creates the entry (and section) when absent, seeding an empty doc", () => {
     const out = setSidecarColor(null, "areas", "order_ledger", "#8b5cf6");
     const doc = parse(out);
-    expect(doc.areas.order_ledger.color).toBe("#8b5cf6");
+    // "areas" kind writes under the canonical `subject_areas` key.
+    expect(doc.subject_areas.order_ledger.color).toBe("#8b5cf6");
   });
 });

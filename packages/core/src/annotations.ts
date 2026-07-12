@@ -44,18 +44,22 @@ export function parseAnnotations(text: string | null): Annotations {
   let doc: unknown;
   try { doc = parse(text); } catch { return EMPTY_ANNOTATIONS; }
   if (!doc || typeof doc !== "object") return EMPTY_ANNOTATIONS;
-  const d = doc as { areas?: unknown; labels?: unknown };
-  return { areas: toStyleMap(d.areas), labels: toStyleMap(d.labels) };
+  // `subject_areas` is the canonical key (matches the model's
+  // config.meta.subject_areas); `areas` is still accepted as a legacy alias.
+  const d = doc as { subject_areas?: unknown; areas?: unknown; labels?: unknown };
+  return { areas: toStyleMap(d.subject_areas ?? d.areas), labels: toStyleMap(d.labels) };
 }
 
-/** Set `<kind>.<key>.color` in the style sidecar, preserving comments and
- * formatting of everything else (live-document edit, like yamlEdit). Seeds an
- * empty `areas: {}\nlabels: {}` doc when the file does not exist yet. */
+/** Set the sidecar color for a style, preserving comments and formatting of
+ * everything else (live-document edit, like yamlEdit). `kind` "areas" maps to
+ * the canonical `subject_areas` yaml key. Seeds an empty
+ * `subject_areas: {}\nlabels: {}` doc when the file does not exist yet. */
 export function setSidecarColor(
   existingText: string | null, kind: "areas" | "labels", key: string, color: string,
 ): string {
-  const base = existingText && existingText.trim() ? existingText : "areas: {}\nlabels: {}\n";
+  const yamlKey = kind === "areas" ? "subject_areas" : "labels";
+  const base = existingText && existingText.trim() ? existingText : "subject_areas: {}\nlabels: {}\n";
   const doc = parseDocument(base);
-  doc.setIn([kind, key, "color"], color);
+  doc.setIn([yamlKey, key, "color"], color);
   return doc.toString({ lineWidth: 0 });
 }
