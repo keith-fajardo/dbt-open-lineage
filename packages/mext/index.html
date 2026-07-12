@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8" /><title>dbt Open Lineage</title>
+    <script>
+      // Debug overlay for real failures (blank screen, missing assets). The
+      // sandboxed iframe has an opaque origin, so many runtime errors arrive
+      // MASKED as bare "Script error." — zero diagnostic value — and React
+      // Flow's wheel/zoom churn emits benign "ResizeObserver loop" events.
+      // Skip both and dedupe the rest, or scrolling the DAG fills the body
+      // with red spam.
+      var shownErrs = {};
+      function showErr(msg) {
+        msg = String(msg || '');
+        if (!msg || msg === 'Script error.' || msg.indexOf('ResizeObserver loop') !== -1 || shownErrs[msg]) return;
+        shownErrs[msg] = true;
+        document.body.insertAdjacentHTML('beforeend', '<pre style="color:red;white-space:pre-wrap;padding:8px;font:12px monospace"></pre>');
+        document.body.lastChild.textContent = msg;
+      }
+      window.addEventListener('error', function (e) {
+        showErr(e.target && e.target.tagName ? e.target.tagName + ' failed to load: ' + (e.target.src || e.target.href) : (e.message || ''));
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        showErr('Unhandled rejection: ' + (e.reason && e.reason.message || e.reason));
+      });
+    </script>
+  </head>
+  <body style="margin:0">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

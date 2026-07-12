@@ -1,0 +1,16 @@
+{
+  "name": "@dbt-open-lineage/mext",
+  "private": true,
+  "version": "0.4.3",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "pack": "node scripts/pack.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": { "@dbt-open-lineage/core": "*" },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.2", "typescript": "^5.6.0",
+    "vite": "^8.0.16", "vitest": "^4.1.10", "jsdom": "^29.1.1"
+  }
+}

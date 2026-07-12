@@ -1,0 +1,16 @@
+{
+  "id": "dbt-dag-viz",
+  "name": "dbt Open Lineage",
+  "version": "0.4.3",
+  "entry": "dist/index.html",
+  "surface": "window",
+  "host_perms": [
+    "dbt.manifest",
+    "dbt.compile",
+    "export.save",
+    "ide.open",
+    "fs.readText",
+    "fs.writeText",
+    "dbt.gist"
+  ]
+}
