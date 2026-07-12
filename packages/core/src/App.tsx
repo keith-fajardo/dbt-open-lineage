@@ -15,6 +15,7 @@ import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
 import { nodeAreas } from "./zones";
+import { ZonesOverlay } from "./ZonesOverlay";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -507,6 +508,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           >
             <Background />
             <Controls />
+            <ZonesOverlay
+              nodes={graph?.nodes ?? []}
+              positions={positioned}
+              annotations={annotations}
+              areasVisible={areasVisible}
+              shape={zoneShape}
+            />
           </ReactFlow>
           </ViewContext.Provider>
         </div>
