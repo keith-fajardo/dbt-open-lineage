@@ -7,9 +7,9 @@ describe("targetYamlPath", () => {
     expect(targetYamlPath({ name: "stg_orders", path: "models/staging/stg_orders.sql", patch_path: "models/staging/_stg__models.yml" }))
       .toBe("models/staging/_stg__models.yml");
   });
-  it("falls back to a per-model sidecar in the model's folder", () => {
+  it("falls back to a <name>.yml sidecar next to the model (no leading underscore)", () => {
     expect(targetYamlPath({ name: "stg_orders", path: "models/staging/stg_orders.sql" }))
-      .toBe("models/staging/_stg_orders.yml");
+      .toBe("models/staging/stg_orders.yml");
   });
 });
 
@@ -26,6 +26,19 @@ describe("upsertModelDoc", () => {
     const doc = parse(out);
     expect(doc.models[0].description).toBe("new desc");
     expect(doc.models[0].config.meta.gist).toBe("rolls up raw orders");
+  });
+
+  it("writes a fresh file in BLOCK style, not flow (no curly braces / inline arrays)", () => {
+    const out = upsertModelDoc(null, "stg_orders", "d", "g", undefined, ["orders"], undefined, ["nightly"]);
+    expect(out).not.toContain("{"); // no flow maps
+    expect(out).not.toContain("["); // no flow/inline sequences
+    expect(out).toContain("  - name: stg_orders");
+    expect(out).toContain("    config:");
+    expect(out).toContain("      meta:");
+    // sanity: still parses to the right shape
+    const doc = parse(out);
+    expect(doc.models[0].config.meta.subject_areas).toEqual(["orders"]);
+    expect(doc.models[0].config.tags).toEqual(["nightly"]);
   });
 
   it("appends a model absent from an existing file", () => {

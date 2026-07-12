@@ -325,7 +325,7 @@ describe("editable description + gist panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("fs.writeText", expect.objectContaining({
-        path: "models/staging/_stg_orders.yml",
+        path: "models/staging/stg_orders.yml",
       })));
     const writtenText = invokeMock.mock.calls.find((c) => c[0] === "fs.writeText")![1]!.text as string;
     expect(writtenText).toContain("edited desc");

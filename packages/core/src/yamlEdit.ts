@@ -8,12 +8,12 @@ function keyOf(pair: { key?: unknown }): unknown {
 
 /** The project-relative YAML file that holds (or will hold) this model's
  * description/meta. Prefers the manifest's patch_path; otherwise a per-model
- * sidecar `_<name>.yml` in the model's own folder. */
+ * sidecar `<name>.yml` sitting right next to the model in its own folder. */
 export function targetYamlPath(node: { name: string; path: string; patch_path?: string }): string {
   if (node.patch_path) return node.patch_path;
   const slash = node.path.lastIndexOf("/");
   const dir = slash >= 0 ? node.path.slice(0, slash) : "";
-  return dir ? `${dir}/_${node.name}.yml` : `_${node.name}.yml`;
+  return dir ? `${dir}/${node.name}.yml` : `${node.name}.yml`;
 }
 
 /** Upsert `description` + `config.meta.gist` for `name`, preserving comments
@@ -45,6 +45,11 @@ export function upsertModelDoc(
   let models = doc.get("models");
   if (!isSeq(models)) { doc.set("models", []); models = doc.get("models"); }
   const seq = models as YAMLSeq;
+  // Force BLOCK style on the models sequence. The fresh-file seed `models: []`
+  // is a FLOW seq, and anything added to a flow collection inherits flow —
+  // producing `models: [ { name: x, config: { ... } } ]`. Existing block files
+  // already have flow=false here, so this is a no-op for them (no reformatting).
+  seq.flow = false;
 
   let idx = seq.items.findIndex((item) => {
     const m = item as { get?: (k: string) => unknown };
