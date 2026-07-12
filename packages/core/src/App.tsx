@@ -21,6 +21,8 @@ import { AreaControl } from "./AreaControl";
 import { LabelBar } from "./LabelBar";
 import { resolveStyles } from "./styles";
 import { loadFavorites, saveFavorites } from "./favorites";
+import { computeFiltered } from "./filters";
+import { TagChips } from "./TagChips";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -166,6 +168,21 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       return next;
     });
   }, [projectPath]);
+
+  const [favActive, setFavActive] = useState(false);
+  const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
+  const onToggleTag = (tag: string) =>
+    setTagFilter((prev) => {
+      const next = new Set(prev);
+      next.has(tag) ? next.delete(tag) : next.add(tag);
+      return next;
+    });
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    if (graph) for (const n of graph.nodes) for (const t of n.tags ?? []) set.add(t);
+    return [...set].sort();
+  }, [graph]);
 
   // Default: show every zone once the area list is known (and whenever it grows).
   useEffect(() => { setAreasVisible(new Set(allAreas)); }, [allAreas]);
@@ -390,12 +407,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     [graph, spotArea],
   );
 
-  const filtered = useMemo(() => {
-    if (!graph || labelFilter.size === 0) return null;
-    return new Set(
-      graph.nodes.filter((n) => nodeLabels(n).some((l) => labelFilter.has(l))).map((n) => n.id),
-    );
-  }, [graph, labelFilter]);
+  const filtered = useMemo(
+    () => (graph ? computeFiltered(graph.nodes, { favActive, favorites, labels: labelFilter, tags: tagFilter }) : null),
+    [graph, favActive, favorites, labelFilter, tagFilter],
+  );
 
   const view: ViewState = useMemo(() => ({
     selected,
@@ -547,6 +562,20 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             onToggle={onToggleLabel}
             onColor={(l, c) => void onLabelColor(l, c)}
           />
+          <button
+            onClick={() => setFavActive((v) => !v)}
+            aria-pressed={favActive}
+            title="Show only favorites"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+              borderRadius: 20, border: `1px solid ${favActive ? "#3b82f6" : "#334155"}`,
+              background: favActive ? "#16233d" : "#111827",
+              color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+            }}
+          >
+            <span style={{ color: favActive ? "#fbbf24" : "#64748b" }}>★</span> Favorites
+          </button>
+          <TagChips tags={allTags} filter={tagFilter} onToggle={onToggleTag} />
           <input
             aria-label="Search nodes"
             placeholder="search…"
