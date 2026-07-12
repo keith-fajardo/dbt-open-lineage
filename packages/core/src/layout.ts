@@ -1,8 +1,8 @@
 import dagre from "dagre";
 import type { Graph } from "./graphTypes";
 
-const NODE_W = 180;
-const NODE_H = 44;
+export const NODE_W = 180;
+export const NODE_H = 44;
 const COL_GAP = 80;
 const ROW_GAP = 24;
 
