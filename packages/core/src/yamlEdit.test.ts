@@ -172,4 +172,80 @@ describe("upsertModelDoc", () => {
     expect(doc.models[0].config.meta.callout).toBe("top"); // untouched
     expect(doc.models[0].config.meta.gist).toBe("new gist");
   });
+
+  it("sets config.meta.subject_areas and labels as YAML sequences", () => {
+    const out = upsertModelDoc(null, "stg_orders", "d", "g", undefined, ["billing", "orders"], ["core"]);
+    const doc = parse(out);
+    expect(doc.models[0].config.meta.subject_areas).toEqual(["billing", "orders"]);
+    expect(doc.models[0].config.meta.labels).toEqual(["core"]);
+    // Serialized as a real sequence, not an inline JS-array literal.
+    expect(out).toContain("subject_areas:");
+    expect(out).not.toContain('["billing"');
+  });
+
+  it("updates existing subject_areas and labels in place", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    config:",
+      "      meta:",
+      "        subject_areas: [billing]",
+      "        labels: [core]",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", undefined, ["orders"], ["core", "pii"]));
+    expect(doc.models[0].config.meta.subject_areas).toEqual(["orders"]);
+    expect(doc.models[0].config.meta.labels).toEqual(["core", "pii"]);
+  });
+
+  it("removes the key when an empty array is passed (never writes subject_areas: [])", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    config:",
+      "      meta:",
+      "        subject_areas: [billing]",
+      "        labels: [core]",
+    ].join("\n");
+    const out = upsertModelDoc(src, "stg_orders", "d", "g", undefined, [], ["core"]);
+    const doc = parse(out);
+    expect(doc.models[0].config.meta.subject_areas).toBeUndefined();
+    expect(out).not.toContain("subject_areas");
+    expect(doc.models[0].config.meta.labels).toEqual(["core"]); // the other list kept
+  });
+
+  it("leaves existing subject_areas/labels intact when the args are omitted (undefined)", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    config:",
+      "      meta:",
+      "        subject_areas: [billing, orders]",
+      "        labels: [core]",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "new gist"));
+    expect(doc.models[0].config.meta.subject_areas).toEqual(["billing", "orders"]); // untouched
+    expect(doc.models[0].config.meta.labels).toEqual(["core"]); // untouched
+    expect(doc.models[0].config.meta.gist).toBe("new gist");
+  });
+
+  it("round-trips gist and callout alongside subject_areas and labels", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    description: old",
+      "    config:",
+      "      meta:",
+      "        gist: g",
+      "        callout: top",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "new gist", "top", ["billing"], ["core"]));
+    expect(doc.models[0].config.meta.gist).toBe("new gist");
+    expect(doc.models[0].config.meta.callout).toBe("top");
+    expect(doc.models[0].config.meta.subject_areas).toEqual(["billing"]);
+    expect(doc.models[0].config.meta.labels).toEqual(["core"]);
+  });
 });

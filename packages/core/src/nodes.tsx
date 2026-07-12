@@ -145,6 +145,11 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           WebkitLineClamp: 2,
           overflowWrap: "anywhere",
           wordBreak: "break-word",
+          // Keep long, wrapped names clear of the corner adornments: the
+          // favorite ★ (top-right) and the label stripes (left edge).
+          padding: "0 13px",
+          boxSizing: "border-box",
+          maxWidth: "100%",
         }}
       >
         {highlightLabel(data.label, view.search)}

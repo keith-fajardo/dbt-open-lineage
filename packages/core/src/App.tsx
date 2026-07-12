@@ -50,6 +50,119 @@ const TOGGLE_PILL: React.CSSProperties = {
   borderRadius: 7, padding: "6px 10px", fontSize: 12, color: "#e5e7eb",
 };
 
+/** Order-sensitive string-list equality — for the panel's dirty check. */
+const sameList = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** A quiet ⓘ affordance next to an editor header. Focusable and labelled;
+ * reveals a short explanation on hover, focus, or click (and the native
+ * title tooltip as a keyboard/hover fallback). */
+function InfoIcon({ label, text }: { label: string; text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        type="button" aria-label={label} title={text}
+        onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: 15, height: 15, borderRadius: "50%", border: "1px solid #334155",
+          background: "#0b1220", color: "#94a3b8", fontStyle: "italic",
+          fontWeight: 600, fontSize: 10, lineHeight: 1, cursor: "help", padding: 0,
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+        }}
+      >i</button>
+      {open && (
+        <span role="tooltip" style={{
+          position: "absolute", top: "135%", left: 0, zIndex: 30, width: 218,
+          background: "#0b1220", border: "1px solid #334155", borderRadius: 6,
+          padding: "7px 9px", fontSize: 11, lineHeight: 1.45, color: "#cbd5e1",
+          fontWeight: 400, textTransform: "none", letterSpacing: 0,
+          boxShadow: "0 10px 24px rgba(0,0,0,0.5)",
+        }}>{text}</span>
+      )}
+    </span>
+  );
+}
+
+/** Membership editor for one list (subject areas OR labels): the current
+ * values as removable color-dot chips, plus a typed/pick-from-datalist input
+ * to add one. Matches the panel's dark chip styling; assignment is buffered
+ * (nothing hits disk until the panel's Save). */
+function ChipEditor({
+  title, info, values, onChange, styles, allKeys, addLabel, listId,
+}: {
+  title: string; info: string; values: string[];
+  onChange: (next: string[]) => void;
+  styles: Map<string, { name: string; color: string }>;
+  allKeys: string[]; addLabel: string; listId: string;
+}) {
+  const [input, setInput] = useState("");
+  const add = () => {
+    const v = input.trim();
+    if (v && !values.includes(v)) onChange([...values, v]);
+    setInput("");
+  };
+  const display = (k: string) => styles.get(k)?.name ?? k;
+  return (
+    <>
+      <dt style={{ color: "#94a3b8", marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+        {title}
+        <InfoIcon label={`About ${title}`} text={info} />
+      </dt>
+      <dd style={{ margin: 0 }}>
+        {values.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+            {values.map((v) => (
+              <span key={v} style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 6px 3px 8px",
+                borderRadius: 20, background: "#1f2937", border: "1px solid #334155",
+                fontSize: 12, color: "#e5e7eb",
+              }}>
+                <span aria-hidden style={{
+                  width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                  background: styles.get(v)?.color ?? "#64748b",
+                }} />
+                {display(v)}
+                <button
+                  type="button" aria-label={`Remove ${display(v)}`}
+                  onClick={() => onChange(values.filter((x) => x !== v))}
+                  style={{
+                    background: "none", border: "none", color: "#94a3b8", cursor: "pointer",
+                    fontSize: 14, lineHeight: 1, padding: "0 1px",
+                  }}
+                >×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            list={listId} value={input} placeholder={addLabel} aria-label={addLabel}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+            style={{
+              flex: 1, minWidth: 0, padding: "5px 9px", borderRadius: 7,
+              border: "1px solid #334155", background: "#0b1220", color: "#e5e7eb",
+              fontFamily: "inherit", fontSize: 12,
+            }}
+          />
+          <datalist id={listId}>{allKeys.map((k) => <option key={k} value={k} />)}</datalist>
+          <button
+            type="button" onClick={add}
+            style={{
+              padding: "5px 11px", borderRadius: 7, border: "1px solid #334155",
+              background: "#111827", color: "#e5e7eb", cursor: "pointer",
+              fontFamily: "inherit", fontSize: 12,
+            }}
+          >Add</button>
+        </div>
+      </dd>
+    </>
+  );
+}
+
 export interface Lineage { up: Set<string>; down: Set<string> }
 
 /** Full transitive lineage of `id`: every upstream ancestor and downstream
@@ -358,6 +471,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [descDraft, setDescDraft] = useState("");
   const [gistDraft, setGistDraft] = useState("");
   const [calloutDraft, setCalloutDraft] = useState(false); // show gist as a DAG callout
+  // Membership drafts: which subject areas / labels this model belongs to.
+  const [areasDraft, setAreasDraft] = useState<string[]>([]);
+  const [labelsDraft, setLabelsDraft] = useState<string[]>([]);
   const [editingCallout, setEditingCallout] = useState(false); // inline-editing a callout bubble
   const [gistBusy, setGistBusy] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
@@ -372,6 +488,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setDescDraft(selectedNode?.description ?? "");
     setGistDraft(typeof selectedNode?.meta?.gist === "string" ? (selectedNode.meta.gist as string) : "");
     setCalloutDraft(!!selectedNode?.meta?.callout);
+    setAreasDraft(selectedNode ? nodeAreas(selectedNode) : []);
+    setLabelsDraft(selectedNode ? nodeLabels(selectedNode) : []);
     setEditingCallout(false);
     setGistBusy(false);
     setSaveErr(null);
@@ -382,7 +500,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const dirty = editable &&
     (descDraft !== (selectedNode!.description ?? "") ||
      gistDraft !== (typeof selectedNode!.meta?.gist === "string" ? selectedNode!.meta!.gist : "") ||
-     calloutDraft !== !!selectedNode!.meta?.callout);
+     calloutDraft !== !!selectedNode!.meta?.callout ||
+     !sameList(areasDraft, nodeAreas(selectedNode!)) ||
+     !sameList(labelsDraft, nodeLabels(selectedNode!)));
 
   const onSave = async () => {
     if (!selectedNode) return;
@@ -391,16 +511,17 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       const path = targetYamlPath(selectedNode);
       const existing = await invoke<string | null>("fs.readText", { path });
       const nextCallout = calloutDraft ? "top" : null;
-      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, nextCallout);
+      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, nextCallout, areasDraft, labelsDraft);
       await invoke<boolean>("fs.writeText", { path, text });
       // Optimistic in-memory update: the manifest on disk is stale until the
       // next `dbt compile`, but the panel should reflect the save immediately.
-      // meta.callout drives the CalloutOverlay bubble, so set it here too and
-      // the bubble appears/disappears without waiting for a recompile.
+      // meta.callout drives the CalloutOverlay bubble, and subject_areas/labels
+      // drive the zones + label stripes, so mirror all of them here — the DAG
+      // updates without waiting for a recompile.
       setGraph((g) => g && {
         ...g,
         nodes: g.nodes.map((n) => n.id === selectedNode.id
-          ? { ...n, description: descDraft, meta: { ...(n.meta ?? {}), gist: gistDraft, callout: nextCallout ?? undefined } } : n),
+          ? { ...n, description: descDraft, meta: { ...(n.meta ?? {}), gist: gistDraft, callout: nextCallout ?? undefined, subject_areas: areasDraft, labels: labelsDraft } } : n),
       });
       flashToast("✓ Saved to YAML");
     } catch (e) { setSaveErr(String((e as Error).message ?? e)); }
@@ -978,6 +1099,28 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                     );
                   })()}
                 </dd>
+
+                <ChipEditor
+                  title="subject areas"
+                  info="Group related models into a named, bounded zone on the DAG (e.g. 'Order Ledger'). A model can belong to several. Set each zone's display name + colour in lineage.yml."
+                  values={areasDraft}
+                  onChange={setAreasDraft}
+                  styles={areaStyles}
+                  allKeys={allAreas}
+                  addLabel="add subject area…"
+                  listId="dol-areas-list"
+                />
+                <ChipEditor
+                  title="labels"
+                  info="Tag models with a coloured stripe + a filter chip (e.g. Core, PII). A model can have several. Recolour them from the Label chips in the toolbar."
+                  values={labelsDraft}
+                  onChange={setLabelsDraft}
+                  styles={labelStyles}
+                  allKeys={allLabels}
+                  addLabel="add label…"
+                  listId="dol-labels-list"
+                />
+
                 <dd style={{ margin: "10px 0 0", display: "flex", gap: 8 }}>
                   <button
                     onClick={() => void onSave()} disabled={!dirty}
@@ -988,7 +1131,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   <button
                     onClick={() => { setDescDraft(selectedNode.description ?? "");
                       setGistDraft(typeof selectedNode.meta?.gist === "string" ? selectedNode.meta.gist : "");
-                      setCalloutDraft(!!selectedNode.meta?.callout); }}
+                      setCalloutDraft(!!selectedNode.meta?.callout);
+                      setAreasDraft(nodeAreas(selectedNode));
+                      setLabelsDraft(nodeLabels(selectedNode)); }}
                     disabled={!dirty}
                     style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #334155",
                       background: "#111827", color: "#94a3b8",
