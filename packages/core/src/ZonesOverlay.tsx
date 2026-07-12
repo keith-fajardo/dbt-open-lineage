@@ -1,5 +1,5 @@
 import { ViewportPortal } from "@xyflow/react";
-import { areaMembers, memberCorners, boundingBox, type Pt } from "./zones";
+import { areaMembers, memberCorners, boundingBox, convexHull, padHull, type Pt } from "./zones";
 import { fallbackColor, type Annotations } from "./annotations";
 
 const ZONE_PAD = 18;
@@ -28,7 +28,7 @@ export function ZonesOverlay({ nodes, positions, annotations, areasVisible, shap
         return (
           <div key={area} data-area={area} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none" }}>
             {/* Box drawn as a positioned div; hull (Task 5) swaps to an SVG path. */}
-            {shape === "box" && (
+            {shape === "box" ? (
               <div
                 style={{
                   position: "absolute", left: box.x, top: box.y, width: box.w, height: box.h,
@@ -36,6 +36,20 @@ export function ZonesOverlay({ nodes, positions, annotations, areasVisible, shap
                   background: `${style.color}14`, boxSizing: "border-box",
                 }}
               />
+            ) : (
+              (() => {
+                const hull = padHull(convexHull(memberCorners(positions, ids)), ZONE_PAD);
+                if (hull.length < 3) return null;
+                const d = "M" + hull.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" L ") + " Z";
+                return (
+                  <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", width: 1, height: 1 }}>
+                    <path
+                      d={d} fill={`${style.color}17`} stroke={style.color}
+                      strokeWidth={1.5} strokeDasharray="7 5" strokeLinejoin="round"
+                    />
+                  </svg>
+                );
+              })()
             )}
             <div
               style={{
