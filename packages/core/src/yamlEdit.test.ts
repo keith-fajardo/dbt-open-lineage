@@ -257,6 +257,28 @@ describe("upsertModelDoc", () => {
     expect(out).not.toContain('["nightly"'); // a real sequence, not an inline literal
   });
 
+  it("does not seed an empty gist onto a model that never had one", () => {
+    // Only a subject-area change; gist is "" and there was no gist before.
+    const out = upsertModelDoc(null, "stg_orders", "d", "", undefined, ["orders"]);
+    const doc = parse(out);
+    expect(doc.models[0].config.meta.gist).toBeUndefined();
+    expect(out).not.toContain("gist:");
+    expect(doc.models[0].config.meta.subject_areas).toEqual(["orders"]); // the real change kept
+  });
+
+  it("still clears an existing gist when set to empty", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    config:",
+      "      meta:",
+      "        gist: old",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", ""));
+    expect(doc.models[0].config.meta.gist).toBe(""); // key present, emptied
+  });
+
   it("removes config.tags when an empty array is passed, and leaves it untouched when omitted", () => {
     const src = [
       "version: 2",

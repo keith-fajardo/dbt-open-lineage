@@ -561,7 +561,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       const path = targetYamlPath(selectedNode);
       const existing = await invoke<string | null>("fs.readText", { path });
       const nextCallout = calloutDraft ? "top" : null;
-      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, nextCallout, areasDraft, labelsDraft, tagsDraft);
+      // Only persist lists the user actually changed — passing `undefined`
+      // leaves the key untouched. Critical for tags: a model's resolved tag
+      // list often includes tags INHERITED from dbt_project.yml folder config,
+      // and we must not materialize those into the model's own config.tags on
+      // an unrelated save (e.g. adding a subject area). Same restraint for
+      // areas/labels avoids rewriting keys the save didn't touch.
+      const areasArg = sameList(areasDraft, nodeAreas(selectedNode)) ? undefined : areasDraft;
+      const labelsArg = sameList(labelsDraft, nodeLabels(selectedNode)) ? undefined : labelsDraft;
+      const tagsArg = sameList(tagsDraft, selectedNode.tags ?? []) ? undefined : tagsDraft;
+      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, nextCallout, areasArg, labelsArg, tagsArg);
       await invoke<boolean>("fs.writeText", { path, text });
       // Optimistic in-memory update: the manifest on disk is stale until the
       // next `dbt compile`, but the panel should reflect the save immediately.

@@ -62,8 +62,11 @@ export function upsertModelDoc(
   // Live-node mutation preserves comments/formatting on everything untouched.
   model.set("description", description);
   // Existing config is preserved in place — setIn only writes the meta.gist
-  // leaf, keeping materialized/tags/other meta keys.
-  doc.setIn(["models", idx, "config", "meta", "gist"], gist);
+  // leaf, keeping materialized/tags/other meta keys. Only write the gist when
+  // it has content or an existing gist key is being updated/cleared — this
+  // avoids seeding `gist: ""` onto models that never had one (spurious diff).
+  const gistPath = ["models", idx, "config", "meta", "gist"];
+  if (gist !== "" || doc.hasIn(gistPath)) doc.setIn(gistPath, gist);
   // callout placement: set when a non-empty string, delete on null/"", and
   // leave untouched when omitted (undefined) so 4-arg callers don't disturb it.
   if (typeof callout === "string" && callout) {
