@@ -27,6 +27,19 @@ interface CalloutOverlayProps {
   onBeginEdit: (id: string) => void;
 }
 
+/** Estimate the rendered height (px, flow-space) of a callout bubble for a
+ * given note, so the layout can RESERVE that much vertical space above the
+ * node (see layout.ts). Single source of truth: the constants below MUST match
+ * the bubble actually rendered further down this file — fontSize 11,
+ * lineHeight 1.35, padding "6px 9px", bubbleW 184, leader gap 14. */
+export function estimateCalloutHeight(text: string, bubbleWidth = 184): number {
+  const innerW = bubbleWidth - 18;          // padding 9*2
+  const charsPerLine = Math.max(1, Math.floor(innerW / 5.4)); // ~11px avg char width
+  const lines = Math.max(1, Math.ceil(text.trim().length / charsPerLine));
+  const bubbleH = lines * 11 * 1.35 + 12;   // line-height 1.35, padding 6*2
+  return Math.round(bubbleH + 14 + 8);      // + leader gap (14) + margin (8)
+}
+
 function gistOf(node: { meta?: Record<string, unknown> }): string | null {
   const g = node.meta?.gist;
   const c = node.meta?.callout;

@@ -16,7 +16,7 @@ import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
 import { nodeAreas, nodeLabels, areaMembers } from "./zones";
 import { ZonesOverlay } from "./ZonesOverlay";
-import { CalloutOverlay } from "./CalloutOverlay";
+import { CalloutOverlay, estimateCalloutHeight } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
 import { LabelBar } from "./LabelBar";
 import { resolveStyles } from "./styles";
@@ -241,9 +241,22 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       edges: graph.edges.filter((e) => matched.has(e.from) && matched.has(e.to)),
     };
   }, [graph, focus, matched]);
+  // Reserve layout space for callout bubbles: when callouts are on, a model
+  // that actually has a callout gets extra height in dagre (see layout.ts), so
+  // its bubble no longer overlaps the row above. Empty when callouts are off →
+  // layout is byte-identical to the no-callout case. NOTE: toggling callouts
+  // changes this map → re-layout → nodes shift (accepted tradeoff).
+  const calloutHeights = useMemo(() => {
+    const m = new Map<string, number>();
+    if (showCallouts && graph) for (const n of graph.nodes) {
+      const g = n.meta?.gist, c = n.meta?.callout;
+      if (typeof g === "string" && g.trim() && c) m.set(n.id, estimateCalloutHeight(g));
+    }
+    return m;
+  }, [graph, showCallouts]);
   const positioned = useMemo(
-    () => (visibleGraph ? layoutGraph(visibleGraph) : new Map()),
-    [visibleGraph],
+    () => (visibleGraph ? layoutGraph(visibleGraph, calloutHeights) : new Map()),
+    [visibleGraph, calloutHeights],
   );
 
   const [drawMode, setDrawMode] = useState<DrawMode>("off");

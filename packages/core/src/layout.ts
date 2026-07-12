@@ -22,16 +22,23 @@ const LOCKED_LAYERS = COLUMN_GROUPS.flat();
  * empty space. Locked layers stack into one column each (source, seed,
  * staging), rows ordered by the average Y of their placed neighbors so
  * edges stay short, columns centered on the free subgraph. Top-left coords. */
-export function layoutGraph(graph: Graph): Map<string, { x: number; y: number }> {
+export function layoutGraph(
+  graph: Graph,
+  calloutHeights?: Map<string, number>,
+): Map<string, { x: number; y: number }> {
   const isLocked = (layer: string) => LOCKED_LAYERS.includes(layer);
   const free = graph.nodes.filter((n) => !isLocked(n.layer));
   const freeIds = new Set(free.map((n) => n.id));
 
-  // Dagre pass over the free subgraph only.
+  // Dagre pass over the free subgraph only. A node with a callout is given
+  // EXTRA height so dagre spaces its neighbors apart; the real node then sits
+  // at the BOTTOM of that taller box, leaving the reserved space above it for
+  // the callout bubble (rendered in flow-space by CalloutOverlay).
+  const extraOf = (id: string) => calloutHeights?.get(id) ?? 0;
   const dg = new dagre.graphlib.Graph();
   dg.setGraph({ rankdir: "LR", nodesep: ROW_GAP, ranksep: COL_GAP });
   dg.setDefaultEdgeLabel(() => ({}));
-  for (const n of free) dg.setNode(n.id, { width: NODE_W, height: NODE_H });
+  for (const n of free) dg.setNode(n.id, { width: NODE_W, height: NODE_H + extraOf(n.id) });
   for (const e of graph.edges) {
     if (freeIds.has(e.from) && freeIds.has(e.to)) dg.setEdge(e.from, e.to);
   }
@@ -39,13 +46,15 @@ export function layoutGraph(graph: Graph): Map<string, { x: number; y: number }>
 
   const pos = new Map<string, { x: number; y: number }>();
 
-  // Free extent (dagre gives centers; we store top-left at the end).
+  // Free extent (dagre gives box centers; we store top-left at the end). Use
+  // each node's ACTUAL dagre height so a tall callout box is fully accounted
+  // for when centering the locked columns against the free subgraph.
   let fLeft = Infinity, fTop = Infinity, fBottom = -Infinity;
   for (const n of free) {
-    const { x, y } = dg.node(n.id);
+    const { x, y, height } = dg.node(n.id);
     fLeft = Math.min(fLeft, x - NODE_W / 2);
-    fTop = Math.min(fTop, y - NODE_H / 2);
-    fBottom = Math.max(fBottom, y + NODE_H / 2);
+    fTop = Math.min(fTop, y - height / 2);
+    fBottom = Math.max(fBottom, y + height / 2);
   }
   const freeMidY = free.length ? (fTop + fBottom) / 2 : 0;
 
@@ -73,7 +82,13 @@ export function layoutGraph(graph: Graph): Map<string, { x: number; y: number }>
   const freeShift = free.length ? lockedWidth - fLeft : 0;
   for (const n of free) {
     const { x, y } = dg.node(n.id);
-    pos.set(n.id, { x: x - NODE_W / 2 + freeShift, y: y - NODE_H / 2 });
+    // Place the real NODE_H-tall node at the bottom of its (taller) box: the
+    // box top is `y - H/2` where H = NODE_H + extra, so the node top-left is
+    // `boxTop + extra = y - NODE_H/2 + extra/2`. With extra === 0 this reduces
+    // to `y - NODE_H/2` — byte-identical to the pre-callout layout.
+    const extra = extraOf(n.id);
+    pos.set(n.id, { x: x - NODE_W / 2 + freeShift, y: y - NODE_H / 2 + extra / 2 });
+    // Locked barycenter ordering reads the dagre box center y, unchanged.
     centerY.set(n.id, y);
   }
 

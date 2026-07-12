@@ -77,6 +77,43 @@ describe("layoutGraph", () => {
     expect(pos.get("int_a")!.x).toBeGreaterThan(pos.get("stg")!.x);
   });
 
+  it("no calloutHeights arg → layout unchanged from passing an empty map", () => {
+    const a = layoutGraph(g);
+    const b = layoutGraph(g, new Map());
+    for (const id of ["a", "b"]) {
+      expect(b.get(id)).toEqual(a.get(id));
+    }
+  });
+
+  it("reserves extra vertical space above a node that has a callout", () => {
+    // Two free nodes that dagre stacks in the SAME rank (both feed one mart),
+    // so they share an x and sit one above the other.
+    const stacked: Graph = {
+      nodes: [
+        node("int_a", "intermediate"),
+        node("int_b", "intermediate"),
+        node("mrt", "mart"),
+      ],
+      edges: [
+        { from: "int_a", to: "mrt" },
+        { from: "int_b", to: "mrt" },
+      ],
+    };
+    const gapOf = (pos: Map<string, { x: number; y: number }>) =>
+      Math.abs(pos.get("int_a")!.y - pos.get("int_b")!.y);
+
+    const base = layoutGraph(stacked);
+    const baseGap = gapOf(base);
+    // The callout reserves space ABOVE its node, pushing whatever is above it
+    // away — so put the callout on the LOWER of the two stacked nodes.
+    const lower = base.get("int_a")!.y > base.get("int_b")!.y ? "int_a" : "int_b";
+
+    const reserved = layoutGraph(stacked, new Map([[lower, 120]]));
+    const reservedGap = gapOf(reserved);
+
+    expect(reservedGap).toBeGreaterThan(baseGap);
+  });
+
   it("collapses locked columns that are empty", () => {
     // No sources or seeds: staging is the ONLY locked column, at x = 0,
     // and free nodes start one column later.
