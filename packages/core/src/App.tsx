@@ -20,6 +20,7 @@ import { CalloutOverlay } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
 import { LabelBar } from "./LabelBar";
 import { resolveStyles } from "./styles";
+import { loadFavorites, saveFavorites } from "./favorites";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -155,6 +156,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [spotArea, setSpotArea] = useState<string | null>(null);
   const [showCallouts, setShowCallouts] = useState(true);
   const [labelFilter, setLabelFilter] = useState<Set<string>>(new Set());
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  useEffect(() => { setFavorites(loadFavorites(projectPath)); }, [projectPath]);
+  const onToggleFavorite = useCallback((id: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      saveFavorites(projectPath, next);
+      return next;
+    });
+  }, [projectPath]);
 
   // Default: show every zone once the area list is known (and whenever it grows).
   useEffect(() => { setAreasVisible(new Set(allAreas)); }, [allAreas]);
@@ -396,7 +407,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     spotlight,
     filtered,
     search: searchQ,
-  }), [selected, activeId, lineage, focus, matched, spotlight, filtered, searchQ]);
+    favorites,
+    onToggleFavorite,
+  }), [selected, activeId, lineage, focus, matched, spotlight, filtered, searchQ, favorites, onToggleFavorite]);
 
   // Live match count over the nodes actually shown in the DAG.
   const searchHits = useMemo(() => {

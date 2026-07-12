@@ -24,6 +24,10 @@ export interface ViewState {
   /** Live search term (lowercased, "" = off): nodes whose name contains it
    * highlight the matching text and get an amber ring. */
   search: string;
+  /** Ids the user has starred (personal, localStorage). Drives the ★ badge. */
+  favorites: Set<string>;
+  /** Toggle a node's favorite state (persists to localStorage). */
+  onToggleFavorite: (id: string) => void;
 }
 
 export const ViewContext = createContext<ViewState>({
@@ -35,4 +39,6 @@ export const ViewContext = createContext<ViewState>({
   spotlight: null,
   filtered: null,
   search: "",
+  favorites: new Set(),
+  onToggleFavorite: () => {},
 });

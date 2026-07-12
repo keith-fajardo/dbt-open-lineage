@@ -87,6 +87,23 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
       }}
     >
       <Handle type="target" position={Position.Left} />
+      {(() => {
+        const fav = view.favorites.has(id);
+        return (
+          <button
+            aria-label={fav ? "unfavorite" : "favorite"}
+            title={fav ? "Unfavorite" : "Favorite"}
+            onClick={(e) => { e.stopPropagation(); view.onToggleFavorite(id); }}
+            style={{
+              position: "absolute", right: 1, top: -9, padding: 2, lineHeight: 1,
+              background: "none", border: "none", cursor: "pointer",
+              color: fav ? "#fbbf24" : "#475569", fontSize: 12,
+            }}
+          >
+            {fav ? "★" : "☆"}
+          </button>
+        );
+      })()}
       {data.labelColors && data.labelColors.length > 0 && (
         <div aria-hidden style={{ position: "absolute", left: 3, top: 6, bottom: 6, display: "flex", gap: 2 }}>
           {data.labelColors.map((c, i) => (

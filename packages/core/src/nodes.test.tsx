@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
 // Handle needs a live ReactFlow store; the node's own markup is what's under test.
@@ -63,7 +63,7 @@ describe("DagNode corner badges", () => {
 describe("DagNode search highlight", () => {
   const withSearch = (label: string, search: string) =>
     render(
-      <ViewContext.Provider value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, filtered: null, search }}>
+      <ViewContext.Provider value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, filtered: null, search, favorites: new Set(), onToggleFavorite: () => {} }}>
         <DagNode id="n1" data={data(label)} />
       </ViewContext.Provider>,
     );
@@ -95,7 +95,7 @@ describe("DagNode open-model emphasis", () => {
   const withView = (id: string, view: Partial<ViewState>) =>
     render(
       <ViewContext.Provider
-        value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, filtered: null, search: "", ...view }}
+        value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, filtered: null, search: "", favorites: new Set(), onToggleFavorite: () => {}, ...view }}
       >
         <DagNode id={id} data={data("dim_date")} />
       </ViewContext.Provider>,
@@ -127,6 +127,7 @@ describe("DagNode label stripes", () => {
     const view = {
       selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
       matched: null, search: "", spotlight: null, filtered: null,
+      favorites: new Set<string>(), onToggleFavorite: () => {},
     };
     const { container } = render(
       <ViewContext.Provider value={view}>
@@ -144,6 +145,7 @@ describe("DagNode spotlight dimming", () => {
     const view = {
       selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
       matched: null, search: "", spotlight: new Set<string>(["keepme"]), filtered: null,
+      favorites: new Set<string>(), onToggleFavorite: () => {},
     };
     const { container } = render(
       <ViewContext.Provider value={view}>
@@ -160,6 +162,7 @@ describe("DagNode label-filter dimming", () => {
     const view = {
       selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
       matched: null, search: "", spotlight: null, filtered: new Set<string>(["keep"]),
+      favorites: new Set<string>(), onToggleFavorite: () => {},
     };
     const { container } = render(
       <ViewContext.Provider value={view}>
@@ -167,5 +170,25 @@ describe("DagNode label-filter dimming", () => {
       </ViewContext.Provider>,
     );
     expect((container.firstElementChild as HTMLElement).style.opacity).toBe("0.18");
+  });
+});
+
+describe("DagNode favorites", () => {
+  it("renders a filled ★ for a favorited node and toggles on click", () => {
+    const toggled: string[] = [];
+    const view = {
+      selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
+      matched: null, spotlight: null, filtered: null, search: "",
+      favorites: new Set<string>(["n"]), onToggleFavorite: (id: string) => toggled.push(id),
+    };
+    const { getByLabelText } = render(
+      <ViewContext.Provider value={view}>
+        <DagNode id="n" data={{ label: "n", layer: "model", materialized: "", testCount: 0 }} />
+      </ViewContext.Provider>,
+    );
+    const star = getByLabelText("unfavorite");
+    expect(star.textContent).toBe("★");
+    fireEvent.click(star);
+    expect(toggled).toEqual(["n"]);
   });
 });
