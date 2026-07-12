@@ -59,14 +59,14 @@ const sameList = (a: string[], b: string[]) =>
 const EMPTY_STYLES: Map<string, { name: string; color: string }> = new Map();
 
 /** A quiet ⓘ affordance next to an editor header. Focusable and labelled;
- * reveals a short explanation on hover, focus, or click (and the native
- * title tooltip as a keyboard/hover fallback). */
+ * reveals a short explanation on hover, focus, or click. No native `title`
+ * attribute — it would double up with the styled tooltip below. */
 function InfoIcon({ label, text }: { label: string; text: string }) {
   const [open, setOpen] = useState(false);
   return (
     <span style={{ position: "relative", display: "inline-flex" }}>
       <button
-        type="button" aria-label={label} title={text}
+        type="button" aria-label={label}
         onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
         onClick={() => setOpen((v) => !v)}
@@ -1193,12 +1193,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   title="subject areas"
                   info={
                     "Group related models into a named, bounded zone on the DAG (e.g. 'Order Ledger'). A model can belong to several.\n\n" +
-                    "Customise a zone's display name + colour in lineage.yml at your dbt project root:\n\n" +
+                    "The chip text you type IS the key. Give it a display name + colour by adding an entry with that SAME key to lineage.yml at your dbt project root:\n\n" +
                     "areas:\n" +
                     "  order_ledger:\n" +
                     "    name: 'Order Ledger'\n" +
                     "    color: '#8b5cf6'\n\n" +
-                    "The key (order_ledger) is what you type here; without an entry the key is shown as-is in grey."
+                    "So a chip typed `order_ledger` shows as 'Order Ledger'. No entry → the chip shows the raw key in grey. Tip: type a short lowercase key (journals), let name do the capitalizing."
                   }
                   values={areasDraft}
                   onChange={setAreasDraft}
@@ -1211,12 +1211,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   title="labels"
                   info={
                     "Tag models with a coloured stripe + a filter chip (e.g. Core, PII). A model can have several.\n\n" +
-                    "Customise a label's display name + colour in lineage.yml at your dbt project root:\n\n" +
+                    "The chip text you type IS the key. Give it a display name + colour by adding an entry with that SAME key to lineage.yml at your dbt project root:\n\n" +
                     "labels:\n" +
                     "  core:\n" +
                     "    name: 'Core'\n" +
                     "    color: '#22d3ee'\n\n" +
-                    "The key (core) is what you type here; without an entry the key is shown as-is in grey."
+                    "No entry → the chip shows the raw key in grey."
                   }
                   values={labelsDraft}
                   onChange={setLabelsDraft}
