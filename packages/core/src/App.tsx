@@ -19,7 +19,7 @@ import { ZonesOverlay } from "./ZonesOverlay";
 import { CalloutOverlay } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
 import { LabelBar } from "./LabelBar";
-import { resolveStyles, type Style } from "./styles";
+import { resolveStyles } from "./styles";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -314,19 +314,51 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       return next;
     });
 
-  const onLabelColor = async (label: string, color: string) => {
-    // Optimistic: update in-memory styles immediately, then persist the sidecar.
-    setAnnotations((a) => ({
-      ...a,
-      labels: { ...a.labels, [label]: { name: a.labels[label]?.name ?? label, color } },
-    }));
+  // A native <input type="color"> fires onChange continuously while the user
+  // drags in the picker. Applying every value would (a) rebuild the whole
+  // node array on every frame (label colors live in node data, keyed off
+  // nodeBuildKey — see Invariant 1) and (b) launch an unserialized
+  // read-modify-write per frame that can clobber an in-flight sidecar write.
+  // So: debounce to the LATEST {label,color} and serialize the persist —
+  // only one read→modify→write in flight at a time, with a newer value that
+  // arrives mid-write flushed right after (never lost, never interleaved).
+  const labelColorRef = useRef<{ label: string; color: string } | null>(null);
+  const labelColorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const labelColorWriting = useRef(false);
+  const labelColorPending = useRef(false);
+
+  const persistLabelColor = async () => {
+    if (labelColorWriting.current) { labelColorPending.current = true; return; }
+    const next = labelColorRef.current;
+    if (!next) return;
+    labelColorWriting.current = true;
+    labelColorPending.current = false;
     try {
       const existing = await invoke<string | null>("fs.readText", { path: SIDECAR_PATH });
-      const text = setSidecarColor(existing, "labels", label, color);
+      const text = setSidecarColor(existing, "labels", next.label, next.color);
       await invoke<boolean>("fs.writeText", { path: SIDECAR_PATH, text });
     } catch (e) {
       setError(String((e as Error).message ?? e));
+    } finally {
+      labelColorWriting.current = false;
+      if (labelColorPending.current) void persistLabelColor();
     }
+  };
+
+  const onLabelColor = (label: string, color: string) => {
+    labelColorRef.current = { label, color };
+    clearTimeout(labelColorTimer.current);
+    labelColorTimer.current = setTimeout(() => {
+      const next = labelColorRef.current;
+      if (!next) return;
+      // Optimistic: update in-memory styles once the drag settles, then
+      // persist the sidecar (same shape as before, just coalesced).
+      setAnnotations((a) => ({
+        ...a,
+        labels: { ...a.labels, [next.label]: { name: a.labels[next.label]?.name ?? next.label, color: next.color } },
+      }));
+      void persistLabelColor();
+    }, 150);
   };
 
   // The graph id of the OPEN model (focal name → node). null when the name

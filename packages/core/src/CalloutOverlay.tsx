@@ -1,7 +1,6 @@
 import { ViewportPortal } from "@xyflow/react";
 import { type Pt } from "./zones";
-
-const NODE_W = 180;
+import { NODE_W } from "./layout";
 
 interface CalloutOverlayProps {
   nodes: { id: string; meta?: Record<string, unknown> }[];
