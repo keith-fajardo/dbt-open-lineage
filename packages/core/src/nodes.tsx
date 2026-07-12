@@ -10,10 +10,15 @@ export type DimView = Pick<ViewState, "selected" | "active" | "up" | "down" | "m
  * non-members. */
 export function isDimmed(id: string, v: DimView): boolean {
   if (id === v.active) return false;
-  if (v.selected != null) return !(id === v.selected || v.up.has(id) || v.down.has(id));
+  // Compose every dim reason so they stack: a spotlight/filter narrows even
+  // while a node is selected (previously a selection short-circuited and
+  // ignored spotlight/filter, so picking a spotlight did nothing until you
+  // clicked away to deselect).
   const spotlit = v.spotlight == null || v.spotlight.has(id);
   const inFilter = v.filtered == null || v.filtered.has(id);
-  return (v.matched != null && !v.matched.has(id)) || !spotlit || !inFilter;
+  const bySelector = v.matched != null && !v.matched.has(id);
+  const offLineage = v.selected != null && !(id === v.selected || v.up.has(id) || v.down.has(id));
+  return !spotlit || !inFilter || bySelector || offLineage;
 }
 
 const LAYER_COLOR: Record<string, string> = {

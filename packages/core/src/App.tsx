@@ -317,7 +317,6 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const labelStyles = useMemo(() => resolveStyles(annotations.labels, allLabels), [annotations, allLabels]);
 
   const [areasVisible, setAreasVisible] = useState<Set<string>>(new Set());
-  const [zoneShape, setZoneShape] = useState<"box" | "hull">("box");
   const [spotArea, setSpotArea] = useState<string | null>(null);
   const [showCallouts, setShowCallouts] = useState(true);
   const [labelFilter, setLabelFilter] = useState<Set<string>>(new Set());
@@ -857,8 +856,6 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               onVisibleChange={setAreasVisible}
               spot={spotArea}
               onSpot={setSpotArea}
-              shape={zoneShape}
-              onShape={setZoneShape}
             />
             <span style={SECTION_LABEL}>Draw</span>
             <div style={{ display: "inline-flex", background: "#0b1220", border: "1px solid #334155", borderRadius: 7, overflow: "hidden" }}>
@@ -968,7 +965,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               positions={positioned}
               styles={areaStyles}
               areasVisible={areasVisible}
-              shape={zoneShape}
+              shape="box"
             />
             {showCallouts && (
               <CalloutOverlay
