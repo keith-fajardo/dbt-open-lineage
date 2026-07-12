@@ -27,4 +27,15 @@ describe("parseAnnotations", () => {
     expect(a.areas.web_session.label).toBe("web_session");
     expect(a.areas.web_session.color).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
+
+  it("returns empty when yaml.parse() throws on malformed input", () => {
+    const malformed = "foo:\n  - bar\n bar: 1";
+    const a = parseAnnotations(malformed);
+    expect(a).toEqual(EMPTY_ANNOTATIONS);
+  });
+
+  it("rejects arrays in style maps", () => {
+    const a = parseAnnotations("areas:\n  - foo\n  - bar\n");
+    expect(a.areas).toEqual({});
+  });
 });

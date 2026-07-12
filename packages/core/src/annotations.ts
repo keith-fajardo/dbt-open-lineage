@@ -24,7 +24,7 @@ export function fallbackColor(index: number): string {
 
 function toStyleMap(raw: unknown): Record<string, AreaStyle> {
   const out: Record<string, AreaStyle> = {};
-  if (!raw || typeof raw !== "object") return out;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
   let i = 0;
   for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
     const v = (val && typeof val === "object" ? val : {}) as { label?: unknown; color?: unknown };
