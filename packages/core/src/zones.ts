@@ -10,6 +10,13 @@ export function nodeAreas(node: { meta?: Record<string, unknown> }): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
+/** The labels a node declares, via `meta.labels` (a string list). Tolerant
+ * of a missing/mistyped value: always returns a string[]. */
+export function nodeLabels(node: { meta?: Record<string, unknown> }): string[] {
+  const v = node.meta?.labels;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
 /** Ids of the nodes that belong to `area`. */
 export function areaMembers(
   nodes: { id: string; meta?: Record<string, unknown> }[], area: string,

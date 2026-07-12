@@ -14,9 +14,10 @@ import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
-import { nodeAreas, areaMembers } from "./zones";
+import { nodeAreas, nodeLabels, areaMembers } from "./zones";
 import { ZonesOverlay } from "./ZonesOverlay";
 import { AreaControl } from "./AreaControl";
+import { resolveStyles, type Style } from "./styles";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
 
@@ -137,6 +138,15 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     if (graph) for (const n of graph.nodes) for (const a of nodeAreas(n)) set.add(a);
     return [...set].sort();
   }, [graph, annotations]);
+
+  const allLabels = useMemo(() => {
+    const set = new Set<string>(Object.keys(annotations.labels));
+    if (graph) for (const n of graph.nodes) for (const l of nodeLabels(n)) set.add(l);
+    return [...set].sort();
+  }, [graph, annotations]);
+
+  const areaStyles = useMemo(() => resolveStyles(annotations.areas, allAreas), [annotations, allAreas]);
+  const labelStyles = useMemo(() => resolveStyles(annotations.labels, allLabels), [annotations, allLabels]);
 
   const [areasVisible, setAreasVisible] = useState<Set<string>>(new Set());
   const [zoneShape, setZoneShape] = useState<"box" | "hull">("box");
@@ -433,7 +443,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           </label>
           <AreaControl
             areas={allAreas}
-            annotations={annotations}
+            styles={areaStyles}
             visible={areasVisible}
             onVisibleChange={setAreasVisible}
             spot={spotArea}
@@ -529,7 +539,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             <ZonesOverlay
               nodes={graph?.nodes ?? []}
               positions={positioned}
-              annotations={annotations}
+              styles={areaStyles}
               areasVisible={areasVisible}
               shape={zoneShape}
             />

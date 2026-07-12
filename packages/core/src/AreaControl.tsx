@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { fallbackColor, type Annotations } from "./annotations";
+import { type Style } from "./styles";
 
 interface AreaControlProps {
   areas: string[];
-  annotations: Annotations;
+  styles: Map<string, Style>;
   visible: Set<string>;
   onVisibleChange: (next: Set<string>) => void;
   spot: string | null;
@@ -46,14 +46,14 @@ export function AreaControl(p: AreaControlProps) {
             position: "absolute", left: 0, top: "110%", zIndex: 20, minWidth: 220,
             background: "#111827", border: "1px solid #334155", borderRadius: 6, padding: 4,
           }}>
-            {p.areas.map((area, i) => {
-              const st = p.annotations.areas[area] ?? { label: area, color: fallbackColor(i) };
+            {p.areas.map((area) => {
+              const st = p.styles.get(area) ?? { name: area, color: "#64748b" };
               return (
                 <label key={area} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
                   color: "#e5e7eb", fontSize: 13, cursor: "pointer" }}>
                   <input type="checkbox" checked={p.visible.has(area)} onChange={() => toggle(area)} />
                   <span style={{ width: 11, height: 11, borderRadius: 3, background: st.color }} />
-                  {st.label}
+                  {st.name}
                 </label>
               );
             })}
@@ -69,8 +69,8 @@ export function AreaControl(p: AreaControlProps) {
           background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontSize: 13 }}
       >
         <option value="">Spotlight: none</option>
-        {p.areas.map((area, i) => (
-          <option key={area} value={area}>{p.annotations.areas[area]?.label ?? area}</option>
+        {p.areas.map((area) => (
+          <option key={area} value={area}>{p.styles.get(area)?.name ?? area}</option>
         ))}
       </select>
     </div>

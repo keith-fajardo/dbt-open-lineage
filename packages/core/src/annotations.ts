@@ -1,7 +1,7 @@
 import { parse } from "yaml";
 
-export interface AreaStyle { label: string; color: string }
-export interface LabelStyle { label: string; color: string }
+export interface AreaStyle { name: string; color: string }
+export interface LabelStyle { name: string; color: string }
 export interface Annotations {
   areas: Record<string, AreaStyle>;
   labels: Record<string, LabelStyle>;
@@ -27,9 +27,9 @@ function toStyleMap(raw: unknown): Record<string, AreaStyle> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
   let i = 0;
   for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
-    const v = (val && typeof val === "object" ? val : {}) as { label?: unknown; color?: unknown };
+    const v = (val && typeof val === "object" ? val : {}) as { name?: unknown; color?: unknown };
     out[key] = {
-      label: typeof v.label === "string" ? v.label : key,
+      name: typeof v.name === "string" ? v.name : key,
       color: typeof v.color === "string" ? v.color : fallbackColor(i),
     };
     i++;
@@ -38,7 +38,7 @@ function toStyleMap(raw: unknown): Record<string, AreaStyle> {
 }
 
 /** Parse the style sidecar text. Tolerant: any shape that is not a map of
- * `{ label?, color? }` entries collapses to empty. */
+ * `{ name?, color? }` entries collapses to empty. */
 export function parseAnnotations(text: string | null): Annotations {
   if (!text || !text.trim()) return EMPTY_ANNOTATIONS;
   let doc: unknown;

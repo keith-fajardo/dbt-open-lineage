@@ -8,23 +8,25 @@ describe("parseAnnotations", () => {
     expect(parseAnnotations("just a string")).toEqual(EMPTY_ANNOTATIONS);
   });
 
-  it("parses area and label styles", () => {
+  it("parses area and label styles (block form)", () => {
     const src = [
       "areas:",
-      '  order_ledger: { label: "Order Ledger", color: "#8b5cf6" }',
-      '  discounts:    { label: "Discounts",    color: "#6366f1" }',
+      "  order_ledger:",
+      '    name: "Order Ledger"',
+      '    color: "#8b5cf6"',
       "labels:",
-      '  core: { label: "Core", color: "#ef4444" }',
+      "  core:",
+      '    name: "Core"',
+      '    color: "#ef4444"',
     ].join("\n");
     const a = parseAnnotations(src);
-    expect(a.areas.order_ledger).toEqual({ label: "Order Ledger", color: "#8b5cf6" });
-    expect(a.areas.discounts.color).toBe("#6366f1");
-    expect(a.labels.core).toEqual({ label: "Core", color: "#ef4444" });
+    expect(a.areas.order_ledger).toEqual({ name: "Order Ledger", color: "#8b5cf6" });
+    expect(a.labels.core).toEqual({ name: "Core", color: "#ef4444" });
   });
 
-  it("defaults a missing label to the key and a missing color to the fallback palette", () => {
+  it("defaults a missing name to the key and a missing color to the fallback palette", () => {
     const a = parseAnnotations("areas:\n  web_session: {}\n");
-    expect(a.areas.web_session.label).toBe("web_session");
+    expect(a.areas.web_session.name).toBe("web_session");
     expect(a.areas.web_session.color).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
 
