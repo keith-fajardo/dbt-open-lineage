@@ -1,0 +1,102 @@
+import { describe, it, expect } from "vitest";
+import { resolveSelector, focalName } from "./selector";
+import type { Graph } from "./graphTypes";
+
+// a → b → c → d   (linear chain by name), with method-selector metadata:
+// tags: b,c = nightly; materialization: c = table (rest unset);
+// meta: b = {owner: "finance", pii: true}, c = {owner: {team: "data"}}.
+const g: Graph = {
+  nodes: ["a", "b", "c", "d"].map((n) => ({
+    id: n, name: n, resource_type: "model", layer: "staging", path: "", description: "",
+    tags: n === "b" || n === "c" ? ["nightly"] : [],
+    materialized: n === "c" ? "table" : "",
+    meta: n === "b" ? { owner: "finance", pii: true }
+      : n === "c" ? { owner: { team: "data" } } : {},
+  })),
+  edges: [
+    { from: "a", to: "b" },
+    { from: "b", to: "c" },
+    { from: "c", to: "d" },
+  ],
+};
+const ids = (q: string) => [...resolveSelector(g, q)].sort();
+
+describe("resolveSelector", () => {
+  it("empty query = whole graph", () => expect(ids("")).toEqual(["a", "b", "c", "d"]));
+  it("bare name = just that node", () => expect(ids("b")).toEqual(["b"]));
+  it("model+ = node + all descendants", () => expect(ids("b+")).toEqual(["b", "c", "d"]));
+  it("+model = all ancestors + node", () => expect(ids("+c")).toEqual(["a", "b", "c"]));
+  it("+model+ = ancestors + node + descendants", () => expect(ids("+b+")).toEqual(["a", "b", "c", "d"]));
+  it("model+N = N hops down", () => expect(ids("a+2")).toEqual(["a", "b", "c"]));
+  it("N+model = N hops up", () => expect(ids("2+d")).toEqual(["b", "c", "d"]));
+  it("union of terms", () => expect(ids("a b")).toEqual(["a", "b"]));
+  it("unknown name = empty set", () => expect(ids("zzz")).toEqual([]));
+  // dbt comma = intersection: "a+,+d" is the path FROM a TO d.
+  it("comma intersects (path between two models)", () =>
+    expect(ids("a+,+d")).toEqual(["a", "b", "c", "d"]));
+  it("comma intersection narrows to the overlap only", () =>
+    expect(ids("a+2,2+d")).toEqual(["b", "c"]));
+  it("comma with a non-overlapping pair = empty set", () =>
+    expect(ids("a,d")).toEqual([]));
+  it("intersection tokens still union with other tokens", () =>
+    expect(ids("a+2,2+d a")).toEqual(["a", "b", "c"]));
+  it("stray commas are ignored", () => expect(ids("a,,b+,")).toEqual([]));
+
+  // dbt method selectors
+  it("tag: matches every node carrying the tag", () => expect(ids("tag:nightly")).toEqual(["b", "c"]));
+  it("tag: composes with hops", () => expect(ids("+tag:nightly")).toEqual(["a", "b", "c"]));
+  it("config.materialized: matches", () => expect(ids("config.materialized:table")).toEqual(["c"]));
+  it("config.meta.<key>: matches strings", () => expect(ids("config.meta.owner:finance")).toEqual(["b"]));
+  it("config.meta matches non-string values textually", () => expect(ids("config.meta.pii:true")).toEqual(["b"]));
+  it("config.meta supports nested keys", () => expect(ids("config.meta.owner.team:data")).toEqual(["c"]));
+  it("methods intersect with commas", () => expect(ids("tag:nightly,config.materialized:table")).toEqual(["c"]));
+  it("unknown method = empty set", () => expect(ids("owner:finance")).toEqual([]));
+
+  // --exclude: subtract a second selector from the selection (dbt-style).
+  it("--exclude subtracts by name", () => expect(ids("a+ --exclude b")).toEqual(["a", "c", "d"]));
+  it("--exclude subtracts by method", () =>
+    expect(ids("a+ --exclude config.materialized:table")).toEqual(["a", "b", "d"]));
+  it("--exclude works with hops", () => expect(ids("a+ --exclude 2+d")).toEqual(["a"]));
+  it("bare --exclude means everything except the excluded", () =>
+    expect(ids("--exclude tag:nightly")).toEqual(["a", "d"]));
+  it("multiple --exclude flags union", () =>
+    expect(ids("+d --exclude a --exclude b")).toEqual(["c", "d"]));
+  it("trailing --exclude with nothing after it excludes nothing", () =>
+    expect(ids("a --exclude")).toEqual(["a"]));
+
+  // unused:sources — sources with no downstream consumers at all.
+  const gs: Graph = {
+    nodes: [
+      { id: "s_used", name: "s_used", resource_type: "source", layer: "source", path: "", description: "" },
+      { id: "s_orphan", name: "s_orphan", resource_type: "source", layer: "source", path: "", description: "" },
+      { id: "s_lonely", name: "s_lonely", resource_type: "source", layer: "source", path: "", description: "" },
+      { id: "m1", name: "m1", resource_type: "model", layer: "staging", path: "", description: "" },
+    ],
+    edges: [{ from: "s_used", to: "m1" }],
+  };
+  const ids2 = (q: string) => [...resolveSelector(gs, q)].sort();
+
+  it("unused:sources selects only sources with no downstream models", () =>
+    expect(ids2("unused:sources")).toEqual(["s_lonely", "s_orphan"]));
+  it("--exclude unused:sources hides them from the graph", () =>
+    expect(ids2("--exclude unused:sources")).toEqual(["m1", "s_used"]));
+  it("unused with any other value matches nothing", () =>
+    expect(ids2("unused:models")).toEqual([]));
+  it("unused sources never include a model without consumers", () =>
+    // m1 has no downstream either, but it's a model — not a source.
+    expect(ids2("unused:sources").includes("m1")).toBe(false));
+});
+
+describe("focalName — the open model behind a +model+ push", () => {
+  it("strips the surrounding hop operators", () => {
+    expect(focalName("+dim_date+")).toBe("dim_date");
+    expect(focalName("2+dim_date+3")).toBe("dim_date");
+    expect(focalName("dim_date")).toBe("dim_date");
+  });
+  it("returns '' for anything that doesn't name one focal model", () => {
+    expect(focalName("")).toBe("");
+    expect(focalName("tag:mart")).toBe("");         // method selector
+    expect(focalName("a+ +b")).toBe("");            // multi-token
+    expect(focalName("a+,+b")).toBe("");            // comma-intersection
+  });
+});

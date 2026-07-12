@@ -1,0 +1,118 @@
+import { describe, it, expect } from "vitest";
+import { parse } from "yaml";
+import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
+
+describe("targetYamlPath", () => {
+  it("uses patch_path when present", () => {
+    expect(targetYamlPath({ name: "stg_orders", path: "models/staging/stg_orders.sql", patch_path: "models/staging/_stg__models.yml" }))
+      .toBe("models/staging/_stg__models.yml");
+  });
+  it("falls back to a per-model sidecar in the model's folder", () => {
+    expect(targetYamlPath({ name: "stg_orders", path: "models/staging/stg_orders.sql" }))
+      .toBe("models/staging/_stg_orders.yml");
+  });
+});
+
+describe("upsertModelDoc", () => {
+  it("updates an existing entry and preserves comments", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders  # the orders staging model",
+      "    description: old",
+    ].join("\n");
+    const out = upsertModelDoc(src, "stg_orders", "new desc", "rolls up raw orders");
+    expect(out).toContain("# the orders staging model");
+    const doc = parse(out);
+    expect(doc.models[0].description).toBe("new desc");
+    expect(doc.models[0].config.meta.gist).toBe("rolls up raw orders");
+  });
+
+  it("appends a model absent from an existing file", () => {
+    const src = "version: 2\nmodels:\n  - name: other\n    description: keep\n";
+    const out = upsertModelDoc(src, "stg_orders", "d", "g");
+    const doc = parse(out);
+    expect(doc.models.map((m: { name: string }) => m.name)).toEqual(["other", "stg_orders"]);
+    expect(doc.models[0].description).toBe("keep");
+    expect(doc.models[1].config.meta.gist).toBe("g");
+  });
+
+  it("preserves a comment on a pre-existing sibling entry when appending a new model", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: other  # do not touch this comment",
+      "    description: keep",
+    ].join("\n");
+    const out = upsertModelDoc(src, "stg_orders", "d", "g");
+    expect(out).toContain("# do not touch this comment");
+    const doc = parse(out);
+    expect(doc.models.map((m: { name: string }) => m.name)).toEqual(["other", "stg_orders"]);
+    expect(doc.models[0].description).toBe("keep");
+    expect(doc.models[1].name).toBe("stg_orders");
+    expect(doc.models[1].description).toBe("d");
+    expect(doc.models[1].config.meta.gist).toBe("g");
+  });
+
+  it("does not re-wrap long lines it never touched", () => {
+    const longDesc =
+      "Foreign key to the Salesforce RecordType for this account (e.g. Practice, Group).";
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    columns:",
+      "      - name: recordtype_id",
+      `        description: ${longDesc}`,
+    ].join("\n");
+    const out = upsertModelDoc(src, "stg_orders", "d", "add a gist");
+    // The untouched long column description must stay on ONE line (no folding).
+    expect(out).toContain(`description: ${longDesc}`);
+  });
+
+  it("preserves an existing config block, adding only config.meta.gist", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: dim_account",
+      "    description: old",
+      "    config:",
+      "      materialized: table",
+      "      tags: [daily]",
+      "      meta:",
+      "        owner: analytics",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "dim_account", "new", "the gist"));
+    expect(doc.models[0].config.materialized).toBe("table");
+    expect(doc.models[0].config.tags).toEqual(["daily"]);
+    expect(doc.models[0].config.meta.owner).toBe("analytics"); // sibling meta key kept
+    expect(doc.models[0].config.meta.gist).toBe("the gist");   // gist added alongside
+    expect(doc.models[0].description).toBe("new");
+  });
+
+  it("places a new config block right under description (above columns)", () => {
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: dim_account",
+      "    description: an account dimension",
+      "    columns:",
+      "      - name: id",
+    ].join("\n");
+    const out = upsertModelDoc(src, "dim_account", "an account dimension", "one gist");
+    const lines = out.split("\n");
+    const di = lines.findIndex((l) => l.includes("description:"));
+    const ci = lines.findIndex((l) => l.trimStart().startsWith("config:"));
+    const coli = lines.findIndex((l) => l.trimStart().startsWith("columns:"));
+    expect(ci).toBeGreaterThan(di);   // config after description
+    expect(ci).toBeLessThan(coli);    // and before columns
+  });
+
+  it("creates a fresh doc when there is no file yet", () => {
+    const doc = parse(upsertModelDoc(null, "stg_orders", "d", "g"));
+    expect(doc.version).toBe(2);
+    expect(doc.models[0].name).toBe("stg_orders");
+    expect(doc.models[0].description).toBe("d");
+    expect(doc.models[0].config.meta.gist).toBe("g");
+  });
+});

@@ -1,0 +1,348 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import type { Graph } from "./graphTypes";
+
+// jsdom has no ResizeObserver; React Flow needs one to measure its pane.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+
+// a → b → c plus a disconnected d (for lineage de-emphasis assertions).
+const g: Graph = {
+  nodes: ["a", "b", "c", "d"].map((n) => ({
+    id: n, name: n, resource_type: "model", layer: "staging", path: "m.sql", description: "",
+    materialized: n === "a" ? "table" : "",
+    tests: n === "a" ? ["not_null_a_id", "unique_a_id"] : [],
+  })),
+  edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }],
+};
+
+// Single-model graph for the editable description/gist panel tests.
+const oneModelGraph: Graph = {
+  nodes: [{
+    id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+    layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+  }],
+  edges: [],
+};
+
+// mock the bridge + spy on layout to prove it runs once; capture the context
+// subscription so tests can push host "context" updates. `invoke` is
+// command-aware: dbt.manifest/dbt.compile serve whichever graph the current
+// test set via `manifestGraph`, and the panel-edit tests need fs.readText /
+// fs.writeText / dbt.gist stubbed too.
+let contextCb: ((v: string) => void) | null = null;
+let manifestGraph: Graph = g;
+const saveExport = vi.fn(async () => true);
+const openInIde = vi.fn(async () => true);
+const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) => {
+  if (cmd === "dbt.manifest" || cmd === "dbt.compile") return manifestGraph;
+  if (cmd === "fs.readText") return null;
+  if (cmd === "fs.writeText") return true;
+  if (cmd === "dbt.gist") return "AI gist";
+  return null;
+});
+vi.mock("./bridge", () => ({
+  invoke: (...a: unknown[]) => invokeMock(...(a as [string, Record<string, unknown>])),
+  onContext: (cb: (v: string) => void) => { contextCb = cb; return () => { contextCb = null; }; },
+  saveExport: (...a: unknown[]) => saveExport(...(a as [])),
+  openInIde: (...a: unknown[]) => openInIde(...(a as [])),
+}));
+const layoutSpy = vi.fn();
+vi.mock("./layout", async (orig) => {
+  const real = (await orig()) as typeof import("./layout");
+  // Spy records the node count so tests can assert WHICH graph got laid out
+  // (full graph vs filtered subgraph).
+  return { layoutGraph: (graph: Graph) => { layoutSpy(graph.nodes.length); return real.layoutGraph(graph); } };
+});
+
+import App, { lineageOf, edgeOnLineage } from "./App";
+
+beforeEach(() => { layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g; });
+afterEach(cleanup);
+
+describe("dbt DAG App", () => {
+  it("loads the graph via the bridge and lays out once", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(layoutSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("changing the selector does NOT re-run layout (no-freeze)", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByPlaceholderText(/select/i), { target: { value: "a+" } });
+    await waitFor(() => expect(screen.getByPlaceholderText(/select/i)).toHaveValue("a+"));
+    expect(layoutSpy).toHaveBeenCalledTimes(1); // still once
+  });
+
+  it("Enter applies the selector as a filter — only matched nodes remain, laid out compactly", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "a" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByText("b")).not.toBeInTheDocument());
+    expect(screen.queryByText("c")).not.toBeInTheDocument();
+    expect(screen.getAllByText("a").length).toBeGreaterThan(0);
+    // The filtered view re-lays-out the visible SUBGRAPH (1 node), so nodes
+    // sit compactly instead of keeping full-graph positions.
+    expect(layoutSpy).toHaveBeenLastCalledWith(1);
+    // Clearing + Enter restores the full graph.
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
+    expect(layoutSpy).toHaveBeenLastCalledWith(4);
+  });
+
+  it("starts committed+focused on an initial selector (inline Lineage panel)", async () => {
+    render(<App projectPath="/proj" initialSelector="+b+" debounceMs={0} />);
+    // The input is pre-filled with the +model+ selector…
+    expect(screen.getByPlaceholderText(/select/i)).toHaveValue("+b+");
+    // …and the DAG is already filtered to b's lineage (a, b, c — not d).
+    await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("a").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("c").length).toBeGreaterThan(0);
+    expect(screen.queryByText("d")).not.toBeInTheDocument();
+  });
+
+  it("retargets the DAG when the host pushes a new context", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("d").length).toBeGreaterThan(0));
+    expect(contextCb).not.toBeNull();
+    act(() => contextCb!("+c+"));
+    // Selector input follows, and the view narrows to c's lineage (a, b, c).
+    await waitFor(() => expect(screen.getByPlaceholderText(/select/i)).toHaveValue("+c+"));
+    await waitFor(() => expect(screen.queryByText("d")).not.toBeInTheDocument());
+    expect(screen.getAllByText("a").length).toBeGreaterThan(0);
+  });
+
+  it("clears a hand-picked node selection when the host pushes a new context", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
+    // Select a node by hand: the details side panel opens.
+    fireEvent.click(screen.getAllByText("b")[0]);
+    await screen.findByRole("complementary");
+    // The IDE switches to another model — the stale selection must reset.
+    act(() => contextCb!("+a+"));
+    await waitFor(() => expect(screen.queryByRole("complementary")).not.toBeInTheDocument());
+  });
+
+  it("has no refresh button", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.queryByText(/refresh/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("node click side panel", () => {
+  it("shows the selected node's path/type/description when a node is programmatically selected", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
+    const nodeEls = await screen.findAllByText("a");
+    fireEvent.click(nodeEls[0]);
+    const panel = await screen.findByRole("complementary");
+    await waitFor(() => expect(panel).toHaveTextContent("m.sql"));
+    expect(panel).toHaveTextContent("model");
+  });
+
+  it("shows materialization and the attached tests", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
+    fireEvent.click((await screen.findAllByText("a"))[0]);
+    const panel = await screen.findByRole("complementary");
+    await waitFor(() => expect(panel).toHaveTextContent("materialization"));
+    expect(panel).toHaveTextContent("table");
+    expect(panel).toHaveTextContent("not_null_a_id");
+    expect(panel).toHaveTextContent("unique_a_id");
+    // A node without materialization/tests shows placeholders, not stale data.
+    fireEvent.click(screen.getAllByText("b")[0]);
+    await waitFor(() => expect(screen.getByRole("complementary")).not.toHaveTextContent("not_null_a_id"));
+  });
+
+  it("resizes via the left-edge drag handle", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
+    fireEvent.click((await screen.findAllByText("a"))[0]);
+    const panel = await screen.findByRole("complementary");
+    expect(panel).toHaveStyle({ width: "280px" });
+    const handle = screen.getByRole("separator", { name: "Resize details" });
+    // Dispatch MouseEvents with pointer event TYPES: jsdom builds without a
+    // PointerEvent constructor drop clientX from fireEvent.pointerDown, which
+    // silently turns the drag math into NaN.
+    act(() => {
+      handle.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 400 }));
+      window.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 300 })); // left = wider
+      window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+    });
+    expect(panel).toHaveStyle({ width: "380px" });
+  });
+});
+
+describe("lineageOf", () => {
+  it("walks the full upstream and downstream cones", () => {
+    const lin = lineageOf(g, "b");
+    expect([...lin.up]).toEqual(["a"]);
+    expect([...lin.down]).toEqual(["c"]);
+  });
+
+  it("excludes disconnected nodes and handles endpoints", () => {
+    expect(lineageOf(g, "b").up.has("d")).toBe(false);
+    expect(lineageOf(g, "a").up.size).toBe(0);
+    expect([...lineageOf(g, "a").down].sort()).toEqual(["b", "c"]);
+    expect(lineageOf(g, null).down.size).toBe(0);
+  });
+
+  it("is transitive across multiple hops", () => {
+    const lin = lineageOf(g, "c");
+    expect([...lin.up].sort()).toEqual(["a", "b"]);
+    expect(lin.down.size).toBe(0);
+  });
+});
+
+describe("lineage emphasis on node click", () => {
+  it("emphasizes the full up/down cone, dims the rest, animates lineage edges", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText("b")[0]);
+    // a (upstream) and c (downstream) stay fully visible; d is de-emphasized.
+    // (labels sit in an inner wrapping span — opacity lives on the node box)
+    const box = (name: string) => screen.getAllByText(name)[0].parentElement!;
+    await waitFor(() => expect(box("d")).toHaveStyle({ opacity: "0.18" }));
+    expect(box("a")).toHaveStyle({ opacity: "1" });
+    expect(box("c")).toHaveStyle({ opacity: "1" });
+  });
+});
+
+describe("draggable nodes", () => {
+  it("keeps a dragged position over the computed layout, and resets on re-layout", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
+    // React Flow wires node dragging itself; assert the wrapper is configured
+    // draggable (the class React Flow stamps on draggable nodes).
+    const nodeEl = screen.getAllByText("a")[0].closest(".react-flow__node");
+    expect(nodeEl).not.toBeNull();
+    expect(nodeEl!.className).toContain("draggable");
+  });
+});
+
+describe("search bar", () => {
+  it("highlights matching node labels live and shows the match count", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(document.querySelector("mark")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Search nodes"), { target: { value: "a" } });
+    // Node "a" gets its text marked, and the toolbar reports one hit.
+    await waitFor(() => expect(document.querySelectorAll("mark").length).toBeGreaterThan(0));
+    expect(screen.getByText("1 match")).toBeInTheDocument();
+    // Clearing removes all highlights.
+    fireEvent.change(screen.getByLabelText("Search nodes"), { target: { value: "" } });
+    await waitFor(() => expect(document.querySelector("mark")).toBeNull());
+  });
+
+  it("reports zero matches for a name not in the DAG", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText("Search nodes"), { target: { value: "zzz" } });
+    expect(await screen.findByText("0 matches")).toBeInTheDocument();
+    expect(document.querySelector("mark")).toBeNull();
+  });
+});
+
+describe("open in editor", () => {
+  it("double-clicking a node asks the host to open its file", async () => {
+    openInIde.mockClear();
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.doubleClick(screen.getAllByText("a")[0]);
+    await waitFor(() => expect(openInIde).toHaveBeenCalledWith("m.sql"));
+  });
+});
+
+describe("export", () => {
+  it("downloads the SELECTED set as CSV through the host bridge", async () => {
+    saveExport.mockClear();
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    // Select b's lineage (a, b, c — d excluded), then export as CSV.
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "+b+" } });
+    await waitFor(() => expect(input).toHaveValue("+b+"));
+    fireEvent.click(screen.getByRole("button", { name: /export/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /csv/i }));
+    await waitFor(() => expect(saveExport).toHaveBeenCalled());
+    const [filename, b64] = saveExport.mock.calls[0] as unknown as [string, string];
+    expect(filename).toBe("dag-selection.csv");
+    const csv = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+    expect(csv).toContain("a,model,staging");
+    expect(csv).toContain("c,model,staging");
+    expect(csv).not.toMatch(/^d,/m); // d is outside the selection
+  });
+
+  it("exports Mermaid with the selection's edges", async () => {
+    saveExport.mockClear();
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: /export/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /mermaid/i }));
+    await waitFor(() => expect(saveExport).toHaveBeenCalled());
+    const [filename, b64] = saveExport.mock.calls[0] as unknown as [string, string];
+    expect(filename).toBe("dag-selection.mmd");
+    const mmd = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+    expect(mmd).toContain("graph LR");
+    expect(mmd).toContain("-->");
+  });
+});
+
+describe("editable description + gist panel", () => {
+  beforeEach(() => { manifestGraph = oneModelGraph; });
+
+  it("edits description + gist and writes YAML on Save", async () => {
+    render(<App projectPath="/proj" />);
+    await screen.findByText("stg_orders");            // node rendered
+    fireEvent.click(screen.getByText("stg_orders"));  // select → details panel
+    const desc = await screen.findByLabelText("description");
+    fireEvent.change(desc, { target: { value: "edited desc" } });
+    const gist = screen.getByLabelText("gist");
+    fireEvent.change(gist, { target: { value: "edited gist" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("fs.writeText", expect.objectContaining({
+        path: "models/staging/_stg_orders.yml",
+      })));
+    const writtenText = invokeMock.mock.calls.find((c) => c[0] === "fs.writeText")![1]!.text as string;
+    expect(writtenText).toContain("edited desc");
+    expect(writtenText).toContain("edited gist");
+  });
+
+  it("sparkle fills the gist field from dbt.gist without saving", async () => {
+    render(<App projectPath="/proj" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    fireEvent.click(await screen.findByRole("button", { name: /generate gist/i }));
+    await waitFor(() => expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("AI gist"));
+    expect(invokeMock).not.toHaveBeenCalledWith("fs.writeText", expect.anything());
+  });
+});
+
+describe("edgeOnLineage", () => {
+  it("marks upstream and downstream edges of the selection, nothing else", () => {
+    const lin = lineageOf(g, "b");
+    expect(edgeOnLineage("b", lin, { from: "a", to: "b" })).toBe(true);  // upstream
+    expect(edgeOnLineage("b", lin, { from: "b", to: "c" })).toBe(true);  // downstream
+    expect(edgeOnLineage(null, lin, { from: "a", to: "b" })).toBe(false); // no selection
+  });
+
+  it("excludes a direct ancestor→descendant edge that bypasses the selection", () => {
+    // a → b → c with an extra shortcut a → c: selecting b must NOT light up a→c.
+    const g2: Graph = { nodes: g.nodes, edges: [...g.edges, { from: "a", to: "c" }] };
+    const lin = lineageOf(g2, "b");
+    expect(edgeOnLineage("b", lin, { from: "a", to: "c" })).toBe(false);
+    expect(edgeOnLineage("b", lin, { from: "a", to: "b" })).toBe(true);
+    expect(edgeOnLineage("b", lin, { from: "b", to: "c" })).toBe(true);
+  });
+});
