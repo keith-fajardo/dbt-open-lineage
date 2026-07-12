@@ -1,7 +1,7 @@
 {
   "name": "@dbt-open-lineage/mext",
   "private": true,
-  "version": "0.5.14",
+  "version": "0.5.15",
   "type": "module",
   "scripts": {
     "build": "vite build",
