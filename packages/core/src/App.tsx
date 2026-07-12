@@ -153,6 +153,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [zoneShape, setZoneShape] = useState<"box" | "hull">("box");
   const [spotArea, setSpotArea] = useState<string | null>(null);
   const [showCallouts, setShowCallouts] = useState(true);
+  const [labelFilter, setLabelFilter] = useState<Set<string>>(new Set());
 
   // Default: show every zone once the area list is known (and whenever it grows).
   useEffect(() => { setAreasVisible(new Set(allAreas)); }, [allAreas]);
@@ -323,6 +324,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     [graph, spotArea],
   );
 
+  const filtered = useMemo(() => {
+    if (!graph || labelFilter.size === 0) return null;
+    return new Set(
+      graph.nodes.filter((n) => nodeLabels(n).some((l) => labelFilter.has(l))).map((n) => n.id),
+    );
+  }, [graph, labelFilter]);
+
   const view: ViewState = useMemo(() => ({
     selected,
     active: activeId,
@@ -331,8 +339,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     // With focus OFF, un-matched nodes dim; with focus ON they're filtered out.
     matched: focus ? null : matched,
     spotlight,
+    filtered,
     search: searchQ,
-  }), [selected, activeId, lineage, focus, matched, spotlight, searchQ]);
+  }), [selected, activeId, lineage, focus, matched, spotlight, filtered, searchQ]);
 
   // Live match count over the nodes actually shown in the DAG.
   const searchHits = useMemo(() => {

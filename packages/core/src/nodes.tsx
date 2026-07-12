@@ -56,9 +56,10 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   // always obvious which node in the cone you're actually looking at.
   const active = id === view.active;
   const spotlit = view.spotlight == null || view.spotlight.has(id);
+  const inFilter = view.filtered == null || view.filtered.has(id);
   const dim = active ? false
     : hasSel ? !inLineage
-    : (view.matched != null && !view.matched.has(id)) || !spotlit;
+    : (view.matched != null && !view.matched.has(id)) || !spotlit || !inFilter;
   const emphasize = hasSel && !selected && inLineage;
   const searchHit = view.search !== "" && data.label.toLowerCase().includes(view.search);
   return (
