@@ -70,13 +70,21 @@ models:
 Holds display style for areas and labels (label text + color). One file, git-diffable.
 
 ```yaml
+# Block or flow mapping both parse identically; block shown here.
 areas:
-  order_ledger: { label: "Order Ledger", color: "#8b5cf6" }
-  web_session:  { label: "Web Session",  color: "#14b8a6" }
-  discounts:    { label: "Discounts",    color: "#6366f1" }
+  order_ledger:
+    name: "Order Ledger"
+    color: "#8b5cf6"
+  web_session:
+    name: "Web Session"
+    color: "#14b8a6"
 labels:
-  core:    { label: "Core",    color: "#ef4444" }
-  revenue: { label: "Revenue", color: "#22c55e" }
+  core:
+    name: "Core"
+    color: "#ef4444"
+  revenue:
+    name: "Revenue"
+    color: "#22c55e"
 ```
 
 Core reads this file through the bridge (`fs.readText`) and parses it with the existing `yaml`
