@@ -316,7 +316,6 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const areaStyles = useMemo(() => resolveStyles(annotations.areas, allAreas), [annotations, allAreas]);
   const labelStyles = useMemo(() => resolveStyles(annotations.labels, allLabels), [annotations, allLabels]);
 
-  const [areasVisible, setAreasVisible] = useState<Set<string>>(new Set());
   const [spotArea, setSpotArea] = useState<string | null>(null);
   const [showCallouts, setShowCallouts] = useState(true);
   const [labelFilter, setLabelFilter] = useState<Set<string>>(new Set());
@@ -347,7 +346,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   }, [graph]);
 
   // Default: show every zone once the area list is known (and whenever it grows).
-  useEffect(() => { setAreasVisible(new Set(allAreas)); }, [allAreas]);
+  // Which zones are drawn follows the spotlight: spotlight one area → only its
+  // zone shows (others dim); none → show every area's zone.
+  const areasVisible = useMemo(
+    () => (spotArea ? new Set([spotArea]) : new Set(allAreas)),
+    [spotArea, allAreas],
+  );
 
   // The host pushes a new context whenever the active model changes in the
   // IDE — retarget the DAG exactly as if the user typed it and hit Enter.
@@ -852,8 +856,6 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             <AreaControl
               areas={allAreas}
               styles={areaStyles}
-              visible={areasVisible}
-              onVisibleChange={setAreasVisible}
               spot={spotArea}
               onSpot={setSpotArea}
             />
