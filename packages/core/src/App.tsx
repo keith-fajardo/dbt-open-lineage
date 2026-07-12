@@ -34,6 +34,22 @@ interface Props { projectPath: string; initialSelector?: string; debounceMs?: nu
 const FONT_UI =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif';
 
+// Small-caps, letter-spaced section label — the mockup's structural device.
+// Names a control group (Draw / Filter) so the toolbar reads as sections, not
+// one cramped row.
+const SECTION_LABEL: React.CSSProperties = {
+  fontSize: 10, fontWeight: 600, letterSpacing: "0.09em",
+  textTransform: "uppercase", color: "#94a3b8", whiteSpace: "nowrap",
+};
+
+// Bordered-pill toggle (Focus / Callouts): keeps the native checkbox (label
+// association + tests) inside the mockup's quiet chip frame.
+const TOGGLE_PILL: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer",
+  userSelect: "none", background: "#0b1220", border: "1px solid #334155",
+  borderRadius: 7, padding: "6px 10px", fontSize: 12, color: "#e5e7eb",
+};
+
 export interface Lineage { up: Set<string>; down: Set<string> }
 
 /** Full transitive lineage of `id`: every upstream ancestor and downstream
@@ -536,146 +552,166 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   return (
     <div style={{ width: "100vw", height: "100vh", display: "flex", background: "#0b1220", fontFamily: FONT_UI }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ display: "flex", gap: 8, padding: 8, alignItems: "center" }}>
-          <input
-            placeholder="select… e.g. stg_orders+ or tag:mart --exclude config.materialized:view  (Enter shows only the selection)"
-            value={raw}
-            onChange={(e) => setRaw(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter commits the selector: apply it immediately (skip the
-              // debounce) and filter the DAG to only the matched nodes. An
-              // empty selector matches everything, so clear + Enter restores
-              // the full graph.
-              if (e.key === "Enter") {
-                setSelector(raw);
-                setFocus(true);
-              }
-            }}
-            style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit" }}
-          />
-          <label style={{ color: "#94a3b8", fontSize: 13 }}>
-            <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
-          </label>
-          <label style={{ color: "#94a3b8", fontSize: 13 }}>
-            <input type="checkbox" checked={showCallouts} onChange={(e) => setShowCallouts(e.target.checked)} /> Callouts
-          </label>
-          <div style={{ display: "inline-flex", border: "1px solid #334155", borderRadius: 6, overflow: "hidden" }}>
-            {(["off", "pen", "erase"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setDrawMode(m)}
-                style={{
-                  padding: "6px 10px", border: "none", borderRadius: 0, cursor: "pointer",
-                  fontFamily: "inherit", fontSize: 13,
-                  background: drawMode === m ? "#2563eb" : "#111827",
-                  color: drawMode === m ? "#e5e7eb" : "#94a3b8",
-                }}
-              >{m === "off" ? "Draw off" : m === "pen" ? "✎ Pen" : "⌫ Erase"}</button>
-            ))}
-          </div>
-          {drawMode !== "off" && (
-            <>
-              {["#f8fafc", "#22d3ee", "#f0abfc", "#fde047"].map((c) => (
-                <button
-                  key={c}
-                  aria-label={`pen color ${c}`}
-                  onClick={() => setPenColor(c)}
-                  style={{
-                    width: 18, height: 18, borderRadius: "50%", cursor: "pointer",
-                    background: c, border: penColor === c ? "2px solid #e5e7eb" : "1px solid #334155",
-                    padding: 0,
-                  }}
-                />
-              ))}
-              <button
-                onClick={() => setStrokes([])}
-                style={{
-                  padding: "6px 10px", borderRadius: 6, border: "1px solid #334155",
-                  background: "#111827", color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 13,
-                }}
-              >Clear</button>
-            </>
-          )}
-          <AreaControl
-            areas={allAreas}
-            styles={areaStyles}
-            visible={areasVisible}
-            onVisibleChange={setAreasVisible}
-            spot={spotArea}
-            onSpot={setSpotArea}
-            shape={zoneShape}
-            onShape={setZoneShape}
-          />
-          <LabelBar
-            labels={allLabels}
-            styles={labelStyles}
-            filter={labelFilter}
-            onToggle={onToggleLabel}
-            onColor={(l, c) => void onLabelColor(l, c)}
-          />
-          <button
-            onClick={() => setFavActive((v) => !v)}
-            aria-pressed={favActive}
-            title="Show only favorites"
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
-              borderRadius: 20, border: `1px solid ${favActive ? "#3b82f6" : "#334155"}`,
-              background: favActive ? "#16233d" : "#111827",
-              color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
-            }}
-          >
-            <span style={{ color: favActive ? "#fbbf24" : "#64748b" }}>★</span> Favorites
-          </button>
-          <TagChips tags={allTags} filter={tagFilter} onToggle={onToggleTag} />
-          <input
-            aria-label="Search nodes"
-            placeholder="search…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 170, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit" }}
-          />
-          {searchQ !== "" && (
-            <span style={{ color: searchHits ? "#fbbf24" : "#64748b", fontSize: 12, whiteSpace: "nowrap" }}>
-              {searchHits} match{searchHits === 1 ? "" : "es"}
-            </span>
-          )}
-          <div style={{ position: "relative" }}>
-            <button
-              aria-haspopup="menu"
-              aria-expanded={exportMenu}
-              onClick={() => setExportMenu((v) => !v)}
-              style={{
-                padding: "6px 10px", borderRadius: 6, border: "1px solid #334155",
-                background: "#111827", color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 13,
+        <div style={{
+          display: "flex", flexDirection: "column", gap: 8, padding: "8px 10px",
+          background: "#111827", borderBottom: "1px solid #334155",
+        }}>
+          {/* Row 0 — query & utilities: the selector box (kept exactly),
+              its Focus mode, live search, and Export. */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              placeholder="select… e.g. stg_orders+ or tag:mart --exclude config.materialized:view  (Enter shows only the selection)"
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter commits the selector: apply it immediately (skip the
+                // debounce) and filter the DAG to only the matched nodes. An
+                // empty selector matches everything, so clear + Enter restores
+                // the full graph.
+                if (e.key === "Enter") {
+                  setSelector(raw);
+                  setFocus(true);
+                }
               }}
-            >Export ▾</button>
-            {exportMenu && (
-              <div
-                role="menu"
-                style={{
-                  position: "absolute", right: 0, top: "110%", zIndex: 20, minWidth: 150,
-                  background: "#111827", border: "1px solid #334155", borderRadius: 6, overflow: "hidden",
-                }}
-              >
-                {([
-                  ["csv", "List (CSV)"],
-                  ["mermaid", "Mermaid (.mmd)"],
-                  ["svg", "Image (SVG)"],
-                  ["png", "Image (PNG)"],
-                ] as const).map(([kind, label]) => (
-                  <button
-                    key={kind}
-                    role="menuitem"
-                    onClick={() => void doExport(kind)}
-                    style={{
-                      display: "block", width: "100%", textAlign: "left", padding: "7px 12px",
-                      background: "none", border: "none", color: "#e5e7eb", cursor: "pointer",
-                      fontFamily: "inherit", fontSize: 13,
-                    }}
-                  >{label}</button>
-                ))}
-              </div>
+              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit" }}
+            />
+            <label style={TOGGLE_PILL}>
+              <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
+            </label>
+            <input
+              aria-label="Search nodes"
+              placeholder="search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ width: 170, padding: "6px 10px", borderRadius: 7, border: "1px solid #334155", background: "#0b1220", color: "#e5e7eb", fontFamily: "inherit", fontSize: 12 }}
+            />
+            {searchQ !== "" && (
+              <span style={{ color: searchHits ? "#fbbf24" : "#64748b", fontSize: 12, whiteSpace: "nowrap" }}>
+                {searchHits} match{searchHits === 1 ? "" : "es"}
+              </span>
             )}
+            <div style={{ position: "relative" }}>
+              <button
+                aria-haspopup="menu"
+                aria-expanded={exportMenu}
+                onClick={() => setExportMenu((v) => !v)}
+                style={{
+                  padding: "6px 10px", borderRadius: 7, border: "1px solid #334155",
+                  background: "#111827", color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                }}
+              >Export ▾</button>
+              {exportMenu && (
+                <div
+                  role="menu"
+                  style={{
+                    position: "absolute", right: 0, top: "110%", zIndex: 20, minWidth: 150,
+                    background: "#111827", border: "1px solid #334155", borderRadius: 8, overflow: "hidden",
+                    boxShadow: "0 16px 34px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  {([
+                    ["csv", "List (CSV)"],
+                    ["mermaid", "Mermaid (.mmd)"],
+                    ["svg", "Image (SVG)"],
+                    ["png", "Image (PNG)"],
+                  ] as const).map(([kind, label]) => (
+                    <button
+                      key={kind}
+                      role="menuitem"
+                      onClick={() => void doExport(kind)}
+                      style={{
+                        display: "block", width: "100%", textAlign: "left", padding: "7px 12px",
+                        background: "none", border: "none", color: "#e5e7eb", cursor: "pointer",
+                        fontFamily: "inherit", fontSize: 13,
+                      }}
+                    >{label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Row 1 — VIEW: what's drawn over the graph. Callouts, subject-area
+              zones (Areas ▾ + Zone shape + Spotlight, via AreaControl), Draw. */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <label style={TOGGLE_PILL}>
+              <input type="checkbox" checked={showCallouts} onChange={(e) => setShowCallouts(e.target.checked)} /> Callouts
+            </label>
+            <AreaControl
+              areas={allAreas}
+              styles={areaStyles}
+              visible={areasVisible}
+              onVisibleChange={setAreasVisible}
+              spot={spotArea}
+              onSpot={setSpotArea}
+              shape={zoneShape}
+              onShape={setZoneShape}
+            />
+            <span style={SECTION_LABEL}>Draw</span>
+            <div style={{ display: "inline-flex", background: "#0b1220", border: "1px solid #334155", borderRadius: 7, overflow: "hidden" }}>
+              {(["off", "pen", "erase"] as const).map((m, i) => (
+                <button
+                  key={m}
+                  onClick={() => setDrawMode(m)}
+                  style={{
+                    padding: "6px 11px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #334155",
+                    borderRadius: 0, cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                    background: drawMode === m ? "#2563eb" : "transparent",
+                    color: drawMode === m ? "#fff" : "#94a3b8",
+                  }}
+                >{m === "off" ? "Off" : m === "pen" ? "✎ Pen" : "⌫ Erase"}</button>
+              ))}
+            </div>
+            {drawMode !== "off" && (
+              <>
+                {["#f8fafc", "#22d3ee", "#f0abfc", "#fde047"].map((c) => (
+                  <button
+                    key={c}
+                    aria-label={`pen color ${c}`}
+                    onClick={() => setPenColor(c)}
+                    style={{
+                      width: 18, height: 18, borderRadius: "50%", cursor: "pointer",
+                      background: c, border: penColor === c ? "2px solid #e5e7eb" : "1px solid #334155",
+                      padding: 0,
+                    }}
+                  />
+                ))}
+                <button
+                  onClick={() => setStrokes([])}
+                  style={{
+                    padding: "6px 11px", borderRadius: 7, border: "1px solid #334155",
+                    background: "#111827", color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                  }}
+                >Clear</button>
+              </>
+            )}
+          </div>
+
+          {/* Divider + Row 2 — FILTER: what stays lit vs. dims. */}
+          <div style={{ height: 1, background: "#1f2937" }} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={SECTION_LABEL}>Filter</span>
+            <button
+              onClick={() => setFavActive((v) => !v)}
+              aria-pressed={favActive}
+              title="Show only favorites"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+                borderRadius: 20, border: `1px solid ${favActive ? "#3b82f6" : "#334155"}`,
+                background: favActive ? "#16233d" : "#111827",
+                color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+              }}
+            >
+              <span style={{ color: favActive ? "#fbbf24" : "#64748b" }}>★</span> Favorites
+            </button>
+            <LabelBar
+              labels={allLabels}
+              styles={labelStyles}
+              filter={labelFilter}
+              onToggle={onToggleLabel}
+              onColor={(l, c) => void onLabelColor(l, c)}
+            />
+            <TagChips tags={allTags} filter={tagFilter} onToggle={onToggleTag} />
           </div>
         </div>
         {error && <div style={{ color: "#fca5a5", padding: 8 }}>{error}</div>}
