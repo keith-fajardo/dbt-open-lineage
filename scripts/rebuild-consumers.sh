@@ -50,8 +50,9 @@ fi
 if [ "$VSCODE" = 1 ]; then
   say "vscode build  →  out/extension.js + media/"
   npm run build -w packages/vscode
-  [ -f packages/vscode/out/extension.js ]     || fail "vscode host build missing out/extension.js"
-  ls packages/vscode/media/*.js >/dev/null 2>&1 || fail "vscode webview build produced no media/*.js (webview would render blank)"
+  [ -f packages/vscode/out/extension.js ]        || fail "vscode host build missing out/extension.js"
+  [ -f packages/vscode/media/index.html ]        || fail "vscode webview build missing media/index.html (webview would render blank)"
+  ls packages/vscode/media/assets/*.js >/dev/null 2>&1 || fail "vscode webview build produced no media/assets/*.js (webview would render blank)"
 fi
 
 say "done — rebuilt artifacts:"
