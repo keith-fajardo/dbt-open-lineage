@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   nodeAreas, areaMembers, memberCorners, boundingBox, convexHull, padHull, type Pt,
 } from "./zones";
+import { nodeLabels } from "./zones";
 
 describe("nodeAreas", () => {
   it("returns the string list from meta.subject_areas", () => {
@@ -12,6 +13,17 @@ describe("nodeAreas", () => {
     expect(nodeAreas({ meta: {} })).toEqual([]);
     expect(nodeAreas({ meta: { subject_areas: "a" } })).toEqual([]);
     expect(nodeAreas({ meta: { subject_areas: ["a", 3] } })).toEqual(["a"]);
+  });
+});
+
+describe("nodeLabels", () => {
+  it("returns the string list from meta.labels", () => {
+    expect(nodeLabels({ meta: { labels: ["core", "revenue"] } })).toEqual(["core", "revenue"]);
+  });
+  it("returns [] when absent / non-array / non-string entries", () => {
+    expect(nodeLabels({})).toEqual([]);
+    expect(nodeLabels({ meta: { labels: "core" } })).toEqual([]);
+    expect(nodeLabels({ meta: { labels: ["core", 7] } })).toEqual(["core"]);
   });
 });
 

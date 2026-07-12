@@ -216,15 +216,22 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           layer: n.layer,
           materialized: n.materialized ?? "",
           testCount: n.tests?.length ?? 0,
+          labelColors: nodeLabels(n)
+            .map((l) => labelStyles.get(l)?.color)
+            .filter((c): c is string => !!c),
         },
       }));
+  // Rebuild the node array when the layout OR the resolved label styles change
+  // (label colors live in node data). A drag never changes either, so this
+  // never rebuilds mid-drag — preserving node identity for React Flow.
+  const nodeBuildKey = useMemo(() => ({ positioned, labelStyles }), [positioned, labelStyles]);
   const [nodeState, setNodeState] = useState<{ base: unknown; nodes: Node<DagNodeData>[] }>(
     { base: null, nodes: [] },
   );
-  if (nodeState.base !== positioned) {
-    setNodeState({ base: positioned, nodes: buildNodes() }); // derived-state reset during render
+  if (nodeState.base !== nodeBuildKey) {
+    setNodeState({ base: nodeBuildKey, nodes: buildNodes() }); // derived-state reset during render
   }
-  const rfNodes = nodeState.base === positioned ? nodeState.nodes : buildNodes();
+  const rfNodes = nodeState.base === nodeBuildKey ? nodeState.nodes : buildNodes();
   const onNodesChange = useCallback((changes: NodeChange[]) =>
     setNodeState((prev) => ({ base: prev.base, nodes: applyNodeChanges(changes, prev.nodes) as Node<DagNodeData>[] })),
   []);

@@ -122,6 +122,23 @@ describe("DagNode open-model emphasis", () => {
   });
 });
 
+describe("DagNode label stripes", () => {
+  it("renders a left-edge stripe per label color", () => {
+    const view = {
+      selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
+      matched: null, search: "", spotlight: null, filtered: null,
+    };
+    const { container } = render(
+      <ViewContext.Provider value={view}>
+        <DagNode id="n" data={{ label: "n", layer: "model", materialized: "", testCount: 0, labelColors: ["#ef4444", "#22c55e"] }} />
+      </ViewContext.Provider>,
+    );
+    const stripes = container.querySelectorAll('[data-label-stripe]');
+    expect(stripes).toHaveLength(2);
+    expect((stripes[0] as HTMLElement).style.background).toBe("rgb(239, 68, 68)");
+  });
+});
+
 describe("DagNode spotlight dimming", () => {
   it("dims a node that is not in the spotlight set", () => {
     const view = {
