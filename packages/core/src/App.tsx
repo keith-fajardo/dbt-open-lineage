@@ -16,6 +16,7 @@ import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
 import { nodeAreas, nodeLabels, areaMembers } from "./zones";
 import { ZonesOverlay } from "./ZonesOverlay";
+import { CalloutOverlay } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
 import { resolveStyles, type Style } from "./styles";
 
@@ -151,6 +152,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [areasVisible, setAreasVisible] = useState<Set<string>>(new Set());
   const [zoneShape, setZoneShape] = useState<"box" | "hull">("box");
   const [spotArea, setSpotArea] = useState<string | null>(null);
+  const [showCallouts, setShowCallouts] = useState(true);
 
   // Default: show every zone once the area list is known (and whenever it grows).
   useEffect(() => { setAreasVisible(new Set(allAreas)); }, [allAreas]);
@@ -448,6 +450,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           <label style={{ color: "#94a3b8", fontSize: 13 }}>
             <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
           </label>
+          <label style={{ color: "#94a3b8", fontSize: 13 }}>
+            <input type="checkbox" checked={showCallouts} onChange={(e) => setShowCallouts(e.target.checked)} /> Callouts
+          </label>
           <AreaControl
             areas={allAreas}
             styles={areaStyles}
@@ -550,6 +555,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               areasVisible={areasVisible}
               shape={zoneShape}
             />
+            {showCallouts && (
+              <CalloutOverlay
+                nodes={graph?.nodes ?? []}
+                positions={positioned}
+                dimmed={selected != null || spotArea != null}
+              />
+            )}
           </ReactFlow>
           </ViewContext.Provider>
         </div>
