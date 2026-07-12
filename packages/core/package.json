@@ -1,6 +1,6 @@
 {
   "name": "@dbt-open-lineage/core",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "type": "module",
   "main": "src/index.tsx",
   "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },

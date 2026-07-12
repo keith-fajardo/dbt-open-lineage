@@ -1,7 +1,7 @@
 {
   "id": "dbt-dag-viz",
   "name": "dbt Open Lineage",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "entry": "dist/index.html",
   "surface": "window",
   "host_perms": [
