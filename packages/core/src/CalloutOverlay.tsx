@@ -6,6 +6,8 @@ interface CalloutOverlayProps {
   nodes: { id: string; meta?: Record<string, unknown> }[];
   positions: Map<string, Pt>;
   dimmedIds: Set<string>;
+  /** Click a bubble → select its model (opens the details panel to edit the gist). */
+  onSelect: (id: string) => void;
 }
 
 function gistOf(node: { meta?: Record<string, unknown> }): string | null {
@@ -19,7 +21,7 @@ function gistOf(node: { meta?: Record<string, unknown> }): string | null {
  * pan/zoom with the graph and track the node when it is dragged (the caller
  * passes live node positions). Text is the model's meta.gist; a node without a
  * gist or without a meta.callout placement gets none. */
-export function CalloutOverlay({ nodes, positions, dimmedIds }: CalloutOverlayProps) {
+export function CalloutOverlay({ nodes, positions, dimmedIds, onSelect }: CalloutOverlayProps) {
   return (
     <ViewportPortal>
       {nodes.map((n) => {
@@ -27,7 +29,7 @@ export function CalloutOverlay({ nodes, positions, dimmedIds }: CalloutOverlayPr
         const p = text ? positions.get(n.id) : undefined;
         if (!text || !p) return null;
         const anchorX = p.x + NODE_W / 2;
-        const bubbleW = 200;
+        const bubbleW = 184;
         const bubbleLeft = anchorX - bubbleW / 2;
         const bubbleBottom = p.y - 14; // gap above node top
         return (
@@ -37,11 +39,13 @@ export function CalloutOverlay({ nodes, positions, dimmedIds }: CalloutOverlayPr
               <circle cx={anchorX} cy={p.y - 1} r={3.5} fill="#38bdf8" />
             </svg>
             <div
+              title="Click to edit this note"
+              onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
               style={{
                 position: "absolute", left: bubbleLeft, top: bubbleBottom, transform: "translateY(-100%)",
-                width: bubbleW, boxSizing: "border-box",
-                background: "#38bdf8", color: "#0a0f1a", borderRadius: 9, padding: "8px 11px",
-                font: "500 12px/1.34 inherit", boxShadow: "0 8px 22px rgba(0,0,0,0.5)",
+                width: bubbleW, boxSizing: "border-box", pointerEvents: "auto", cursor: "pointer",
+                background: "#38bdf8", color: "#0a0f1a", borderRadius: 8, padding: "6px 9px",
+                font: "500 10.5px/1.32 inherit", boxShadow: "0 8px 22px rgba(0,0,0,0.5)",
               }}
             >
               {text}

@@ -776,6 +776,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 nodes={graph?.nodes ?? []}
                 positions={livePositions}
                 dimmedIds={dimmedIds}
+                onSelect={setSelected}
               />
             )}
             <DrawLayer
