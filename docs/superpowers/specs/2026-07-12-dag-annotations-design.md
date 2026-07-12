@@ -14,10 +14,10 @@ Today the viewer already stores a per-model **gist** (a short note in `meta.gist
 sparkle button, saved to the schema `.yml`). This feature builds four annotation layers on top of the
 existing React Flow canvas, reusing that gist as the model's note.
 
-## The four layers
+## The layers
 
-Two are **shared** (committed to yaml, git-diffable, travel with the repo). Two are **personal**
-(local, `localStorage`, never committed).
+Two are **shared** (committed to yaml, git-diffable, travel with the repo). The rest are **personal** and
+never committed — favorites persist in `localStorage`; freehand drawing is **ephemeral, in-memory only**.
 
 | Layer | Store | Shared | Cardinality | Renders as |
 |---|---|---|---|---|
@@ -25,6 +25,7 @@ Two are **shared** (committed to yaml, git-diffable, travel with the repo). Two 
 | **Subject area** | `meta.subject_areas` (list) + sidecar style | yes | many / model | bounded zone (box or hull) around members |
 | **Label** | `meta.labels` (list) + sidecar style | yes | many / model | colored stripe on the node + filter chip |
 | **Favorite** | `localStorage` | no | boolean / model | ★ on the node + filter chip |
+| **Drawing** | in-memory (session only) | no | — | freehand ink over the canvas |
 
 ### Design rules that fall out of the graph being dynamic
 
@@ -34,6 +35,10 @@ spotlight, focus). Therefore:
 - **Anchor to nodes, never to canvas coordinates.** Callouts anchor to their node; zones are recomputed
   from member node positions every render. Both survive relayout. Anything pinned to an absolute `(x,y)`
   orphans on the next layout — which is why **free-floating region notes are cut** (see Non-goals).
+- **Freehand drawing is the one deliberate coordinate-space exception**, and it earns it by being
+  ephemeral: ink lives in flow-space so it pans/zooms *with* the graph and stays over the models you drew
+  on, and it is **cleared automatically on relayout** (a filter/selector change moves the nodes) so it can
+  never strand. It is in-memory only — never persisted, never committed.
 - **Spotlighting an area dims, it does not relayout.** Selecting a subject area lights its members and
   dims everyone else to ~15% opacity — the same interaction as clicking a node to highlight its lineage.
   No repack. This composes cleanly with multi-area membership: a model shared across two areas stays lit
@@ -117,6 +122,20 @@ Computed from the current positions of the area's member nodes:
 - A title tab (area label + member count) sits at the zone's top-left.
 - Overlapping / nested zones are expected (multi-area membership) and render as stacked translucent fills.
 
+### Freehand drawing (whiteboard pen)
+A live-explanation ink layer for talking over the graph on a screenshare. In-memory only.
+
+- **Draw mode toggle** (pen). While on, pan and node-drag are suppressed so pointer strokes are captured;
+  turning it off restores normal graph interaction.
+- **Flow-space strokes.** Screen pointer positions are converted to flow coordinates
+  (React Flow `screenToFlowPosition`) and stored as polylines in flow-space, so ink pans/zooms with the
+  graph and stays over the models. Rendered in a layer that carries the viewport transform.
+- **Visible on the dark canvas.** Default stroke is a bright near-white with a subtle glow; a small palette
+  (e.g. white / cyan / magenta) and one or two stroke widths. No dark default that would vanish.
+- **Erase + clear.** An **eraser** removes an individual stroke (pointer over a stroke deletes that
+  polyline); **Clear all** wipes every stroke. Ink also auto-clears on relayout (see design rules) and is
+  gone on reload — it is never saved.
+
 ### Filter bar
 A single bar of chips. Clicking a chip narrows the graph; a node matches when it satisfies **all** active
 filters (AND):
@@ -146,6 +165,7 @@ Non-matching nodes/edges/callouts drop to ~15% opacity. No relayout.
 - Read + render all four layers; membership/notes/labels **authored by hand in yaml** (headless-friendly).
 - Box/Hull zones; spotlight-dim; the unified filter bar; favorites via `localStorage`.
 - Editing **label and area colors** from the filter bar (writes the sidecar) — the requested "custom color".
+- **Freehand drawing** overlay (pen with a bright stroke, palette, eraser + Clear all, in-memory only).
 
 ### Non-goals / deferred (Phase 2, noted so we don't design them out)
 - **Canvas authoring** — lasso nodes → "group into subject area", assign labels, add a callout, all via a
@@ -167,6 +187,8 @@ Non-matching nodes/edges/callouts drop to ~15% opacity. No relayout.
 - **Favorites store**: `localStorage` read/write keyed by project path; round-trips and stays empty for a
   fresh project.
 - **Sidecar**: parse of `lineage.annotations.yml`; color write round-trips.
+- **Drawing**: screen↔flow coordinate round-trip; eraser removes only the hit stroke; Clear-all empties the
+  set; a simulated relayout clears the ink.
 
 ## Open question for the plan
 
