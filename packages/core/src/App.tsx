@@ -293,6 +293,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setNodeState((prev) => ({ base: prev.base, nodes: applyNodeChanges(changes, prev.nodes) as Node<DagNodeData>[] })),
   []);
 
+  // Live node positions (reflect hand-drags) for node-anchored overlays like
+  // callouts, so a bubble tracks its node instead of staying at the pristine
+  // layout spot.
+  const livePositions = useMemo(
+    () => new Map(rfNodes.map((n) => [n.id, n.position] as const)),
+    [rfNodes],
+  );
+
   // Selecting a node never touches layout — style-only, full lineage cone.
   const lineage = useMemo(
     () => (graph ? lineageOf(graph, selected) : { up: new Set<string>(), down: new Set<string>() }),
@@ -766,7 +774,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             {showCallouts && (
               <CalloutOverlay
                 nodes={graph?.nodes ?? []}
-                positions={positioned}
+                positions={livePositions}
                 dimmedIds={dimmedIds}
               />
             )}

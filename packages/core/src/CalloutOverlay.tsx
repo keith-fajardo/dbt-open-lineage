@@ -16,10 +16,9 @@ function gistOf(node: { meta?: Record<string, unknown> }): string | null {
 }
 
 /** Callout bubbles pinned above their node, rendered in flow-space so they
- * pan/zoom with the graph. Text is the model's meta.gist; a node without a
- * gist or without a meta.callout placement gets none. Callouts do not track
- * hand-dragged nodes (they read the layout position map), matching the zone
- * overlay's behavior. */
+ * pan/zoom with the graph and track the node when it is dragged (the caller
+ * passes live node positions). Text is the model's meta.gist; a node without a
+ * gist or without a meta.callout placement gets none. */
 export function CalloutOverlay({ nodes, positions, dimmedIds }: CalloutOverlayProps) {
   return (
     <ViewportPortal>
@@ -45,9 +44,6 @@ export function CalloutOverlay({ nodes, positions, dimmedIds }: CalloutOverlayPr
                 font: "500 12px/1.34 inherit", boxShadow: "0 8px 22px rgba(0,0,0,0.5)",
               }}
             >
-              <span style={{ display: "block", font: "700 9px/1 inherit", letterSpacing: "0.11em", textTransform: "uppercase", opacity: 0.72, marginBottom: 5 }}>
-                note
-              </span>
               {text}
             </div>
           </div>
