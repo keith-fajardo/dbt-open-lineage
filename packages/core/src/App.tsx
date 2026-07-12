@@ -317,6 +317,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [descDraft, setDescDraft] = useState("");
   const [gistDraft, setGistDraft] = useState("");
   const [calloutDraft, setCalloutDraft] = useState(false); // show gist as a DAG callout
+  const [editingCallout, setEditingCallout] = useState(false); // inline-editing a callout bubble
   const [gistBusy, setGistBusy] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null); // transient success pill
@@ -330,6 +331,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setDescDraft(selectedNode?.description ?? "");
     setGistDraft(typeof selectedNode?.meta?.gist === "string" ? (selectedNode.meta.gist as string) : "");
     setCalloutDraft(!!selectedNode?.meta?.callout);
+    setEditingCallout(false);
     setGistBusy(false);
     setSaveErr(null);
     setToast(null);
@@ -777,6 +779,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 positions={livePositions}
                 dimmedIds={dimmedIds}
                 onSelect={setSelected}
+                selectedId={selected}
+                editing={editingCallout}
+                gistDraft={gistDraft}
+                onGistChange={setGistDraft}
+                onCommit={async () => { await onSave(); setEditingCallout(false); }}
+                onCancelEdit={() => setEditingCallout(false)}
+                onBeginEdit={(id) => { setSelected(id); setEditingCallout(true); }}
               />
             )}
             <DrawLayer
