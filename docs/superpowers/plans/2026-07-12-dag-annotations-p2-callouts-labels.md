@@ -4,7 +4,7 @@
 
 **Goal:** Render each model's note (its `meta.gist`) as a callout bubble pinned to its node, and render `meta.labels` as colored stripes on the node plus a filter/color-picker bar — while centralizing area+label style resolution so the swatch and the rendered mark always agree.
 
-**Architecture:** Builds on Plan 1's flow-space overlay (`ViewportPortal`) and sidecar (`lineage.annotations.yml`). A new `styles.ts` resolves every area/label key to a `{label,color}` once in `App` (stable fallback indexing over the full key list), replacing the per-component `fallbackColor` calls that diverged in Plan 1. Callouts render as a node-anchored overlay (same pattern as zones). Label stripes render *inside* the node (via `DagNodeData`) so they dim with the node; the node-state machine is rebuilt when label styles resolve. Label filtering reuses the `ViewContext` dim channel with a new `filtered` set. Color edits are written back to the sidecar with a comment-preserving `yaml` document edit.
+**Architecture:** Builds on Plan 1's flow-space overlay (`ViewportPortal`) and sidecar (`lineage.yml`). A new `styles.ts` resolves every area/label key to a `{label,color}` once in `App` (stable fallback indexing over the full key list), replacing the per-component `fallbackColor` calls that diverged in Plan 1. Callouts render as a node-anchored overlay (same pattern as zones). Label stripes render *inside* the node (via `DagNodeData`) so they dim with the node; the node-state machine is rebuilt when label styles resolve. Label filtering reuses the `ViewContext` dim channel with a new `filtered` set. Color edits are written back to the sidecar with a comment-preserving `yaml` document edit.
 
 **Tech Stack:** React 19, `@xyflow/react` v12 (`ViewportPortal`), `yaml` (`parseDocument`), vitest. Package: `@dbt-open-lineage/core`.
 
@@ -13,7 +13,7 @@
 - All host access goes through the `Bridge` in `src/bridge.ts` (`invoke`, …). No host-specific imports in core.
 - Node dimensions `180 × 44` (`NODE_W`/`NODE_H` in `src/layout.ts`); positions are top-left.
 - Interaction/emphasis styling flows through `ViewContext` (`src/viewContext.ts`), **not** node `data`. **Exception, allowed here:** a node's *static* label colors are node `data` (they do not change on interaction), but the node array must still only be rebuilt on layout/label-data changes — never per drag frame.
-- Sidecar/yaml paths passed to the bridge are **project-relative** (`SIDECAR_PATH === "lineage.annotations.yml"`).
+- Sidecar/yaml paths passed to the bridge are **project-relative** (`SIDECAR_PATH === "lineage.yml"`).
 - YAML serialization always uses `doc.toString({ lineWidth: 0 })` — never re-wrap untouched lines.
 - The callout text is the model's `meta.gist` verbatim; there is **no** separate callout-text field in this plan. `meta.callout` is a placement string; absent ⇒ no callout.
 - The **style sidecar display field is `name`** (not `label`), so it never collides with the Labels concept. Block or flow mapping both parse identically — e.g. block form:
@@ -878,7 +878,7 @@ Expected: PASS.
 
 - [ ] **Step 8: Verify by hand (documented)**
 
-Against a project with `config.meta.labels: [core]` on a model and a `lineage.annotations.yml` `labels: { core: { label: "Core", color: "#ef4444" } }`: a red "Core" chip appears; clicking it dims non-core nodes; opening its swatch and picking a new color recolors both the chip and the node stripe, and rewrites the sidecar's `core.color` while preserving other entries/comments. (Requires the downstream consumer app.)
+Against a project with `config.meta.labels: [core]` on a model and a `lineage.yml` `labels: { core: { label: "Core", color: "#ef4444" } }`: a red "Core" chip appears; clicking it dims non-core nodes; opening its swatch and picking a new color recolors both the chip and the node stripe, and rewrites the sidecar's `core.color` while preserving other entries/comments. (Requires the downstream consumer app.)
 
 - [ ] **Step 9: Commit**
 

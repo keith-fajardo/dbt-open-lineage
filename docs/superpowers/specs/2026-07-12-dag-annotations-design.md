@@ -65,7 +65,7 @@ models:
 - `subject_areas` and `labels` are string lists. Membership is derived by "models whose list contains
   this key." A model may belong to several areas.
 
-### Committed — sidecar registry `lineage.annotations.yml` (project root)
+### Committed — sidecar registry `lineage.yml` (project root)
 
 Holds display style for areas and labels (label text + color). One file, git-diffable.
 
@@ -194,7 +194,7 @@ Non-matching nodes/edges/callouts drop to ~15% opacity. No relayout.
 - **Filter logic**: `matchNode` AND-composition across favorites, labels, and area spotlight.
 - **Favorites store**: `localStorage` read/write keyed by project path; round-trips and stays empty for a
   fresh project.
-- **Sidecar**: parse of `lineage.annotations.yml`; color write round-trips.
+- **Sidecar**: parse of `lineage.yml`; color write round-trips.
 - **Drawing**: screen↔flow coordinate round-trip; eraser removes only the hit stroke; Clear-all empties the
   set; a simulated relayout clears the ink.
 

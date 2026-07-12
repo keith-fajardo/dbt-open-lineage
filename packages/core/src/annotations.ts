@@ -10,7 +10,7 @@ export interface Annotations {
 export const EMPTY_ANNOTATIONS: Annotations = { areas: {}, labels: {} };
 
 /** Project-relative path of the committed style sidecar. */
-export const SIDECAR_PATH = "lineage.annotations.yml";
+export const SIDECAR_PATH = "lineage.yml";
 
 const PALETTE = [
   "#8b5cf6", "#14b8a6", "#6366f1", "#ef4444", "#22c55e",
