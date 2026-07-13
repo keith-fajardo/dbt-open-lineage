@@ -4,8 +4,8 @@ import { estimateCalloutHeight, gistOf } from "./CalloutOverlay";
 describe("estimateCalloutHeight", () => {
   it("returns at least a single line's height for short text", () => {
     const oneChar = estimateCalloutHeight("x");
-    // single line: 11*1.35 + 12 + 14 + 8 rounded
-    expect(oneChar).toBe(Math.round(1 * 11 * 1.35 + 12 + 14 + 8));
+    // single line: 11*1.35 + 12 + 14 + 20 rounded
+    expect(oneChar).toBe(Math.round(1 * 11 * 1.35 + 12 + 14 + 20));
     // empty/whitespace still reserves one line (min 1)
     expect(estimateCalloutHeight("   ")).toBe(oneChar);
   });

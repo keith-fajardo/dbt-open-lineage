@@ -38,7 +38,7 @@ export function estimateCalloutHeight(text: string, bubbleWidth = 184): number {
   const charsPerLine = Math.max(1, Math.floor(innerW / 5.4)); // ~11px avg char width
   const lines = Math.max(1, Math.ceil(text.trim().length / charsPerLine));
   const bubbleH = lines * 11 * 1.35 + 12;   // line-height 1.35, padding 6*2
-  return Math.round(bubbleH + 14 + 8);      // + leader gap (14) + margin (8)
+  return Math.round(bubbleH + 14 + 20);     // + leader gap (14) + margin (20)
 }
 
 /** The model's gist text, or null if there is no gist or no callout
