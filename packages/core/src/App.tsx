@@ -15,6 +15,7 @@ import { exportScope, toCsv, toMermaid, b64encode } from "./export";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
 import { nodeAreas, nodeLabels } from "./zones";
+import { readMeta } from "./meta";
 import { ZonesOverlay } from "./ZonesOverlay";
 import { CalloutOverlay, estimateCalloutHeight } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
@@ -544,8 +545,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   };
   useEffect(() => {
     setDescDraft(selectedNode?.description ?? "");
-    setGistDraft(typeof selectedNode?.meta?.gist === "string" ? (selectedNode.meta.gist as string) : "");
-    setCalloutDraft(!!selectedNode?.meta?.callout);
+    setGistDraft(typeof readMeta(selectedNode?.meta, "gist") === "string" ? (readMeta(selectedNode?.meta, "gist") as string) : "");
+    setCalloutDraft(!!readMeta(selectedNode?.meta, "callout"));
     setAreasDraft(selectedNode ? nodeAreas(selectedNode) : []);
     setLabelsDraft(selectedNode ? nodeLabels(selectedNode) : []);
     setTagsDraft(selectedNode?.tags ?? []);
@@ -1253,8 +1254,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   >Save</button>
                   <button
                     onClick={() => { setDescDraft(selectedNode.description ?? "");
-                      setGistDraft(typeof selectedNode.meta?.gist === "string" ? selectedNode.meta.gist : "");
-                      setCalloutDraft(!!selectedNode.meta?.callout);
+                      setGistDraft(typeof readMeta(selectedNode.meta, "gist") === "string" ? (readMeta(selectedNode.meta, "gist") as string) : "");
+                      setCalloutDraft(!!readMeta(selectedNode.meta, "callout"));
                       setAreasDraft(nodeAreas(selectedNode));
                       setLabelsDraft(nodeLabels(selectedNode));
                       setTagsDraft(selectedNode.tags ?? []); }}

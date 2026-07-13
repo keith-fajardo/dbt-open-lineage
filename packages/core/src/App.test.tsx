@@ -339,6 +339,21 @@ describe("editable description + gist panel", () => {
     await waitFor(() => expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("AI gist"));
     expect(invokeMock).not.toHaveBeenCalledWith("fs.writeText", expect.anything());
   });
+
+  it("populates the gist field from a legacy flat meta.gist (pre-namespace data)", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { gist: "flat legacy gist", callout: "top" },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("flat legacy gist"));
+  });
 });
 
 describe("edgeOnLineage", () => {
