@@ -25,7 +25,8 @@ both hosts. No host-bridge code touches meta shape.
 
 - `packages/core/src/yamlEdit.ts` — write side
 - `packages/core/src/meta.ts` (new) — read side helper
-- `packages/core/src/App.tsx` (2 read sites)
+- `packages/core/src/App.tsx` (4 read sites: gist+callout in the initial-selection
+  useEffect, and the same pair again in the Revert-button handler)
 - `packages/core/src/zones.ts` (2 read sites: `subject_areas`, `labels`)
 - `packages/core/src/CalloutOverlay.tsx` (2 read sites: `gist`, `callout`)
 
@@ -65,6 +66,17 @@ data (harmless, since reads always prefer the nested key when present) and
 naturally goes stale/unused rather than being actively cleaned up. This is a
 deliberate choice: no destructive rewrite of a user's YAML beyond the key
 this extension is actively setting.
+
+**Refinement — explicit clear/remove is the one exception.** "Leave legacy
+alone" only holds for *adding or updating* a value. If the write call is an
+explicit clear (gist set to `""`, callout set to `null`/`""`, or
+subject_areas/labels set to `[]`) and the value being cleared currently lives
+only at the legacy flat location, the legacy key is deleted as part of that
+same write. Reasoning: `readMeta`'s fallback means an untouched stale flat
+value stays visible after a "clear" — so "leave it alone" would silently make
+clearing a no-op for any model not yet migrated to the nested shape. Every
+other legacy key on that model (siblings not being cleared) is still left
+fully untouched.
 
 ### Read side (`meta.ts`, new)
 
