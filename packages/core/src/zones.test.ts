@@ -5,7 +5,10 @@ import {
 import { nodeLabels } from "./zones";
 
 describe("nodeAreas", () => {
-  it("returns the string list from meta.subject_areas", () => {
+  it("returns the string list from the namespaced meta.dbt_open_lineage.subject_areas", () => {
+    expect(nodeAreas({ meta: { dbt_open_lineage: { subject_areas: ["a", "b"] } } })).toEqual(["a", "b"]);
+  });
+  it("falls back to legacy flat meta.subject_areas when the namespaced key is absent", () => {
     expect(nodeAreas({ meta: { subject_areas: ["a", "b"] } })).toEqual(["a", "b"]);
   });
   it("returns [] when absent, non-array, or non-string entries", () => {
@@ -17,7 +20,11 @@ describe("nodeAreas", () => {
 });
 
 describe("nodeLabels", () => {
-  it("returns the string list from meta.labels", () => {
+  it("returns the string list from the namespaced meta.dbt_open_lineage.labels", () => {
+    expect(nodeLabels({ meta: { dbt_open_lineage: { labels: ["core", "revenue"] } } }))
+      .toEqual(["core", "revenue"]);
+  });
+  it("falls back to legacy flat meta.labels when the namespaced key is absent", () => {
     expect(nodeLabels({ meta: { labels: ["core", "revenue"] } })).toEqual(["core", "revenue"]);
   });
   it("returns [] when absent / non-array / non-string entries", () => {

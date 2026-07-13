@@ -1,19 +1,22 @@
 import { NODE_W, NODE_H } from "./layout";
+import { readMeta } from "./meta";
 
 export interface Pt { x: number; y: number }
 export interface Box { x: number; y: number; w: number; h: number }
 
-/** The subject areas a node declares, via `meta.subject_areas` (a string list).
+/** The subject areas a node declares, via `meta.dbt_open_lineage.subject_areas`
+ * (falling back to the legacy flat `meta.subject_areas` — see readMeta).
  * Tolerant of a missing/mistyped value: always returns a string[]. */
 export function nodeAreas(node: { meta?: Record<string, unknown> }): string[] {
-  const v = node.meta?.subject_areas;
+  const v = readMeta(node.meta, "subject_areas");
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
-/** The labels a node declares, via `meta.labels` (a string list). Tolerant
- * of a missing/mistyped value: always returns a string[]. */
+/** The labels a node declares, via `meta.dbt_open_lineage.labels` (falling
+ * back to the legacy flat `meta.labels` — see readMeta). Tolerant of a
+ * missing/mistyped value: always returns a string[]. */
 export function nodeLabels(node: { meta?: Record<string, unknown> }): string[] {
-  const v = node.meta?.labels;
+  const v = readMeta(node.meta, "labels");
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
