@@ -12,9 +12,13 @@ export function makeCompileTask(projectRoot: string): vscode.Task {
   const exec = new vs.ShellExecution("dbt compile", { cwd: projectRoot });
   // type must be "shell" (built-in) — a custom type here needs a registered
   // vscode.TaskProvider, which this extension doesn't have, so VSCode refuses
-  // to run it ("no registered task type").
+  // to run it ("no registered task type"). For "shell", VSCode separately
+  // validates the *definition* object for a command/dependsOn — it doesn't
+  // read the attached ShellExecution for that check — so `command` must be
+  // duplicated into the definition or VSCode logs "neither specifies a
+  // command nor a dependsOn property" and drops the task.
   const task = new vs.Task(
-    { type: "shell" }, vs.TaskScope.Workspace,
+    { type: "shell", command: "dbt compile" }, vs.TaskScope.Workspace,
     "dbt compile", "dbt Open Lineage", exec,
   );
   task.presentationOptions = { reveal: vs.TaskRevealKind.Always, panel: vs.TaskPanelKind.Shared };
@@ -34,10 +38,13 @@ export function compileSelectArgs(model: string): string[] {
 export function makeCompileSelectTask(projectRoot: string, model: string): vscode.Task {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const vs = require("vscode") as typeof vscode;
-  const exec = new vs.ShellExecution("dbt", compileSelectArgs(model), { cwd: projectRoot });
-  // See makeCompileTask above: type must be "shell", not a custom type.
+  const args = compileSelectArgs(model);
+  const exec = new vs.ShellExecution("dbt", args, { cwd: projectRoot });
+  // See makeCompileTask above: type must be "shell", and command/args must be
+  // duplicated into the definition (VSCode validates that separately from
+  // the attached ShellExecution for the built-in "shell" type).
   const task = new vs.Task(
-    { type: "shell" }, vs.TaskScope.Workspace,
+    { type: "shell", command: "dbt", args }, vs.TaskScope.Workspace,
     `dbt compile --select ${model}`, "dbt Open Lineage", exec,
   );
   task.presentationOptions = { reveal: vs.TaskRevealKind.Always, panel: vs.TaskPanelKind.Shared };
