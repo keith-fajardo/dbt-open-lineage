@@ -59,16 +59,26 @@ vi.mock("./bridge", () => ({
   openInIde: (...a: unknown[]) => openInIde(...(a as [])),
 }));
 const layoutSpy = vi.fn();
+// Captured (not folded into layoutSpy's own call args) so existing
+// toHaveBeenLastCalledWith(N) assertions on layoutSpy stay exact-arity.
+let lastCalloutHeights: Map<string, number> | undefined;
 vi.mock("./layout", async (orig) => {
   const real = (await orig()) as typeof import("./layout");
   // Spy records the node count so tests can assert WHICH graph got laid out
   // (full graph vs filtered subgraph).
-  return { layoutGraph: (graph: Graph) => { layoutSpy(graph.nodes.length); return real.layoutGraph(graph); } };
+  return {
+    ...real, // keep NODE_W etc. real — CalloutOverlay imports them from here too
+    layoutGraph: (graph: Graph, calloutHeights?: Map<string, number>) => {
+      layoutSpy(graph.nodes.length);
+      lastCalloutHeights = calloutHeights;
+      return real.layoutGraph(graph, calloutHeights);
+    },
+  };
 });
 
 import App, { lineageOf, edgeOnLineage } from "./App";
 
-beforeEach(() => { layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g; });
+beforeEach(() => { layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g; lastCalloutHeights = undefined; });
 afterEach(cleanup);
 
 describe("dbt DAG App", () => {
@@ -368,6 +378,77 @@ describe("editable description + gist panel", () => {
     fireEvent.click(await screen.findByText("stg_orders"));
     await waitFor(() =>
       expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("nested gist"));
+    // The callout checkbox reflects nested data too — this is where fixes 1/3/4
+    // all touch, and the original plan's gist-only tests never asserted it.
+    const calloutCheckbox = screen.getByLabelText(/show as callout on the dag/i) as HTMLInputElement;
+    expect(calloutCheckbox.checked).toBe(true);
+  });
+
+  it("does not show a spurious dirty state (Save/Revert enabled) for a node with nested-only gist/callout data", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { gist: "nested gist", callout: "top" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("nested gist"));
+    // Fresh selection, zero edits — the dirty-check baseline must be read via
+    // readMeta too (same as the draft), or nested-only data always compares
+    // unequal to the flat baseline and the buttons stay permanently enabled.
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Revert" })).toBeDisabled();
+  });
+
+  it("reserves DAG layout space for a callout backed by nested-only meta (calloutHeights)", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { gist: "nested gist for layout", callout: "top" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    await screen.findByText("stg_orders");
+    // Callouts start OFF (empty reserved-height map); turning them ON must
+    // reserve space for this node's bubble even though its gist/callout live
+    // only under the namespaced meta.dbt_open_lineage — matching what
+    // CalloutOverlay's gistOf (readMeta-based) will actually render.
+    fireEvent.click(screen.getByLabelText(/callouts/i));
+    await waitFor(() =>
+      expect(lastCalloutHeights?.get("model.proj.stg_orders")).toBeGreaterThan(0));
+  });
+
+  it("optimistic in-memory update after Save writes the NESTED shape (a re-select doesn't revert to stale nested data)", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { gist: "stale nested gist", callout: "top" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    const gist = await screen.findByLabelText("gist");
+    await waitFor(() => expect((gist as HTMLTextAreaElement).value).toBe("stale nested gist"));
+    fireEvent.change(gist, { target: { value: "freshly saved gist" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("fs.writeText", expect.anything()));
+    // Deselect, then re-select: the draft repopulates from the in-memory
+    // graph's meta via readMeta, which prefers the nested sub-object. If the
+    // post-save optimistic update wrote the FLAT shape (leaving the existing
+    // stale `dbt_open_lineage` object untouched via the `...(n.meta ?? {})`
+    // spread), readMeta keeps surfacing the stale nested value forever.
+    fireEvent.click(screen.getByLabelText("close details"));
+    fireEvent.click(screen.getByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("freshly saved gist"));
   });
 });
 

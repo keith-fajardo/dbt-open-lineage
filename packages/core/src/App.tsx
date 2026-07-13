@@ -416,8 +416,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // changes this map → re-layout → nodes shift (accepted tradeoff).
   const calloutHeights = useMemo(() => {
     const m = new Map<string, number>();
+    // Mirror CalloutOverlay's gistOf exactly (readMeta, namespaced-first) —
+    // this memo's whole purpose is predicting what gistOf will render, so a
+    // node with nested-only meta must reserve space too, not just flat.
     if (showCallouts && graph) for (const n of graph.nodes) {
-      const g = n.meta?.gist, c = n.meta?.callout;
+      const g = readMeta(n.meta, "gist"), c = readMeta(n.meta, "callout");
       if (typeof g === "string" && g.trim() && c) m.set(n.id, estimateCalloutHeight(g));
     }
     return m;
@@ -557,10 +560,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   }, [selectedNode]);
 
   const editable = !!selectedNode && selectedNode.resource_type !== "source";
+  // Baseline read via readMeta, consistent with how the drafts themselves are
+  // populated above — a flat-only baseline would never match a nested-only
+  // draft, leaving `dirty` permanently true for any migrated model.
   const dirty = editable &&
     (descDraft !== (selectedNode!.description ?? "") ||
-     gistDraft !== (typeof selectedNode!.meta?.gist === "string" ? selectedNode!.meta!.gist : "") ||
-     calloutDraft !== !!selectedNode!.meta?.callout ||
+     gistDraft !== (typeof readMeta(selectedNode!.meta, "gist") === "string" ? (readMeta(selectedNode!.meta, "gist") as string) : "") ||
+     calloutDraft !== !!readMeta(selectedNode!.meta, "callout") ||
      !sameList(areasDraft, nodeAreas(selectedNode!)) ||
      !sameList(labelsDraft, nodeLabels(selectedNode!)) ||
      !sameList(tagsDraft, selectedNode!.tags ?? []));
@@ -591,7 +597,25 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       setGraph((g) => g && {
         ...g,
         nodes: g.nodes.map((n) => n.id === selectedNode.id
-          ? { ...n, description: descDraft, tags: tagsDraft, meta: { ...(n.meta ?? {}), gist: gistDraft, callout: nextCallout ?? undefined, subject_areas: areasDraft, labels: labelsDraft } } : n),
+          ? {
+              ...n, description: descDraft, tags: tagsDraft,
+              // Write the NESTED shape, matching exactly how upsertModelDoc
+              // writes to disk. A flat write here would leave any existing
+              // `meta.dbt_open_lineage` sub-object untouched (the `...meta`
+              // spread only copies it, doesn't clear it) — and since
+              // readMeta prefers nested, the panel would re-read that STALE
+              // nested value right after Save, making the save appear to
+              // silently revert.
+              meta: {
+                ...(n.meta ?? {}),
+                dbt_open_lineage: {
+                  ...((n.meta?.dbt_open_lineage as Record<string, unknown> | undefined) ?? {}),
+                  gist: gistDraft, callout: nextCallout ?? undefined,
+                  subject_areas: areasDraft, labels: labelsDraft,
+                },
+              },
+            }
+          : n),
       });
       flashToast("✓ Saved to YAML");
     } catch (e) { setSaveErr(String((e as Error).message ?? e)); }
