@@ -5,6 +5,7 @@ describe("resolveBin", () => {
   it("passes through a command that already has a path separator", () => {
     expect(resolveBin("/usr/local/bin/claude")).toBe("/usr/local/bin/claude");
     expect(resolveBin("./claude")).toBe("./claude");
+    expect(resolveBin("C:\\tools\\claude.cmd")).toBe("C:\\tools\\claude.cmd");
   });
 });
 

@@ -2,17 +2,24 @@ import { execFile, execFileSync } from "child_process";
 
 const MAX_SQL = 100_000; // keep total argv well under ARG_MAX
 
-/** Resolve a bare command name (e.g. `claude`) to an absolute path via the
- * login shell. An editor launched from the macOS Dock inherits a minimal PATH
- * that omits ~/.local/bin / Homebrew, so a bare `execFile("claude")` fails with
- * ENOENT even when installed. Commands already containing `/` are used as-is;
- * resolution failure falls back to the original name. */
+/** Resolve a bare command name (e.g. `claude`) to an absolute path.
+ * An editor launched from the macOS Dock inherits a minimal PATH that omits
+ * ~/.local/bin / Homebrew, so a bare `execFile("claude")` fails with ENOENT
+ * even when installed — resolve it via the user's login shell instead. On
+ * Windows, `where` serves the same purpose without needing a POSIX shell.
+ * Commands already containing a path separator are used as-is; resolution
+ * failure falls back to the original name. */
 export function resolveBin(cmd: string): string {
-  if (cmd.includes("/")) return cmd;
+  if (cmd.includes("/") || cmd.includes("\\")) return cmd;
   try {
-    const shell = process.env.SHELL || "/bin/zsh";
-    const out = execFileSync(shell, ["-lic", `command -v ${cmd}`], { encoding: "utf8" }).trim();
-    if (out) return out;
+    if (process.platform === "win32") {
+      const out = execFileSync("where", [cmd], { encoding: "utf8" }).trim().split(/\r?\n/)[0];
+      if (out) return out;
+    } else {
+      const shell = process.env.SHELL || "/bin/zsh";
+      const out = execFileSync(shell, ["-lic", `command -v ${cmd}`], { encoding: "utf8" }).trim();
+      if (out) return out;
+    }
   } catch { /* not resolvable — fall back to the bare name */ }
   return cmd;
 }
@@ -47,9 +54,14 @@ export function buildGistPrompt(name: string, description: string, compiledSql: 
   ].filter(Boolean).join("\n");
 }
 
+/** `shell: true` on win32 is required for execFile to launch npm-installed
+ * .cmd/.bat shims (Node cannot run them directly); Node quotes each argv
+ * element itself in that mode, so {prompt} still can't break out into the
+ * shell. No-op on macOS/Linux, which never needed a shell here. */
 const nodeSpawn: GistIo["spawn"] = (argv) =>
   new Promise((resolve, reject) => {
-    execFile(resolveBin(argv[0]), argv.slice(1), { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const opts = { maxBuffer: 10 * 1024 * 1024, shell: process.platform === "win32" };
+    execFile(resolveBin(argv[0]), argv.slice(1), opts, (err, stdout, stderr) => {
       if (err && (err as NodeJS.ErrnoException).code === "ENOENT") { reject(new Error(`command not found: ${argv[0]}`)); return; }
       resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout: stdout ?? "", stderr: stderr ?? "" });
     });
