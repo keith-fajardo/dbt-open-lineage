@@ -31,4 +31,19 @@ describe("readMeta", () => {
     expect(readMeta({ dbt_open_lineage: { subject_areas: ["a"] } }, "subject_areas")).toEqual(["a"]);
     expect(readMeta({ subject_areas: ["b"] }, "subject_areas")).toEqual(["b"]);
   });
+
+  it("falls back to legacy key when dbt_open_lineage is a non-object truthy value (string)", () => {
+    const meta = { dbt_open_lineage: "not an object", gist: "legacy" };
+    expect(readMeta(meta, "gist")).toBe("legacy");
+  });
+
+  it("falls back to legacy key when dbt_open_lineage is a non-object truthy value (boolean)", () => {
+    const meta = { dbt_open_lineage: true, gist: "legacy" };
+    expect(readMeta(meta, "gist")).toBe("legacy");
+  });
+
+  it("falls back to legacy key when dbt_open_lineage is a non-object truthy value (number)", () => {
+    const meta = { dbt_open_lineage: 5, gist: "legacy" };
+    expect(readMeta(meta, "gist")).toBe("legacy");
+  });
 });

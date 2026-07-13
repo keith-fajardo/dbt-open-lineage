@@ -7,6 +7,6 @@
  * `""` still beats a non-empty legacy value. */
 export function readMeta(meta: Record<string, unknown> | undefined, key: string): unknown {
   const ns = meta?.dbt_open_lineage as Record<string, unknown> | undefined;
-  if (ns && key in ns) return ns[key];
+  if (ns && typeof ns === "object" && key in ns) return ns[key];
   return meta?.[key];
 }
