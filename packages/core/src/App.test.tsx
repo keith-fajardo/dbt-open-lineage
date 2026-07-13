@@ -354,6 +354,21 @@ describe("editable description + gist panel", () => {
     await waitFor(() =>
       expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("flat legacy gist"));
   });
+
+  it("populates the gist field from the namespaced meta.dbt_open_lineage.gist", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { gist: "nested gist", callout: "top" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("nested gist"));
+  });
 });
 
 describe("edgeOnLineage", () => {
