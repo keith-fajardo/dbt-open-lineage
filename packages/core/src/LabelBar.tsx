@@ -7,14 +7,18 @@ interface LabelBarProps {
   styles: Map<string, Style>;
   filter: Set<string>;
   onToggle: (label: string) => void;
-  onColor: (label: string, color: string) => void;
+  /** Omit in read-only contexts: the swatch then renders as a plain,
+   * non-interactive color dot (still shows the label's color, just not
+   * editable) instead of the recolor `<input type="color">`. */
+  onColor?: (label: string, color: string) => void;
 }
 
 /** Labels collapsed into a compact "Labels ▾" dropdown, mirroring the Tags
  * control: a searchable checkbox list, one row per label. Each row also carries
- * a color swatch (opens a native picker that recolors the label, persisted to
- * the sidecar). Toggling a row's checkbox/name updates the label filter.
- * Renders nothing when there are no labels. */
+ * a color swatch — when `onColor` is provided it opens a native picker that
+ * recolors the label (persisted to the sidecar); otherwise it's a plain,
+ * non-interactive dot. Toggling a row's checkbox/name updates the label
+ * filter. Renders nothing when there are no labels. */
 export function LabelBar(p: LabelBarProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -69,18 +73,26 @@ export function LabelBar(p: LabelBarProps) {
               <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
                 color: "#e5e7eb", fontSize: 13, borderRadius: 6 }}>
                 <input type="checkbox" checked={on} onChange={() => p.onToggle(label)} aria-label={st.name} style={{ cursor: "pointer" }} />
-                <label
-                  style={{ width: 14, height: 14, borderRadius: 4, background: st.color, cursor: "pointer",
-                    position: "relative", flex: "none", boxShadow: "0 0 0 1px rgba(0,0,0,0.4)" }}
-                  title={`Recolor ${st.name}`}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <input
-                    type="color" value={st.color}
-                    onChange={(e) => p.onColor(label, e.target.value)}
-                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", border: 0, padding: 0 }}
+                {p.onColor ? (
+                  <label
+                    style={{ width: 14, height: 14, borderRadius: 4, background: st.color, cursor: "pointer",
+                      position: "relative", flex: "none", boxShadow: "0 0 0 1px rgba(0,0,0,0.4)" }}
+                    title={`Recolor ${st.name}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="color" value={st.color}
+                      onChange={(e) => p.onColor!(label, e.target.value)}
+                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", border: 0, padding: 0 }}
+                    />
+                  </label>
+                ) : (
+                  <span
+                    aria-hidden
+                    style={{ width: 14, height: 14, borderRadius: 4, background: st.color,
+                      flex: "none", boxShadow: "0 0 0 1px rgba(0,0,0,0.4)" }}
                   />
-                </label>
+                )}
                 <span onClick={() => p.onToggle(label)} style={{ cursor: "pointer", flex: 1 }}>{st.name}</span>
               </div>
             );

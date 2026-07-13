@@ -483,6 +483,28 @@ describe("readOnly mode", () => {
     await screen.findByText("a staging model");
     await screen.findByText("not_null_id");
   });
+
+  it("Labels dropdown shows a plain swatch (no recolor input) and never writes the sidecar", async () => {
+    // oneModelGraph carries no labels, so LabelBar would render null — give
+    // this node a label so the dropdown (and its color swatch) actually mounts.
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { labels: ["core"] },
+      }],
+      edges: [],
+    };
+    const { container } = render(<App projectPath="/proj" initialSelector="stg_orders" readOnly />);
+    await screen.findByText("stg_orders");
+    fireEvent.click(screen.getByRole("button", { name: /labels/i }));
+    await screen.findByText("core"); // the label row rendered inside the open dropdown
+
+    // No live color-write affordance in read-only mode…
+    expect(container.querySelector('input[type="color"]')).not.toBeInTheDocument();
+    // …and the recolor path (which would fs.writeText the sidecar) never fired.
+    expect(invokeMock).not.toHaveBeenCalledWith("fs.writeText", expect.anything());
+  });
 });
 
 describe("edgeOnLineage", () => {

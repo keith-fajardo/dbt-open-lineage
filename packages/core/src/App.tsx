@@ -986,7 +986,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               styles={labelStyles}
               filter={labelFilter}
               onToggle={onToggleLabel}
-              onColor={(l, c) => void onLabelColor(l, c)}
+              onColor={readOnly ? undefined : (l, c) => void onLabelColor(l, c)}
             />
             <TagChips tags={allTags} filter={tagFilter} onToggle={onToggleTag} />
           </div>

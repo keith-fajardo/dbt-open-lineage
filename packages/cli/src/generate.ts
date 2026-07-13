@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } from "fs";
 import { resolve } from "path";
 import { parseManifest } from "@dbt-open-lineage/core/src/manifest";
+import type { Graph } from "@dbt-open-lineage/core";
 import { buildHtml } from "./template";
 
 export interface GenerateOptions {
@@ -16,7 +17,7 @@ export function generate(opts: GenerateOptions): void {
     throw new Error(`manifest not found: ${opts.manifestPath}`);
   }
   const manifestJson = readFileSync(opts.manifestPath, "utf8");
-  let graph;
+  let graph: Graph;
   try {
     graph = parseManifest(manifestJson);
   } catch (e) {
