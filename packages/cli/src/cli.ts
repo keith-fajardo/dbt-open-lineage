@@ -1,5 +1,6 @@
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { realpathSync } from "fs";
 import { generate } from "./generate";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -47,7 +48,20 @@ export function main(argv: string[]): void {
   }
 }
 
-// Only auto-run when executed as the bin script, not when imported by cli.test.ts.
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** True when this module was executed directly as the entry script (not
+ * imported, e.g. by cli.test.ts). import.meta.url is always the fully
+ * resolved real path, but process.argv[1] is the path AS INVOKED — under
+ * `npm link`, that's a symlink (e.g. /opt/homebrew/bin/dbt-open-lineage),
+ * so comparing them raw never matches and main() silently never runs.
+ * realpathSync resolves the symlink so both sides compare real paths. */
+export function isMainModule(argv1: string, metaUrl: string): boolean {
+  try {
+    return metaUrl === `file://${realpathSync(argv1)}`;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule(process.argv[1], import.meta.url)) {
   main(process.argv.slice(2));
 }
