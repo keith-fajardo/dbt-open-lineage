@@ -25,7 +25,7 @@ describe("upsertModelDoc", () => {
     expect(out).toContain("# the orders staging model");
     const doc = parse(out);
     expect(doc.models[0].description).toBe("new desc");
-    expect(doc.models[0].config.meta.gist).toBe("rolls up raw orders");
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("rolls up raw orders");
   });
 
   it("writes a fresh file in BLOCK style, not flow (no curly braces / inline arrays)", () => {
@@ -35,9 +35,10 @@ describe("upsertModelDoc", () => {
     expect(out).toContain("  - name: stg_orders");
     expect(out).toContain("    config:");
     expect(out).toContain("      meta:");
+    expect(out).toContain("        dbt_open_lineage:");
     // sanity: still parses to the right shape
     const doc = parse(out);
-    expect(doc.models[0].config.meta.subject_areas).toEqual(["orders"]);
+    expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toEqual(["orders"]);
     expect(doc.models[0].config.tags).toEqual(["nightly"]);
   });
 
@@ -47,7 +48,7 @@ describe("upsertModelDoc", () => {
     const doc = parse(out);
     expect(doc.models.map((m: { name: string }) => m.name)).toEqual(["other", "stg_orders"]);
     expect(doc.models[0].description).toBe("keep");
-    expect(doc.models[1].config.meta.gist).toBe("g");
+    expect(doc.models[1].config.meta.dbt_open_lineage.gist).toBe("g");
   });
 
   it("preserves a comment on a pre-existing sibling entry when appending a new model", () => {
@@ -64,7 +65,7 @@ describe("upsertModelDoc", () => {
     expect(doc.models[0].description).toBe("keep");
     expect(doc.models[1].name).toBe("stg_orders");
     expect(doc.models[1].description).toBe("d");
-    expect(doc.models[1].config.meta.gist).toBe("g");
+    expect(doc.models[1].config.meta.dbt_open_lineage.gist).toBe("g");
   });
 
   it("does not re-wrap long lines it never touched", () => {
@@ -83,7 +84,7 @@ describe("upsertModelDoc", () => {
     expect(out).toContain(`description: ${longDesc}`);
   });
 
-  it("preserves an existing config block, adding only config.meta.gist", () => {
+  it("preserves an existing config block, adding only the namespaced gist", () => {
     const src = [
       "version: 2",
       "models:",
@@ -98,8 +99,10 @@ describe("upsertModelDoc", () => {
     const doc = parse(upsertModelDoc(src, "dim_account", "new", "the gist"));
     expect(doc.models[0].config.materialized).toBe("table");
     expect(doc.models[0].config.tags).toEqual(["daily"]);
-    expect(doc.models[0].config.meta.owner).toBe("analytics"); // sibling meta key kept
-    expect(doc.models[0].config.meta.gist).toBe("the gist");   // gist added alongside
+    // A third-party sibling meta key (not one of ours) is untouched, still flat —
+    // this is the whole point of namespacing: we never move or read keys we don't own.
+    expect(doc.models[0].config.meta.owner).toBe("analytics");
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("the gist");
     expect(doc.models[0].description).toBe("new");
   });
 
@@ -126,16 +129,16 @@ describe("upsertModelDoc", () => {
     expect(doc.version).toBe(2);
     expect(doc.models[0].name).toBe("stg_orders");
     expect(doc.models[0].description).toBe("d");
-    expect(doc.models[0].config.meta.gist).toBe("g");
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("g");
   });
 
-  it("sets config.meta.callout when a placement string is passed", () => {
+  it("sets the namespaced callout when a placement string is passed", () => {
     const doc = parse(upsertModelDoc(null, "stg_orders", "d", "g", "top"));
-    expect(doc.models[0].config.meta.callout).toBe("top");
-    expect(doc.models[0].config.meta.gist).toBe("g"); // gist still written
+    expect(doc.models[0].config.meta.dbt_open_lineage.callout).toBe("top");
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("g"); // gist still written
   });
 
-  it("removes config.meta.callout when null is passed", () => {
+  it("removes a legacy flat callout when null is passed (explicit clear deletes it)", () => {
     const src = [
       "version: 2",
       "models:",
@@ -147,8 +150,9 @@ describe("upsertModelDoc", () => {
       "        callout: top",
     ].join("\n");
     const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", null));
-    expect(doc.models[0].config.meta.callout).toBeUndefined();
-    expect(doc.models[0].config.meta.gist).toBe("g"); // sibling meta kept
+    expect(doc.models[0].config.meta.callout).toBeUndefined();               // legacy deleted
+    expect(doc.models[0].config.meta.dbt_open_lineage?.callout).toBeUndefined(); // never created
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("g");       // gist still namespaced-written
   });
 
   it("removes config.meta.callout when an empty string is passed", () => {
@@ -166,11 +170,11 @@ describe("upsertModelDoc", () => {
 
   it("tolerates removing callout when none exists", () => {
     const doc = parse(upsertModelDoc(null, "stg_orders", "d", "g", null));
-    expect(doc.models[0].config.meta.callout).toBeUndefined();
-    expect(doc.models[0].config.meta.gist).toBe("g");
+    expect(doc.models[0].config.meta.dbt_open_lineage.callout).toBeUndefined();
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("g");
   });
 
-  it("leaves an existing callout intact when the arg is omitted (undefined)", () => {
+  it("leaves an existing legacy callout intact when the arg is omitted (undefined)", () => {
     const src = [
       "version: 2",
       "models:",
@@ -182,21 +186,23 @@ describe("upsertModelDoc", () => {
       "        callout: top",
     ].join("\n");
     const doc = parse(upsertModelDoc(src, "stg_orders", "d", "new gist"));
-    expect(doc.models[0].config.meta.callout).toBe("top"); // untouched
-    expect(doc.models[0].config.meta.gist).toBe("new gist");
+    // Omitted (not cleared) — legacy value is left fully untouched, still flat.
+    // readMeta's fallback (see meta.ts, Task 2) is what makes this still visible.
+    expect(doc.models[0].config.meta.callout).toBe("top");
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("new gist");
   });
 
-  it("sets config.meta.subject_areas and labels as YAML sequences", () => {
+  it("sets namespaced subject_areas and labels as YAML sequences", () => {
     const out = upsertModelDoc(null, "stg_orders", "d", "g", undefined, ["billing", "orders"], ["core"]);
     const doc = parse(out);
-    expect(doc.models[0].config.meta.subject_areas).toEqual(["billing", "orders"]);
-    expect(doc.models[0].config.meta.labels).toEqual(["core"]);
+    expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toEqual(["billing", "orders"]);
+    expect(doc.models[0].config.meta.dbt_open_lineage.labels).toEqual(["core"]);
     // Serialized as a real sequence, not an inline JS-array literal.
     expect(out).toContain("subject_areas:");
     expect(out).not.toContain('["billing"');
   });
 
-  it("updates existing subject_areas and labels in place", () => {
+  it("adds namespaced subject_areas/labels alongside untouched legacy ones", () => {
     const src = [
       "version: 2",
       "models:",
@@ -207,11 +213,11 @@ describe("upsertModelDoc", () => {
       "        labels: [core]",
     ].join("\n");
     const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", undefined, ["orders"], ["core", "pii"]));
-    expect(doc.models[0].config.meta.subject_areas).toEqual(["orders"]);
-    expect(doc.models[0].config.meta.labels).toEqual(["core", "pii"]);
+    expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toEqual(["orders"]);
+    expect(doc.models[0].config.meta.dbt_open_lineage.labels).toEqual(["core", "pii"]);
   });
 
-  it("removes the key when an empty array is passed (never writes subject_areas: [])", () => {
+  it("removes a legacy-only list when an empty array is passed (never writes subject_areas: [])", () => {
     const src = [
       "version: 2",
       "models:",
@@ -223,12 +229,13 @@ describe("upsertModelDoc", () => {
     ].join("\n");
     const out = upsertModelDoc(src, "stg_orders", "d", "g", undefined, [], ["core"]);
     const doc = parse(out);
-    expect(doc.models[0].config.meta.subject_areas).toBeUndefined();
+    expect(doc.models[0].config.meta.subject_areas).toBeUndefined();               // legacy deleted
+    expect(doc.models[0].config.meta.dbt_open_lineage?.subject_areas).toBeUndefined(); // never created
     expect(out).not.toContain("subject_areas");
-    expect(doc.models[0].config.meta.labels).toEqual(["core"]); // the other list kept
+    expect(doc.models[0].config.meta.dbt_open_lineage.labels).toEqual(["core"]); // the other list kept
   });
 
-  it("leaves existing subject_areas/labels intact when the args are omitted (undefined)", () => {
+  it("leaves existing legacy subject_areas/labels intact when the args are omitted (undefined)", () => {
     const src = [
       "version: 2",
       "models:",
@@ -241,10 +248,10 @@ describe("upsertModelDoc", () => {
     const doc = parse(upsertModelDoc(src, "stg_orders", "d", "new gist"));
     expect(doc.models[0].config.meta.subject_areas).toEqual(["billing", "orders"]); // untouched
     expect(doc.models[0].config.meta.labels).toEqual(["core"]); // untouched
-    expect(doc.models[0].config.meta.gist).toBe("new gist");
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("new gist");
   });
 
-  it("round-trips gist and callout alongside subject_areas and labels", () => {
+  it("round-trips gist and callout alongside subject_areas and labels, all namespaced", () => {
     const src = [
       "version: 2",
       "models:",
@@ -256,13 +263,13 @@ describe("upsertModelDoc", () => {
       "        callout: top",
     ].join("\n");
     const doc = parse(upsertModelDoc(src, "stg_orders", "d", "new gist", "top", ["billing"], ["core"]));
-    expect(doc.models[0].config.meta.gist).toBe("new gist");
-    expect(doc.models[0].config.meta.callout).toBe("top");
-    expect(doc.models[0].config.meta.subject_areas).toEqual(["billing"]);
-    expect(doc.models[0].config.meta.labels).toEqual(["core"]);
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("new gist");
+    expect(doc.models[0].config.meta.dbt_open_lineage.callout).toBe("top");
+    expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toEqual(["billing"]);
+    expect(doc.models[0].config.meta.dbt_open_lineage.labels).toEqual(["core"]);
   });
 
-  it("writes tags to config.tags (dbt-native, not under meta)", () => {
+  it("writes tags to config.tags (dbt-native, not under meta, never namespaced)", () => {
     const out = upsertModelDoc(null, "stg_orders", "d", "g", undefined, undefined, undefined, ["nightly", "core"]);
     const doc = parse(out);
     expect(doc.models[0].config.tags).toEqual(["nightly", "core"]);
@@ -274,12 +281,12 @@ describe("upsertModelDoc", () => {
     // Only a subject-area change; gist is "" and there was no gist before.
     const out = upsertModelDoc(null, "stg_orders", "d", "", undefined, ["orders"]);
     const doc = parse(out);
-    expect(doc.models[0].config.meta.gist).toBeUndefined();
+    expect(doc.models[0].config.meta.dbt_open_lineage?.gist).toBeUndefined();
     expect(out).not.toContain("gist:");
-    expect(doc.models[0].config.meta.subject_areas).toEqual(["orders"]); // the real change kept
+    expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toEqual(["orders"]); // the real change kept
   });
 
-  it("still clears an existing gist when set to empty", () => {
+  it("still clears an existing legacy gist when set to empty, deleting the legacy key", () => {
     const src = [
       "version: 2",
       "models:",
@@ -289,7 +296,8 @@ describe("upsertModelDoc", () => {
       "        gist: old",
     ].join("\n");
     const doc = parse(upsertModelDoc(src, "stg_orders", "d", ""));
-    expect(doc.models[0].config.meta.gist).toBe(""); // key present, emptied
+    expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe(""); // namespaced key present, emptied
+    expect(doc.models[0].config.meta.gist).toBeUndefined();           // legacy key removed — clear took effect
   });
 
   it("removes config.tags when an empty array is passed, and leaves it untouched when omitted", () => {

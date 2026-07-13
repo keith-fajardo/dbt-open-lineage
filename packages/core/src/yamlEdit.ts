@@ -16,22 +16,36 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
   return dir ? `${dir}/${node.name}.yml` : `${node.name}.yml`;
 }
 
-/** Upsert `description` + `config.meta.gist` for `name`, preserving comments
- * and formatting of `existingText`. An existing `config:` block is kept intact
- * (only `meta.gist` is set inside it); a newly-created `config:` is positioned
- * right under `description`. Seeds a fresh `version: 2` doc when the file does
- * not exist yet. Returns serialized YAML.
+/** Upsert `description` + `config.meta.dbt_open_lineage.gist` for `name`,
+ * preserving comments and formatting of `existingText`. An existing `config:`
+ * block is kept intact (only the relevant leaves are set inside it); a
+ * newly-created `config:` is positioned right under `description`. Seeds a
+ * fresh `version: 2` doc when the file does not exist yet. Returns serialized
+ * YAML.
  *
- * `callout` controls `config.meta.callout` (the placement that makes a gist
- * render as a bubble on the DAG):
+ * Every key this extension owns (`gist`, `callout`, `subject_areas`,
+ * `labels`) is namespaced under `config.meta.dbt_open_lineage` to avoid
+ * colliding with other tools that also write into a model's `meta` — this
+ * function ONLY ever writes to the nested shape. Models edited before this
+ * namespacing existed may still have these keys flat at `config.meta.<key>`;
+ * that legacy data is left untouched here on an add/update (the read side,
+ * see meta.ts's readMeta, falls back to it), EXCEPT when a write is an
+ * EXPLICIT clear/remove of a key that currently only exists at the legacy
+ * location — then the legacy key is deleted too, so clearing something
+ * actually clears it instead of leaving a stale value for readMeta's
+ * fallback to keep surfacing.
+ *
+ * `callout` controls `config.meta.dbt_open_lineage.callout` (the placement
+ * that makes a gist render as a bubble on the DAG):
  *   - `undefined` → leave any existing callout untouched (default).
  *   - a non-empty string → set it (e.g. "top").
  *   - `null` or `""` → remove it.
  *
- * `subjectAreas` / `labels` control `config.meta.subject_areas` /
- * `config.meta.labels` (a model's membership in named zones / label stripes),
- * and `tags` controls `config.tags` (dbt's native tag list). Each follows the
- * same convention as `callout`:
+ * `subjectAreas` / `labels` control `config.meta.dbt_open_lineage.subject_areas`
+ * / `...labels` (a model's membership in named zones / label stripes), and
+ * `tags` controls `config.tags` (dbt's native tag list, never namespaced —
+ * it was never under `meta` to begin with). Each follows the same convention
+ * as `callout`:
  *   - `undefined` → leave any existing list untouched (default).
  *   - a non-empty `string[]` → set it as a YAML sequence.
  *   - an empty `[]` → remove the key (never writes `subject_areas: []`). */
@@ -66,37 +80,53 @@ export function upsertModelDoc(
   const hadConfig = model.has("config");
   // Live-node mutation preserves comments/formatting on everything untouched.
   model.set("description", description);
-  // Existing config is preserved in place — setIn only writes the meta.gist
-  // leaf, keeping materialized/tags/other meta keys. Only write the gist when
-  // it has content or an existing gist key is being updated/cleared — this
-  // avoids seeding `gist: ""` onto models that never had one (spurious diff).
-  const gistPath = ["models", idx, "config", "meta", "gist"];
-  if (gist !== "" || doc.hasIn(gistPath)) doc.setIn(gistPath, gist);
+
+  const nsPath = (key: string) => ["models", idx, "config", "meta", "dbt_open_lineage", key];
+  const legacyPath = (key: string) => ["models", idx, "config", "meta", key];
+
+  // gist: write the nested value whenever it has content, or whenever an
+  // existing gist (nested OR legacy) is being updated/cleared — this avoids
+  // seeding `gist: ""` onto models that never had one (spurious diff). On an
+  // explicit clear (gist === "") of a legacy-only value, the legacy key is
+  // also deleted so the clear actually takes effect.
+  const gistPath = nsPath("gist");
+  const legacyGistPath = legacyPath("gist");
+  if (gist !== "" || doc.hasIn(gistPath) || doc.hasIn(legacyGistPath)) doc.setIn(gistPath, gist);
+  if (gist === "" && doc.hasIn(legacyGistPath)) doc.deleteIn(legacyGistPath);
+
   // callout placement: set when a non-empty string, delete on null/"", and
-  // leave untouched when omitted (undefined) so 4-arg callers don't disturb it.
+  // leave untouched when omitted (undefined) so 4-arg callers don't disturb
+  // it. On explicit removal, delete from wherever the value currently is:
+  // the nested key if present, else the legacy flat key.
   if (typeof callout === "string" && callout) {
-    doc.setIn(["models", idx, "config", "meta", "callout"], callout);
+    doc.setIn(nsPath("callout"), callout);
   } else if (callout === null || callout === "") {
-    if (doc.hasIn(["models", idx, "config", "meta", "callout"])) {
-      doc.deleteIn(["models", idx, "config", "meta", "callout"]);
-    }
+    if (doc.hasIn(nsPath("callout"))) doc.deleteIn(nsPath("callout"));
+    else if (doc.hasIn(legacyPath("callout"))) doc.deleteIn(legacyPath("callout"));
   }
 
-  // subject_areas / labels membership lists: same convention as callout.
-  // A non-empty array is written as a proper YAML sequence (createNode so it
-  // serializes as a list, not an inline JS array); an empty array removes the
-  // key so we never persist `subject_areas: []`; undefined leaves it untouched.
-  const setListAt = (path: (string | number)[], arr: string[] | undefined) => {
+  // subject_areas / labels membership lists: same convention as callout. A
+  // non-empty array is written as a proper YAML sequence (createNode so it
+  // serializes as a list, not an inline JS array), always to the nested path;
+  // an empty array removes the key from wherever it lives (nested, else
+  // legacy) so we never persist `subject_areas: []`; undefined leaves both
+  // locations untouched.
+  const setNsList = (key: string, arr: string[] | undefined) => {
     if (arr === undefined) return;
-    if (arr.length) doc.setIn(path, doc.createNode(arr));
-    else if (doc.hasIn(path)) doc.deleteIn(path);
+    if (arr.length) { doc.setIn(nsPath(key), doc.createNode(arr)); return; }
+    if (doc.hasIn(nsPath(key))) doc.deleteIn(nsPath(key));
+    else if (doc.hasIn(legacyPath(key))) doc.deleteIn(legacyPath(key));
   };
-  const setList = (key: string, arr: string[] | undefined) =>
-    setListAt(["models", idx, "config", "meta", key], arr);
-  setList("subject_areas", subjectAreas);
-  setList("labels", labels);
-  // Tags are dbt-native: they live at config.tags, not under meta.
-  setListAt(["models", idx, "config", "tags"], tags);
+  setNsList("subject_areas", subjectAreas);
+  setNsList("labels", labels);
+
+  // Tags are dbt-native: they live at config.tags, not under meta, and were
+  // never namespaced — no legacy shape to fall back to or migrate away from.
+  if (tags !== undefined) {
+    const tagsPath = ["models", idx, "config", "tags"];
+    if (tags.length) doc.setIn(tagsPath, doc.createNode(tags));
+    else if (doc.hasIn(tagsPath)) doc.deleteIn(tagsPath);
+  }
 
   // A config block we just created lands at the end of the map; move it right
   // under `description` (or `name`) so it reads where dbt authors expect it.
