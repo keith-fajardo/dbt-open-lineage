@@ -23,8 +23,19 @@ export function readCompiledSql(root: string, uniqueId: string): CompiledSql {
 }
 
 /** The virtual-document URI string for a compiled model. The `.sql` suffix
- * makes VSCode infer SQL highlighting; the query carries the node id so
- * Recompile can re-resolve it. */
-export function compiledDocUri(name: string, uniqueId: string): string {
-  return `dbt-compiled:/${name}.sql?${encodeURIComponent(uniqueId)}`;
+ * makes VSCode infer SQL highlighting; the query carries the node id AND the
+ * project root so Recompile can re-resolve both without touching
+ * `activeTextEditor` — at recompile time the active editor IS this virtual
+ * doc, and deriving root from ITS fsPath (as earlier code did) silently
+ * resolves to "/", pointing dbt at the wrong cwd. */
+export function compiledDocUri(name: string, uniqueId: string, root: string): string {
+  const query = new URLSearchParams({ id: uniqueId, root });
+  return `dbt-compiled:/${name}.sql?${query.toString()}`;
+}
+
+/** Inverse of compiledDocUri's query — pulls the node id + project root back
+ * out of a compiled-doc uri's query string. */
+export function parseCompiledDocQuery(query: string): { id: string; root: string } {
+  const params = new URLSearchParams(query);
+  return { id: params.get("id") ?? "", root: params.get("root") ?? "" };
 }

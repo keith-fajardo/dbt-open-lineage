@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { compiledCodeFromManifest, readCompiledSql, compiledDocUri } from "./compiledSql";
+import {
+  compiledCodeFromManifest, readCompiledSql, compiledDocUri, parseCompiledDocQuery,
+} from "./compiledSql";
 
 const fixture = () =>
   fs.readFileSync(path.join(__dirname, "../../test/fixtures/manifest.min.json"), "utf8");
@@ -36,9 +38,22 @@ describe("readCompiledSql", () => {
   });
 });
 
-describe("compiledDocUri", () => {
-  it("builds a .sql virtual uri carrying the node id", () => {
-    expect(compiledDocUri("stg_orders", "model.proj.stg_orders"))
-      .toBe("dbt-compiled:/stg_orders.sql?model.proj.stg_orders");
+describe("compiledDocUri / parseCompiledDocQuery", () => {
+  // Recompile fires while the virtual dbt-compiled: doc is the active editor —
+  // resolving the project root from THAT editor's fsPath (as the old code did)
+  // silently gives "/", pointing dbt at the wrong cwd (see extension.ts recompile
+  // command). The uri must carry root itself so recompile never needs to re-derive
+  // it from activeTextEditor.
+  it("round-trips both the node id and the project root through the uri", () => {
+    const uri = compiledDocUri("stg_orders", "model.proj.stg_orders", "/Users/me/proj");
+    expect(uri.startsWith("dbt-compiled:/stg_orders.sql?")).toBe(true);
+    const parsed = parseCompiledDocQuery(uri.split("?")[1]);
+    expect(parsed).toEqual({ id: "model.proj.stg_orders", root: "/Users/me/proj" });
+  });
+
+  it("round-trips a root containing reserved uri characters (spaces, &, ?)", () => {
+    const uri = compiledDocUri("m", "model.proj.m", "/Users/me/my projects/a&b?");
+    const parsed = parseCompiledDocQuery(uri.split("?")[1]);
+    expect(parsed).toEqual({ id: "model.proj.m", root: "/Users/me/my projects/a&b?" });
   });
 });

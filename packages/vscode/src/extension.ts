@@ -7,7 +7,7 @@ import { findProjectRoot } from "./host/projectRoot";
 import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
 import { makeCompileTask, runTaskToCompletion, makeCompileSelectTask } from "./host/compile";
-import { readCompiledSql, compiledDocUri } from "./host/compiledSql";
+import { readCompiledSql, compiledDocUri, parseCompiledDocQuery } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
 import type { Graph, GraphNode } from "@dbt-open-lineage/core";
@@ -234,7 +234,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const { sql, compiled } = readCompiledSql(m.root, m.node.id);
-      const uri = vscode.Uri.parse(compiledDocUri(m.node.name, m.node.id));
+      const uri = vscode.Uri.parse(compiledDocUri(m.node.name, m.node.id, m.root));
       compiledContent.set(
         uri.toString(),
         compiled ? sql : `-- ${m.node.name}: no compiled_code yet. Run "dbt: Recompile Model".`,
@@ -250,9 +250,12 @@ export function activate(context: vscode.ExtensionContext) {
       const ed = vscode.window.activeTextEditor;
       if (!ed || ed.document.uri.scheme !== COMPILED_SCHEME) return;
       const uri = ed.document.uri;
-      const id = uri.query;
+      // root travels with the uri (see compiledDocUri) rather than being
+      // re-derived from activeTextEditor — which right here IS this virtual
+      // doc, so resolveRoot() would silently resolve to "/" and point dbt at
+      // the wrong cwd.
+      const { id, root } = parseCompiledDocQuery(uri.query);
       const name = path.basename(uri.path).replace(/\.sql$/, "");
-      const root = resolveRoot();
       if (!root) { void vscode.window.showErrorMessage("no dbt project found"); return; }
       // Running feedback: a notification spinner "Recompiling <model>…" for the
       // duration of the dbt task (native parity for Mnemo's amber note).
