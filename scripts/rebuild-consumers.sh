@@ -6,11 +6,13 @@
 # users once the consumers' bundles are regenerated:
 #   - mext   → packages/mext/dist/  (+ packages/mext/dbt-dag-viz.mext)
 #   - vscode → packages/vscode/out/extension.js + packages/vscode/media/
+#   - cli    → packages/cli/out/cli.js + packages/cli/dist/webview/
 #
 # Usage:
-#   scripts/rebuild-consumers.sh [--mext-only|--vscode-only] [--no-pack]
+#   scripts/rebuild-consumers.sh [--mext-only|--vscode-only|--cli-only] [--no-pack]
 #     --mext-only     rebuild only the .mext consumer
 #     --vscode-only   rebuild only the VSCode extension
+#     --cli-only      rebuild only the static-site CLI
 #     --no-pack       skip zipping the .mext bundle (build dist/ only)
 #
 set -euo pipefail
@@ -18,11 +20,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-MEXT=1; VSCODE=1; PACK=1
+MEXT=1; VSCODE=1; CLI=1; PACK=1
 for a in "$@"; do
   case "$a" in
-    --mext-only)    VSCODE=0 ;;
-    --vscode-only)  MEXT=0 ;;
+    --mext-only)    VSCODE=0; CLI=0 ;;
+    --vscode-only)  MEXT=0; CLI=0 ;;
+    --cli-only)     MEXT=0; VSCODE=0 ;;
     --no-pack)      PACK=0 ;;
     -h|--help)      sed -n '/^# Rebuild/,/^#   *--no-pack/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown arg: $a (try --help)" >&2; exit 2 ;;
@@ -65,6 +68,13 @@ if [ "$VSCODE" = 1 ]; then
   fi
 fi
 
+if [ "$CLI" = 1 ]; then
+  say "cli build  →  out/cli.js + dist/webview/"
+  npm run build -w packages/cli
+  [ -f packages/cli/out/cli.js ]                    || fail "cli build missing out/cli.js"
+  [ -f packages/cli/dist/webview/assets/main.js ]   || fail "cli webview build missing dist/webview/assets/main.js"
+fi
+
 say "done — rebuilt artifacts:"
 if [ "$MEXT" = 1 ]; then
   echo "  mext webview  : packages/mext/dist/"
@@ -74,4 +84,8 @@ if [ "$VSCODE" = 1 ]; then
   echo "  vscode host   : packages/vscode/out/extension.js"
   echo "  vscode webview: packages/vscode/media/"
   [ "$PACK" = 1 ] && echo "  vscode vsix    : packages/vscode/dbt-open-lineage-$(node -p "require('./packages/vscode/package.json').version").vsix"
+fi
+if [ "$CLI" = 1 ]; then
+  echo "  cli bin       : packages/cli/out/cli.js"
+  echo "  cli webview   : packages/cli/dist/webview/"
 fi
