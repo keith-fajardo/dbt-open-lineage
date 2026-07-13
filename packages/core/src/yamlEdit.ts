@@ -83,6 +83,18 @@ export function upsertModelDoc(
 
   const nsPath = (key: string) => ["models", idx, "config", "meta", "dbt_open_lineage", key];
   const legacyPath = (key: string) => ["models", idx, "config", "meta", key];
+  // Delete `key` from BOTH the nested and legacy locations, whichever are
+  // present. A normal scenario leaves both populated at once: a pre-namespace
+  // model has a legacy value; the user re-saves once with it still set, which
+  // writes the nested key WITHOUT deleting the legacy one (see the
+  // add/update comment above) — so both now exist. An `else if` here would
+  // only ever delete one side, and the other resurfaces via readMeta's
+  // legacy fallback — the value could never actually be removed.
+  const clearOwnedKey = (key: string) => {
+    const np = nsPath(key), lp = legacyPath(key);
+    if (doc.hasIn(np)) doc.deleteIn(np);
+    if (doc.hasIn(lp)) doc.deleteIn(lp);
+  };
 
   // gist: write the nested value whenever it has content, or whenever an
   // existing gist (nested OR legacy) is being updated/cleared — this avoids
@@ -101,8 +113,7 @@ export function upsertModelDoc(
   if (typeof callout === "string" && callout) {
     doc.setIn(nsPath("callout"), callout);
   } else if (callout === null || callout === "") {
-    if (doc.hasIn(nsPath("callout"))) doc.deleteIn(nsPath("callout"));
-    else if (doc.hasIn(legacyPath("callout"))) doc.deleteIn(legacyPath("callout"));
+    clearOwnedKey("callout");
   }
 
   // subject_areas / labels membership lists: same convention as callout. A
@@ -114,8 +125,7 @@ export function upsertModelDoc(
   const setNsList = (key: string, arr: string[] | undefined) => {
     if (arr === undefined) return;
     if (arr.length) { doc.setIn(nsPath(key), doc.createNode(arr)); return; }
-    if (doc.hasIn(nsPath(key))) doc.deleteIn(nsPath(key));
-    else if (doc.hasIn(legacyPath(key))) doc.deleteIn(legacyPath(key));
+    clearOwnedKey(key);
   };
   setNsList("subject_areas", subjectAreas);
   setNsList("labels", labels);

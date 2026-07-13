@@ -174,6 +174,30 @@ describe("upsertModelDoc", () => {
     expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("g");
   });
 
+  it("clears a callout present in BOTH nested and legacy locations — both are deleted, not just one", () => {
+    // Realistic scenario: a pre-namespace model has a legacy `callout: top`.
+    // The user re-saves once with the callout still on — that write sets the
+    // nested key without deleting the legacy one (see "leaves an existing
+    // legacy callout intact when the arg is omitted" above) — so now BOTH
+    // exist. A later explicit clear must remove both, or readMeta's legacy
+    // fallback resurrects the value.
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    description: old",
+      "    config:",
+      "      meta:",
+      "        gist: g",
+      "        callout: top",
+      "        dbt_open_lineage:",
+      "          callout: top",
+    ].join("\n");
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", null));
+    expect(doc.models[0].config.meta.callout).toBeUndefined();                // legacy deleted
+    expect(doc.models[0].config.meta.dbt_open_lineage.callout).toBeUndefined(); // nested deleted
+  });
+
   it("leaves an existing legacy callout intact when the arg is omitted (undefined)", () => {
     const src = [
       "version: 2",
@@ -233,6 +257,26 @@ describe("upsertModelDoc", () => {
     expect(doc.models[0].config.meta.dbt_open_lineage?.subject_areas).toBeUndefined(); // never created
     expect(out).not.toContain("subject_areas");
     expect(doc.models[0].config.meta.dbt_open_lineage.labels).toEqual(["core"]); // the other list kept
+  });
+
+  it("clears a subject_areas list present in BOTH nested and legacy locations — both are deleted", () => {
+    // Same both-present scenario as the callout test above, but for a list
+    // key going through setNsList.
+    const src = [
+      "version: 2",
+      "models:",
+      "  - name: stg_orders",
+      "    config:",
+      "      meta:",
+      "        subject_areas: [billing]",
+      "        dbt_open_lineage:",
+      "          subject_areas: [billing]",
+    ].join("\n");
+    const out = upsertModelDoc(src, "stg_orders", "d", "g", undefined, []);
+    const doc = parse(out);
+    expect(doc.models[0].config.meta.subject_areas).toBeUndefined();                // legacy deleted
+    expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toBeUndefined(); // nested deleted
+    expect(out).not.toContain("subject_areas");
   });
 
   it("leaves existing legacy subject_areas/labels intact when the args are omitted (undefined)", () => {
