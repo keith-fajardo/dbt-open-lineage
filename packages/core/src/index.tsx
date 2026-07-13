@@ -25,13 +25,13 @@ class Boundary extends Component<{ children: ReactNode }, { err: Error | null }>
 /** Inject a host bridge and mount the DAG into `el`. */
 export function mountApp(
   el: HTMLElement,
-  opts: { bridge: Bridge; projectPath: string; initialSelector?: string },
+  opts: { bridge: Bridge; projectPath: string; initialSelector?: string; readOnly?: boolean },
 ): void {
   setBridge(opts.bridge);
   createRoot(el).render(
     <StrictMode>
       <Boundary>
-        <App projectPath={opts.projectPath} initialSelector={opts.initialSelector ?? ""} />
+        <App projectPath={opts.projectPath} initialSelector={opts.initialSelector ?? ""} readOnly={opts.readOnly ?? false} />
       </Boundary>
     </StrictMode>,
   );

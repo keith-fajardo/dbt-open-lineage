@@ -452,6 +452,39 @@ describe("editable description + gist panel", () => {
   });
 });
 
+describe("readOnly mode", () => {
+  beforeEach(() => { manifestGraph = oneModelGraph; });
+
+  it("hides Save/Revert, gist, chip editors, and the Draw toolbar; description renders as text", async () => {
+    render(<App projectPath="/proj" initialSelector="stg_orders" readOnly />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await screen.findByText("description");
+
+    expect(screen.queryByLabelText("description")).not.toBeInTheDocument(); // textarea absent
+    expect(screen.queryByLabelText("gist")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Revert" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /generate gist/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("subject areas")).not.toBeInTheDocument();
+    expect(screen.queryByText("Draw")).not.toBeInTheDocument();
+  });
+
+  it("still shows read-only info: description text, tests, materialization", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql",
+        description: "a staging model", materialized: "view", tests: ["not_null_id"],
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" readOnly />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await screen.findByText("a staging model");
+    await screen.findByText("not_null_id");
+  });
+});
+
 describe("edgeOnLineage", () => {
   it("marks upstream and downstream edges of the selection, nothing else", () => {
     const lin = lineageOf(g, "b");

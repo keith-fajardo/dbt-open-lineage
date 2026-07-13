@@ -27,7 +27,7 @@ import { TagChips } from "./TagChips";
 import { DrawLayer, type DrawMode } from "./DrawLayer";
 import { type Stroke } from "./drawing";
 
-interface Props { projectPath: string; initialSelector?: string; debounceMs?: number }
+interface Props { projectPath: string; initialSelector?: string; debounceMs?: number; readOnly?: boolean }
 
 // The sandboxed iframe gets no font from the host app — without this the DAG
 // renders in the user agent's default serif (Times). System UI sans, like the
@@ -241,7 +241,7 @@ export function edgeOnLineage(
      e.from === selected || lineage.down.has(e.from));
 }
 
-export default function App({ projectPath, initialSelector = "", debounceMs = 150 }: Props) {
+export default function App({ projectPath, initialSelector = "", debounceMs = 150, readOnly = false }: Props) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
   // An initial selector (from the IDE's Lineage panel) starts committed AND
@@ -559,7 +559,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setToast(null);
   }, [selectedNode]);
 
-  const editable = !!selectedNode && selectedNode.resource_type !== "source";
+  const editable = !readOnly && !!selectedNode && selectedNode.resource_type !== "source";
   // Baseline read via readMeta, consistent with how the drafts themselves are
   // populated above — a flat-only baseline would never match a nested-only
   // draft, leaving `dirty` permanently true for any migrated model.
@@ -914,42 +914,46 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             <label style={TOGGLE_PILL}>
               <input type="checkbox" checked={showCallouts} onChange={(e) => setShowCallouts(e.target.checked)} /> Callouts
             </label>
-            <span style={SECTION_LABEL}>Draw</span>
-            <div style={{ display: "inline-flex", background: "#0b1220", border: "1px solid #334155", borderRadius: 7, overflow: "hidden" }}>
-              {(["off", "pen", "erase"] as const).map((m, i) => (
-                <button
-                  key={m}
-                  onClick={() => setDrawMode(m)}
-                  style={{
-                    padding: "6px 11px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #334155",
-                    borderRadius: 0, cursor: "pointer", fontFamily: "inherit", fontSize: 12,
-                    background: drawMode === m ? "#2563eb" : "transparent",
-                    color: drawMode === m ? "#fff" : "#94a3b8",
-                  }}
-                >{m === "off" ? "Off" : m === "pen" ? "✎ Pen" : "⌫ Erase"}</button>
-              ))}
-            </div>
-            {drawMode !== "off" && (
+            {!readOnly && (
               <>
-                {["#f8fafc", "#ef4444", "#22d3ee", "#f0abfc", "#fde047"].map((c) => (
-                  <button
-                    key={c}
-                    aria-label={`pen color ${c}`}
-                    onClick={() => setPenColor(c)}
-                    style={{
-                      width: 18, height: 18, borderRadius: "50%", cursor: "pointer",
-                      background: c, border: penColor === c ? "2px solid #e5e7eb" : "1px solid #334155",
-                      padding: 0,
-                    }}
-                  />
-                ))}
-                <button
-                  onClick={() => setStrokes([])}
-                  style={{
-                    padding: "6px 11px", borderRadius: 7, border: "1px solid #334155",
-                    background: "#111827", color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
-                  }}
-                >Clear</button>
+                <span style={SECTION_LABEL}>Draw</span>
+                <div style={{ display: "inline-flex", background: "#0b1220", border: "1px solid #334155", borderRadius: 7, overflow: "hidden" }}>
+                  {(["off", "pen", "erase"] as const).map((m, i) => (
+                    <button
+                      key={m}
+                      onClick={() => setDrawMode(m)}
+                      style={{
+                        padding: "6px 11px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #334155",
+                        borderRadius: 0, cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                        background: drawMode === m ? "#2563eb" : "transparent",
+                        color: drawMode === m ? "#fff" : "#94a3b8",
+                      }}
+                    >{m === "off" ? "Off" : m === "pen" ? "✎ Pen" : "⌫ Erase"}</button>
+                  ))}
+                </div>
+                {drawMode !== "off" && (
+                  <>
+                    {["#f8fafc", "#ef4444", "#22d3ee", "#f0abfc", "#fde047"].map((c) => (
+                      <button
+                        key={c}
+                        aria-label={`pen color ${c}`}
+                        onClick={() => setPenColor(c)}
+                        style={{
+                          width: 18, height: 18, borderRadius: "50%", cursor: "pointer",
+                          background: c, border: penColor === c ? "2px solid #e5e7eb" : "1px solid #334155",
+                          padding: 0,
+                        }}
+                      />
+                    ))}
+                    <button
+                      onClick={() => setStrokes([])}
+                      style={{
+                        padding: "6px 11px", borderRadius: 7, border: "1px solid #334155",
+                        background: "#111827", color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                      }}
+                    >Clear</button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -1060,7 +1064,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 onGistChange={setGistDraft}
                 onCommit={async () => { await onSave(); setEditingCallout(false); }}
                 onCancelEdit={() => setEditingCallout(false)}
-                onBeginEdit={(id) => { setSelected(id); setEditingCallout(true); }}
+                onBeginEdit={readOnly ? () => {} : (id) => { setSelected(id); setEditingCallout(true); }}
               />
             )}
             <DrawLayer
