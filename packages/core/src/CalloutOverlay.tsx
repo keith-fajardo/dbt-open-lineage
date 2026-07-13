@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { ViewportPortal } from "@xyflow/react";
 import { type Pt } from "./zones";
 import { NODE_W } from "./layout";
+import { readMeta } from "./meta";
 
 interface CalloutOverlayProps {
   nodes: { id: string; meta?: Record<string, unknown> }[];
@@ -40,9 +41,13 @@ export function estimateCalloutHeight(text: string, bubbleWidth = 184): number {
   return Math.round(bubbleH + 14 + 8);      // + leader gap (14) + margin (8)
 }
 
-function gistOf(node: { meta?: Record<string, unknown> }): string | null {
-  const g = node.meta?.gist;
-  const c = node.meta?.callout;
+/** The model's gist text, or null if there is no gist or no callout
+ * placement to anchor it to. Reads via readMeta — namespaced
+ * meta.dbt_open_lineage.{gist,callout} first, falling back to the legacy
+ * flat meta.{gist,callout}. Exported for direct testing. */
+export function gistOf(node: { meta?: Record<string, unknown> }): string | null {
+  const g = readMeta(node.meta, "gist");
+  const c = readMeta(node.meta, "callout");
   if (typeof g !== "string" || !g.trim() || !c) return null;
   return g.trim();
 }
