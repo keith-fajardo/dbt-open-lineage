@@ -153,3 +153,19 @@ export function resolveSelector(g: Graph, query: string): Set<string> {
   }
   return included;
 }
+
+const RUNNABLE = new Set(["model", "seed", "snapshot"]);
+
+/** The reverse of resolveSelector: a set of node ids -> a dbt selector string
+ * naming the runnable ones. dbt selector syntax matches by NAME, not the
+ * manifest's unique_id, so this joins `node.name` (space = union in dbt
+ * selector syntax). Sources and tests are never independently runnable —
+ * sources aren't buildable and a selected model's tests come along for free
+ * via `dbt test -s <models>` — so both are filtered out here. Sorted for a
+ * deterministic, readable selector string. */
+export function buildSelector(nodeIds: Set<string>, g: Graph): string {
+  const names = new Set(
+    g.nodes.filter((n) => nodeIds.has(n.id) && RUNNABLE.has(n.resource_type)).map((n) => n.name),
+  );
+  return [...names].sort().join(" ");
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveSelector, focalName } from "./selector";
+import { resolveSelector, focalName, buildSelector } from "./selector";
 import type { Graph } from "./graphTypes";
 
 // a → b → c → d   (linear chain by name), with method-selector metadata:
@@ -98,5 +98,36 @@ describe("focalName — the open model behind a +model+ push", () => {
     expect(focalName("tag:mart")).toBe("");         // method selector
     expect(focalName("a+ +b")).toBe("");            // multi-token
     expect(focalName("a+,+b")).toBe("");            // comma-intersection
+  });
+});
+
+describe("buildSelector", () => {
+  const rg: Graph = {
+    nodes: [
+      { id: "model.p.stg_orders", name: "stg_orders", resource_type: "model", layer: "staging", path: "", description: "" },
+      { id: "seed.p.raw_countries", name: "raw_countries", resource_type: "seed", layer: "model", path: "", description: "" },
+      { id: "snapshot.p.orders_snap", name: "orders_snap", resource_type: "snapshot", layer: "model", path: "", description: "" },
+      { id: "source.p.raw.orders", name: "orders", resource_type: "source", layer: "source", path: "", description: "" },
+      { id: "test.p.not_null_x", name: "not_null_x", resource_type: "test", layer: "model", path: "", description: "" },
+    ],
+    edges: [],
+  };
+
+  it("joins the names of runnable nodes (model/seed/snapshot), sorted", () => {
+    const ids = new Set(["model.p.stg_orders", "seed.p.raw_countries", "snapshot.p.orders_snap"]);
+    expect(buildSelector(ids, rg)).toBe("orders_snap raw_countries stg_orders");
+  });
+
+  it("excludes sources and tests even if their ids are included", () => {
+    const ids = new Set(["model.p.stg_orders", "source.p.raw.orders", "test.p.not_null_x"]);
+    expect(buildSelector(ids, rg)).toBe("stg_orders");
+  });
+
+  it("empty selection produces an empty string", () => {
+    expect(buildSelector(new Set(), rg)).toBe("");
+  });
+
+  it("a selection with only non-runnable ids produces an empty string", () => {
+    expect(buildSelector(new Set(["source.p.raw.orders"]), rg)).toBe("");
   });
 });

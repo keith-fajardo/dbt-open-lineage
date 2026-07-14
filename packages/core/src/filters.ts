@@ -26,3 +26,21 @@ export function computeFiltered(
   }
   return out;
 }
+
+/** The "currently active in the DAG" scope for the run/build/test button:
+ * the union of the selector-matched and category-filtered sets. A plain
+ * union — each channel contributes nothing when null. This is DELIBERATELY
+ * NOT the same convention `filtered` itself uses for dimming (there, null
+ * means "no restriction," i.e. everything counts). For a union, "channel
+ * inactive" must mean "contributes nothing," or a blank selector would make
+ * Run target the whole project even though the DAG renders nothing on
+ * screen in that state. Callers must pass null for the selector channel
+ * when the selector box is blank — see App.tsx. */
+export function computeActiveIds(
+  matched: Set<string> | null, filtered: Set<string> | null,
+): Set<string> {
+  const out = new Set<string>();
+  if (matched) for (const id of matched) out.add(id);
+  if (filtered) for (const id of filtered) out.add(id);
+  return out;
+}

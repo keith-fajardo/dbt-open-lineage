@@ -1,10 +1,13 @@
 /** Host access surface. The consumer (VSCode ext / Mnemo mext) supplies an
  * implementation via setBridge() before mounting; core never imports a host. */
+import type { RunEvent } from "./runStatus";
+
 export interface Bridge {
   invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T>;
   saveExport(filename: string, dataB64: string): Promise<boolean>;
   openInIde(path: string): Promise<boolean>;
   onContext(cb: (value: string) => void): () => void;
+  onRunEvent(cb: (e: RunEvent) => void): () => void;
 }
 
 let active: Bridge | null = null;
@@ -18,3 +21,4 @@ export const invoke = <T>(cmd: string, args: Record<string, unknown>): Promise<T
 export const saveExport = (filename: string, dataB64: string): Promise<boolean> => get().saveExport(filename, dataB64);
 export const openInIde = (path: string): Promise<boolean> => get().openInIde(path);
 export const onContext = (cb: (value: string) => void): () => void => get().onContext(cb);
+export const onRunEvent = (cb: (e: RunEvent) => void): (() => void) => get().onRunEvent(cb);

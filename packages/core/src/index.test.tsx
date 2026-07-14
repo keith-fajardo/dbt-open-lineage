@@ -22,6 +22,7 @@ describe("Error Boundary in mountApp", () => {
       saveExport: vi.fn(),
       openInIde: vi.fn(),
       onContext: vi.fn(() => () => {}),
+      onRunEvent: vi.fn(() => () => {}),
     };
 
     // This should not throw even with minimal setup

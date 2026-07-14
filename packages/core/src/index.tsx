@@ -6,6 +6,7 @@ import { setBridge, type Bridge } from "./bridge";
 export { default as App } from "./App";
 export { setBridge, type Bridge } from "./bridge";
 export type { Graph, GraphNode, GraphEdge } from "./graphTypes";
+export type { Status, RunEvent } from "./runStatus";
 export { parseManifest } from "./manifest";
 
 class Boundary extends Component<{ children: ReactNode }, { err: Error | null }> {
