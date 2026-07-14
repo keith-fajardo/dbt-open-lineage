@@ -768,6 +768,53 @@ describe("run/build/test button", () => {
   });
 });
 
+describe("show-all confirmation on blank Enter", () => {
+  it("Enter on an already-blank selector shows a confirm modal instead of doing nothing", async () => {
+    render(<App projectPath="/proj" debounceMs={0} canRun />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("dialog", { name: /show all/i })).toBeInTheDocument();
+    expect(screen.getByText("Show all 4 models?")).toBeInTheDocument();
+  });
+
+  it("Cancel dismisses the modal and leaves the DAG blank", async () => {
+    render(<App projectPath="/proj" debounceMs={0} canRun />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("a")).not.toBeInTheDocument();
+  });
+
+  it("Show All reveals every node and turns Focus on", async () => {
+    render(<App projectPath="/proj" debounceMs={0} canRun />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Show All" }));
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("b").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("c").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("d").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Focus")).toBeChecked();
+  });
+
+  it("typing after a confirmed show-all resets it — the next blank Enter re-prompts", async () => {
+    render(<App projectPath="/proj" debounceMs={0} canRun />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Show All" }));
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.change(input, { target: { value: "a" } });
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("dialog", { name: /show all/i })).toBeInTheDocument();
+  });
+});
+
 describe("edgeOnLineage", () => {
   it("marks upstream and downstream edges of the selection, nothing else", () => {
     const lin = lineageOf(g, "b");

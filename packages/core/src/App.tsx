@@ -250,6 +250,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [raw, setRaw] = useState(initialSelector);
   const [selector, setSelector] = useState(initialSelector);
   const [focus, setFocus] = useState(initialSelector !== "");
+
+  // "Show whole project" mode: only reachable via the blank-Enter confirm
+  // modal below, never a silent default. Resets whenever the user starts
+  // typing again (raw changes away from blank) — the next blank-Enter
+  // always re-prompts, no session memory of a prior confirmation.
+  const [showAll, setShowAll] = useState(false);
+  const [confirmShowAll, setConfirmShowAll] = useState(false);
+  useEffect(() => {
+    if (raw.trim() !== "") setShowAll(false);
+  }, [raw]);
   const [selected, setSelected] = useState<string | null>(null);
   // The model whose file is OPEN in the IDE — the focus of the pushed
   // lineage. Tracked separately from `selected` (a hand-clicked node) and
@@ -387,13 +397,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     return () => clearTimeout(timer.current);
   }, [raw, debounceMs]);
 
-  // An empty selector matches NOTHING (not everything): the DAG starts blank
-  // and the user picks a model/selector to populate it. resolveSelector's own
-  // "empty = all" convention still holds for other callers; we gate it here.
-  const matched = useMemo(
-    () => (graph && selector.trim() ? resolveSelector(graph, selector) : new Set<string>()),
-    [graph, selector],
-  );
+  // An empty selector matches NOTHING (not everything) UNLESS the user has
+  // explicitly confirmed "show all" via the blank-Enter modal below —
+  // resolveSelector's own "empty = all" convention still holds for other
+  // callers; we gate it here.
+  const matched = useMemo(() => {
+    if (!graph) return new Set<string>();
+    if (selector.trim()) return resolveSelector(graph, selector);
+    if (showAll) return new Set(graph.nodes.map((n) => n.id));
+    return new Set<string>();
+  }, [graph, selector, showAll]);
 
   // Unfiltered view: layout runs ONCE per graph (positions keyed on graph
   // identity only — typing a selector just dims, never re-lays-out). With the
@@ -401,15 +414,15 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // sit compactly together rather than keeping their full-graph positions.
   const visibleGraph = useMemo(() => {
     if (!graph) return graph;
-    // Empty selector → empty DAG (no default "show every model"). The user
-    // types a model/selector to populate it.
-    if (!selector.trim()) return { nodes: [], edges: [] };
+    // Empty selector → empty DAG (no default "show every model"), unless
+    // the user confirmed "show all" via the blank-Enter modal.
+    if (!selector.trim() && !showAll) return { nodes: [], edges: [] };
     if (!focus) return graph;
     return {
       nodes: graph.nodes.filter((n) => matched.has(n.id)),
       edges: graph.edges.filter((e) => matched.has(e.from) && matched.has(e.to)),
     };
-  }, [graph, focus, matched, selector]);
+  }, [graph, focus, matched, selector, showAll]);
   // Reserve layout space for callout bubbles: when callouts are on, a model
   // that actually has a callout gets extra height in dagre (see layout.ts), so
   // its bubble no longer overlaps the row above. Empty when callouts are off →
@@ -476,9 +489,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // Selection/dim styling rides in ViewContext, not node data (see nodes.tsx).
   const buildNodes = (): Node<DagNodeData>[] =>
     // Empty selector → render nothing (the DAG starts blank; no default
-    // "show every model"). Otherwise focus filters to the matched set, and
-    // without focus every node renders (dimming handles emphasis).
-    !graph || !selector.trim() ? [] : graph.nodes
+    // "show every model"), unless the user confirmed "show all". Otherwise
+    // focus filters to the matched set, and without focus every node
+    // renders (dimming handles emphasis).
+    !graph || (!selector.trim() && !showAll) ? [] : graph.nodes
       .filter((n) => (focus ? matched.has(n.id) : true))
       .map((n) => ({
         id: n.id,
@@ -729,8 +743,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // notwithstanding) — so Run must see nothing active in that state too,
   // rather than falling back to "the whole project."
   const activeIds = useMemo(
-    () => (selector.trim() ? computeActiveIds(matched, filtered) : new Set<string>()),
-    [selector, matched, filtered],
+    () => ((selector.trim() || showAll) ? computeActiveIds(matched, filtered) : new Set<string>()),
+    [selector, matched, filtered, showAll],
   );
   const runSelector = useMemo(() => (graph ? buildSelector(activeIds, graph) : ""), [graph, activeIds]);
   // dbt run/test can never build a seed regardless of what's in --select —
@@ -871,7 +885,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   }, [rfNodes, searchQ]);
 
   const rfEdges: Edge[] = useMemo(() => {
-    if (!graph || !selector.trim()) return []; // empty selector → blank DAG
+    // empty selector → blank DAG, unless "show all" is confirmed
+    if (!graph || (!selector.trim() && !showAll)) return [];
     return graph.edges
       .filter((e) => (focus ? matched.has(e.from) && matched.has(e.to) : true))
       .map((e) => {
@@ -894,7 +909,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, matched, focus, selected, lineage, view, selector]);
+  }, [graph, matched, focus, selected, lineage, view, selector, showAll]);
 
   const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
   // Double-click a node → open its model/source file in the IDE editor
@@ -963,6 +978,42 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   return (
     <>
       <style>{"@keyframes dol-run-blink{0%,100%{opacity:1}50%{opacity:0.45}}"}</style>
+      {confirmShowAll && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="show all models confirmation"
+          style={{
+            position: "fixed", inset: 0, zIndex: 50,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(2,6,23,0.6)",
+          }}
+        >
+          <div style={{
+            background: "#111827", border: "1px solid #334155", borderRadius: 10,
+            padding: 20, width: 320, boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#e5e7eb", marginBottom: 6 }}>
+              Show all {graph?.nodes.length ?? 0} models?
+            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
+              Large projects may take a moment to render.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                onClick={() => setConfirmShowAll(false)}
+                style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #334155",
+                  background: "#111827", color: "#94a3b8", cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}
+              >Cancel</button>
+              <button
+                onClick={() => { setShowAll(true); setFocus(true); setConfirmShowAll(false); }}
+                style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #334155",
+                  background: "#2563eb", color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}
+              >Show All</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ width: "100vw", height: "100vh", display: "flex", background: "#0b1220", fontFamily: FONT_UI }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div style={{
@@ -990,12 +1041,19 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               // cosmetic `--`→long-dash ligature.)
               onChange={(e) => setRaw(e.target.value.replace(/[–—]/g, "--"))}
               onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                // A blank box offers to show the whole project behind a
+                // confirmation, instead of silently doing nothing (today's
+                // behavior — a blank selector already blanks the DAG on its
+                // own via the debounced sync below, no Enter needed for that).
+                if (!raw.trim()) {
+                  setConfirmShowAll(true);
+                  return;
+                }
                 // Enter commits the selector: apply it immediately (skip the
                 // debounce) and filter the DAG to only the matched nodes.
-                if (e.key === "Enter") {
-                  setSelector(raw);
-                  setFocus(true);
-                }
+                setSelector(raw);
+                setFocus(true);
               }}
               autoCorrect="off"
               autoCapitalize="off"
@@ -1217,7 +1275,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         {exportErr && <div style={{ color: "#fca5a5", padding: 8 }}>export failed: {exportErr}</div>}
         {runErr && <div style={{ color: "#fca5a5", padding: 8 }}>run failed: {runErr}</div>}
         <div style={{ flex: 1, position: "relative" }}>
-          {graph && !error && !selector.trim() && (
+          {graph && !error && !selector.trim() && !showAll && (
             <div
               aria-label="empty selector hint"
               style={{
