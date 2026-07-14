@@ -126,6 +126,28 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           ))}
         </div>
       )}
+      {(() => {
+        const status = view.runStatus?.get(id);
+        if (!status) return null;
+        const solid = status === "success" ? "#22c55e" : status === "failed" ? "#ef4444" : status === "skipped" ? "#f59e0b" : undefined;
+        const baseStyle: React.CSSProperties = {
+          position: "absolute", left: 6, right: 6, top: -2, height: 3, borderRadius: 2,
+        };
+        if (status === "running") {
+          baseStyle.backgroundImage = "linear-gradient(90deg, transparent, #93c5fd, transparent)";
+          baseStyle.backgroundSize = "60px 100%";
+          baseStyle.animation = "dol-run-sweep 1.2s linear infinite";
+        } else if (solid) {
+          baseStyle.background = solid;
+        }
+        return (
+          <div
+            aria-label={`run status: ${status}`}
+            data-run-status={status}
+            style={baseStyle}
+          />
+        );
+      })()}
       {/* Corner tag marking THE open model, so it reads even at low zoom. */}
       {active && (
         <span

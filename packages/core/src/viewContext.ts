@@ -1,4 +1,5 @@
 import { createContext } from "react";
+import type { Status } from "./runStatus";
 
 /** Selection/emphasis state consumed by DagNode via context, NOT via node
  * data: styling changes (click a node, type a selector) then re-render the
@@ -28,6 +29,11 @@ export interface ViewState {
   favorites: Set<string>;
   /** Toggle a node's favorite state (persists to localStorage). */
   onToggleFavorite: (id: string) => void;
+  /** Per-node run/build/test outcome for the in-flight or most recent run.
+   * null when no run has happened yet; absence of a node's id from the map
+   * (with the map non-null) means that node is idle (not yet reached, or a
+   * fresh run cleared prior results). Drives the top-edge pilot-light bar. */
+  runStatus: Map<string, Status> | null;
 }
 
 export const ViewContext = createContext<ViewState>({
@@ -41,4 +47,5 @@ export const ViewContext = createContext<ViewState>({
   search: "",
   favorites: new Set(),
   onToggleFavorite: () => {},
+  runStatus: null,
 });

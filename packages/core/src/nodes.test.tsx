@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import type { Status } from "./runStatus";
 
 // Handle needs a live ReactFlow store; the node's own markup is what's under test.
 vi.mock("@xyflow/react", () => ({
@@ -63,7 +64,7 @@ describe("DagNode corner badges", () => {
 describe("DagNode search highlight", () => {
   const withSearch = (label: string, search: string) =>
     render(
-      <ViewContext.Provider value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, filtered: null, search, favorites: new Set(), onToggleFavorite: () => {} }}>
+      <ViewContext.Provider value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, filtered: null, search, favorites: new Set(), onToggleFavorite: () => {}, runStatus: null }}>
         <DagNode id="n1" data={data(label)} />
       </ViewContext.Provider>,
     );
@@ -95,7 +96,7 @@ describe("DagNode open-model emphasis", () => {
   const withView = (id: string, view: Partial<ViewState>) =>
     render(
       <ViewContext.Provider
-        value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, filtered: null, search: "", favorites: new Set(), onToggleFavorite: () => {}, ...view }}
+        value={{ selected: null, active: null, up: new Set(), down: new Set(), matched: null, spotlight: null, filtered: null, search: "", favorites: new Set(), onToggleFavorite: () => {}, runStatus: null, ...view }}
       >
         <DagNode id={id} data={data("dim_date")} />
       </ViewContext.Provider>,
@@ -127,7 +128,7 @@ describe("DagNode label stripes", () => {
     const view = {
       selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
       matched: null, search: "", spotlight: null, filtered: null,
-      favorites: new Set<string>(), onToggleFavorite: () => {},
+      favorites: new Set<string>(), onToggleFavorite: () => {}, runStatus: null,
     };
     const { container } = render(
       <ViewContext.Provider value={view}>
@@ -145,7 +146,7 @@ describe("DagNode spotlight dimming", () => {
     const view = {
       selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
       matched: null, search: "", spotlight: new Set<string>(["keepme"]), filtered: null,
-      favorites: new Set<string>(), onToggleFavorite: () => {},
+      favorites: new Set<string>(), onToggleFavorite: () => {}, runStatus: null,
     };
     const { container } = render(
       <ViewContext.Provider value={view}>
@@ -162,7 +163,7 @@ describe("DagNode label-filter dimming", () => {
     const view = {
       selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
       matched: null, search: "", spotlight: null, filtered: new Set<string>(["keep"]),
-      favorites: new Set<string>(), onToggleFavorite: () => {},
+      favorites: new Set<string>(), onToggleFavorite: () => {}, runStatus: null,
     };
     const { container } = render(
       <ViewContext.Provider value={view}>
@@ -193,7 +194,7 @@ describe("DagNode favorites", () => {
     const view = {
       selected: null, active: null, up: new Set<string>(), down: new Set<string>(),
       matched: null, spotlight: null, filtered: null, search: "",
-      favorites: new Set<string>(["n"]), onToggleFavorite: (id: string) => toggled.push(id),
+      favorites: new Set<string>(["n"]), onToggleFavorite: (id: string) => toggled.push(id), runStatus: null,
     };
     const { getByLabelText } = render(
       <ViewContext.Provider value={view}>
@@ -204,5 +205,48 @@ describe("DagNode favorites", () => {
     expect(star.textContent).toBe("★");
     fireEvent.click(star);
     expect(toggled).toEqual(["n"]);
+  });
+});
+
+describe("DagNode run status pilot light", () => {
+  const withStatus = (status?: Status) => {
+    const view: ViewState = {
+      selected: null, active: null, up: new Set(), down: new Set(),
+      matched: null, spotlight: null, filtered: null, search: "",
+      favorites: new Set(), onToggleFavorite: () => {},
+      runStatus: status ? new Map([["n", status]]) : null,
+    };
+    return render(
+      <ViewContext.Provider value={view}>
+        <DagNode id="n" data={data("n")} />
+      </ViewContext.Provider>,
+    );
+  };
+
+  it("shows nothing when the node has no run status", () => {
+    withStatus();
+    expect(screen.queryByLabelText(/run status/)).toBeNull();
+  });
+
+  it("renders an animated sweep bar while running", () => {
+    withStatus("running");
+    const bar = screen.getByLabelText("run status: running");
+    expect(bar).toHaveAttribute("data-run-status", "running");
+    expect(bar.style.animation).toContain("dol-run-sweep");
+  });
+
+  it("renders a solid green bar on success", () => {
+    withStatus("success");
+    expect(screen.getByLabelText("run status: success").style.background).toBe("rgb(34, 197, 94)");
+  });
+
+  it("renders a solid red bar on failure", () => {
+    withStatus("failed");
+    expect(screen.getByLabelText("run status: failed").style.background).toBe("rgb(239, 68, 68)");
+  });
+
+  it("renders a solid amber bar when skipped", () => {
+    withStatus("skipped");
+    expect(screen.getByLabelText("run status: skipped").style.background).toBe("rgb(245, 158, 11)");
   });
 });

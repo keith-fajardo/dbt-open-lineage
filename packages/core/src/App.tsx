@@ -718,6 +718,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     search: searchQ,
     favorites,
     onToggleFavorite,
+    runStatus: null,
   }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite]);
 
   const dimmedIds = useMemo(
