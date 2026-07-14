@@ -42,19 +42,26 @@ export function mapNodeStatus(raw: string): Status | null {
 export interface ParsedLine { event: RunEvent | null; display: string }
 
 /** Parse one line of `dbt ... --log-format json` output. `display` is always
- * populated (the JSON's human-readable `msg` field when present, otherwise
- * the raw line) so the terminal panel reads like normal dbt output even
- * though the underlying process emits structured JSON. A malformed line
+ * populated (the JSON's human-readable `info.msg` field when present,
+ * otherwise the raw line) so the terminal panel reads like normal dbt output
+ * even though the underlying process emits structured JSON. A malformed line
  * (partial write, non-JSON noise) must never throw — it just displays raw
- * with no status event. */
+ * with no status event.
+ *
+ * dbt-core's real json-log schema (verified against dbt-core=1.11.11) wraps
+ * every line as `{data: {...}, info: {...}}` — msg lives at `info.msg`,
+ * node_info lives at `data.node_info`. Neither is top-level. */
 export function parseDbtLogLine(line: string): ParsedLine {
   if (!line.trim()) return { event: null, display: line };
   let parsed: unknown;
   try { parsed = JSON.parse(line); }
   catch { return { event: null, display: line }; }
-  const obj = parsed as { msg?: unknown; node_info?: { unique_id?: unknown; node_status?: unknown } };
-  const display = typeof obj.msg === "string" ? obj.msg : line;
-  const info = obj.node_info;
+  const obj = parsed as {
+    info?: { msg?: unknown };
+    data?: { node_info?: { unique_id?: unknown; node_status?: unknown } };
+  };
+  const display = typeof obj.info?.msg === "string" ? obj.info.msg : line;
+  const info = obj.data?.node_info;
   if (info && typeof info.unique_id === "string" && typeof info.node_status === "string") {
     const status = mapNodeStatus(info.node_status);
     if (status) return { event: { type: "status", nodeId: info.unique_id, status }, display };

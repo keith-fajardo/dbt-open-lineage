@@ -39,13 +39,21 @@ describe("mapNodeStatus", () => {
 });
 
 describe("parseDbtLogLine", () => {
+  // dbt's real --log-format json (dbt-core 1.11.11, verified against a live
+  // run) wraps every line as {data: {...}, info: {...}} — NOT a flat object.
+  // msg lives at info.msg (data.msg only exists for a handful of unrelated
+  // event types and can't be relied on); node_info lives at data.node_info,
+  // not top-level. Getting this nesting wrong means EVERY line falls back to
+  // raw-JSON display and ZERO status events ever fire — exactly the bug this
+  // fixture guards against.
   const nodeLine = (msg: string, node_status: string) => JSON.stringify({
-    code: "Q011", level: "info", log_version: 3, msg,
-    node_info: { unique_id: "model.proj.stg_orders", node_name: "stg_orders", node_status, resource_type: "model" },
-    type: "log_line",
+    data: {
+      node_info: { unique_id: "model.proj.stg_orders", node_name: "stg_orders", node_status, resource_type: "model" },
+    },
+    info: { code: "Q011", level: "info", msg, name: "LogStartLine" },
   });
 
-  it("extracts the human-readable msg for display, and a status event from node_info", () => {
+  it("extracts the human-readable info.msg for display, and a status event from data.node_info", () => {
     const { event, display } = parseDbtLogLine(nodeLine("1 of 3 START sql table model main.stg_orders", "started"));
     expect(display).toBe("1 of 3 START sql table model main.stg_orders");
     expect(event).toEqual({ type: "status", nodeId: "model.proj.stg_orders", status: "running" });
@@ -57,7 +65,7 @@ describe("parseDbtLogLine", () => {
   });
 
   it("a line with no node_info displays but produces no status event", () => {
-    const { event, display } = parseDbtLogLine(JSON.stringify({ msg: "Found 3 models", level: "info", type: "log_line" }));
+    const { event, display } = parseDbtLogLine(JSON.stringify({ data: {}, info: { msg: "Found 3 models", level: "info" } }));
     expect(display).toBe("Found 3 models");
     expect(event).toBeNull();
   });
@@ -70,6 +78,38 @@ describe("parseDbtLogLine", () => {
 
   it("an empty line displays as-is with no event", () => {
     expect(parseDbtLogLine("")).toEqual({ event: null, display: "" });
+  });
+
+  // Real lines captured 2026-07-14 from `dbt run --select
+  // rpt_unearned_journals_reconciliation --log-format json` against
+  // dbt-core=1.11.11, adapter redshift=1.10.1 — the exact schema that
+  // exposed the bug above, kept verbatim as a regression fixture.
+  const REAL_START_LINE = '{"data": {"description": "sql table model dbt_kfajardo_marts.rpt_unearned_journals_reconciliation", "index": 1, "node_info": {"materialized": "table", "meta": {}, "node_checksum": "ba4cc22d7446229ebedd18486b37bf766924863e9a3868b7c4fe3bebd5274e29", "node_finished_at": "", "node_name": "rpt_unearned_journals_reconciliation", "node_path": "marts/presentation/finance/rpt_unearned_journals_reconciliation.sql", "node_relation": {"alias": "rpt_unearned_journals_reconciliation", "database": "testred", "relation_name": "testred.dbt_kfajardo_marts.rpt_unearned_journals_reconciliation", "schema": "dbt_kfajardo_marts"}, "node_started_at": "2026-07-14T16:30:18.309729", "node_status": "started", "resource_type": "model", "unique_id": "model.he_dbt_bi.rpt_unearned_journals_reconciliation"}, "total": 1}, "info": {"category": "", "code": "Q011", "extra": {}, "invocation_id": "a7981581-12ff-4d3e-b97a-f8e6edeab71d", "level": "info", "msg": "1 of 1 START sql table model dbt_kfajardo_marts.rpt_unearned_journals_reconciliation  [RUN]", "name": "LogStartLine", "pid": 25507, "thread": "Thread-1 (worker)", "ts": "2026-07-14T16:30:18.310277Z"}}';
+  const REAL_SUCCESS_LINE = '{"data": {"description": "sql table model dbt_kfajardo_marts.rpt_unearned_journals_reconciliation", "execution_time": 7.043135, "index": 1, "node_info": {"materialized": "table", "meta": {}, "node_checksum": "ba4cc22d7446229ebedd18486b37bf766924863e9a3868b7c4fe3bebd5274e29", "node_finished_at": "2026-07-14T16:30:25.353697", "node_name": "rpt_unearned_journals_reconciliation", "node_path": "marts/presentation/finance/rpt_unearned_journals_reconciliation.sql", "node_relation": {"alias": "rpt_unearned_journals_reconciliation", "database": "testred", "relation_name": "testred.dbt_kfajardo_marts.rpt_unearned_journals_reconciliation", "schema": "dbt_kfajardo_marts"}, "node_started_at": "2026-07-14T16:30:18.309729", "node_status": "success", "resource_type": "model", "unique_id": "model.he_dbt_bi.rpt_unearned_journals_reconciliation"}, "status": "SUCCESS", "total": 1}, "info": {"category": "", "code": "Q012", "extra": {}, "invocation_id": "a7981581-12ff-4d3e-b97a-f8e6edeab71d", "level": "info", "msg": "1 of 1 OK created sql table model dbt_kfajardo_marts.rpt_unearned_journals_reconciliation  [SUCCESS in 7.04s]", "name": "LogModelResult", "pid": 25507, "thread": "Thread-1 (worker)", "ts": "2026-07-14T16:30:25.354735Z"}}';
+  const REAL_FORMATTING_LINE = '{"data": {"msg": ""}, "info": {"category": "", "code": "Z017", "extra": {}, "invocation_id": "a7981581-12ff-4d3e-b97a-f8e6edeab71d", "level": "info", "msg": "", "name": "Formatting", "pid": 25507, "thread": "MainThread", "ts": "2026-07-14T16:30:09.076698Z"}}';
+
+  it("real dbt 1.11.11 START line: displays the human msg and emits a running status", () => {
+    const { event, display } = parseDbtLogLine(REAL_START_LINE);
+    expect(display).toBe("1 of 1 START sql table model dbt_kfajardo_marts.rpt_unearned_journals_reconciliation  [RUN]");
+    expect(event).toEqual({
+      type: "status",
+      nodeId: "model.he_dbt_bi.rpt_unearned_journals_reconciliation",
+      status: "running",
+    });
+  });
+
+  it("real dbt 1.11.11 SUCCESS line: displays the human msg and emits a success status", () => {
+    const { event, display } = parseDbtLogLine(REAL_SUCCESS_LINE);
+    expect(display).toBe("1 of 1 OK created sql table model dbt_kfajardo_marts.rpt_unearned_journals_reconciliation  [SUCCESS in 7.04s]");
+    expect(event).toEqual({
+      type: "status",
+      nodeId: "model.he_dbt_bi.rpt_unearned_journals_reconciliation",
+      status: "success",
+    });
+  });
+
+  it("real dbt 1.11.11 blank formatting line: displays empty string, no event", () => {
+    expect(parseDbtLogLine(REAL_FORMATTING_LINE)).toEqual({ event: null, display: "" });
   });
 });
 
@@ -103,7 +143,10 @@ describe("startDbtRun", () => {
 
     expect(spawnSpy).toHaveBeenCalledWith("/proj", ["run", "--select", "stg_orders", "--log-format", "json"]);
 
-    const line = JSON.stringify({ msg: "1 of 1 START ...", node_info: { unique_id: "model.proj.stg_orders", node_status: "started" } });
+    const line = JSON.stringify({
+      data: { node_info: { unique_id: "model.proj.stg_orders", node_status: "started" } },
+      info: { msg: "1 of 1 START ..." },
+    });
     proc.stdout.emit("data", Buffer.from(line + "\n"));
     expect(written).toEqual(["1 of 1 START ...\r\n"]);
     expect(events).toEqual([{ type: "status", nodeId: "model.proj.stg_orders", status: "running" }]);
