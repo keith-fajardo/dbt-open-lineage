@@ -33,4 +33,14 @@ export const mextBridge: Bridge = {
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   },
+  onRunEvent: (cb) => {
+    const onMsg = (ev: MessageEvent) => {
+      if (ev.source !== window.parent) return;
+      const m = ev.data;
+      if (!m || m.evt !== "run" || !m.event) return;
+      cb(m.event);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  },
 };

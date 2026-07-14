@@ -67,4 +67,26 @@ describe("mextBridge", () => {
 
     unsubscribe();
   });
+
+  it("onRunEvent() forwards evt:'run' pushes from window.parent", () => {
+    const events: unknown[] = [];
+    const unsubscribe = mextBridge.onRunEvent((e) => events.push(e));
+
+    window.dispatchEvent(
+      new MessageEvent("message", { data: { evt: "run", event: { type: "done", exitCode: 0 } }, source: window.parent }),
+    );
+    expect(events).toEqual([{ type: "done", exitCode: 0 }]);
+
+    unsubscribe();
+  });
+
+  it("onRunEvent() ignores pushes whose event.source is not window.parent", () => {
+    const events: unknown[] = [];
+    mextBridge.onRunEvent((e) => events.push(e));
+
+    window.dispatchEvent(
+      new MessageEvent("message", { data: { evt: "run", event: { type: "done", exitCode: 1 } }, source: null }),
+    );
+    expect(events).toEqual([]);
+  });
 });
