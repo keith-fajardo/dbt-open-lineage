@@ -39,14 +39,14 @@ export function mapNodeStatus(raw: string): Status | null {
   }
 }
 
-export interface ParsedLine { event: RunEvent | null; display: string }
+export interface ParsedLine { event: RunEvent | null; logEvent: RunEvent | null; display: string }
 
 /** Parse one line of `dbt ... --log-format json` output. `display` is always
  * populated (the JSON's human-readable `info.msg` field when present,
  * otherwise the raw line) so the terminal panel reads like normal dbt output
  * even though the underlying process emits structured JSON. A malformed line
  * (partial write, non-JSON noise) must never throw — it just displays raw
- * with no status event.
+ * with no status/log event.
  *
  * dbt-core's real json-log schema (verified against dbt-core=1.11.11) wraps
  * every line as `{data: {...}, info: {...}}` — msg lives at `info.msg`,
@@ -55,18 +55,23 @@ export interface ParsedLine { event: RunEvent | null; display: string }
  * A `dbt test` run needs extra care: a test is its own manifest node with
  * its own `unique_id` (e.g. `test.proj.not_null_x.<hash>`), which never
  * matches any id in the DAG — only models/seeds/snapshots/sources are graph
- * nodes, tests aren't. A test's status must instead route to the MODEL it
- * tests, via `data.attached_node` (verified against a live `dbt test` run).
- * That field is only present on the test's FINISH event, not its START —
- * dbt doesn't say which model a just-started test belongs to — so a test
- * starting produces no status event; the model's pilot light jumps straight
- * from idle to pass/fail once the test ends, with no "running" blink for
- * test-only activity. */
+ * nodes, tests aren't. A test's status/log must instead route to the MODEL
+ * it tests, via `data.attached_node` (verified against a live `dbt test`
+ * run). That field is only present on the test's FINISH event, not its
+ * START — dbt doesn't say which model a just-started test belongs to — so
+ * a test starting produces no status AND no log event; the model's pilot
+ * light and log both jump straight from idle to pass/fail once the test
+ * ends.
+ *
+ * `event` (status) requires BOTH a resolvable node id AND a `node_status`
+ * that maps to a known `Status`. `logEvent` requires only the resolvable
+ * node id — a line whose `node_status` doesn't map to anything (e.g.
+ * "warn") still carries a `logEvent`, it just carries no `event`. */
 export function parseDbtLogLine(line: string): ParsedLine {
-  if (!line.trim()) return { event: null, display: line };
+  if (!line.trim()) return { event: null, logEvent: null, display: line };
   let parsed: unknown;
   try { parsed = JSON.parse(line); }
-  catch { return { event: null, display: line }; }
+  catch { return { event: null, logEvent: null, display: line }; }
   const obj = parsed as {
     info?: { msg?: unknown };
     data?: {
@@ -76,16 +81,21 @@ export function parseDbtLogLine(line: string): ParsedLine {
   };
   const display = typeof obj.info?.msg === "string" ? obj.info.msg : line;
   const info = obj.data?.node_info;
-  if (info && typeof info.node_status === "string") {
+  let event: RunEvent | null = null;
+  let logEvent: RunEvent | null = null;
+  if (info) {
     const nodeId = info.resource_type === "test"
       ? (typeof obj.data?.attached_node === "string" ? obj.data.attached_node : undefined)
       : (typeof info.unique_id === "string" ? info.unique_id : undefined);
     if (nodeId) {
-      const status = mapNodeStatus(info.node_status);
-      if (status) return { event: { type: "status", nodeId, status }, display };
+      logEvent = { type: "log", nodeId, line: display };
+      if (typeof info.node_status === "string") {
+        const status = mapNodeStatus(info.node_status);
+        if (status) event = { type: "status", nodeId, status };
+      }
     }
   }
-  return { event: null, display };
+  return { event, logEvent, display };
 }
 
 export interface RunCallbacks {
@@ -126,9 +136,10 @@ export function startDbtRun(
 
   const handle = (lines: string[]) => {
     for (const line of lines) {
-      const { event, display } = parseDbtLogLine(line);
+      const { event, logEvent, display } = parseDbtLogLine(line);
       cb.onWrite(display);
       if (event) cb.onEvent(event);
+      if (logEvent) cb.onEvent(logEvent);
     }
   };
 
@@ -203,7 +214,10 @@ export function startDbtRunWithSeed(
   let current: RunController = startDbtRun(projectRoot, "seed" as "run" | "build" | "test", selector, {
     onWrite: cb.onWrite,
     onEvent: (event) => {
-      if (event.type === "status") { cb.onEvent(event); return; }
+      // Forward everything except the seed phase's own `done` — that one
+      // is inspected (for its exit code) rather than passed through, since
+      // this wrapper's own `done` contract covers the WHOLE two-phase run.
+      if (event.type !== "done") { cb.onEvent(event); return; }
       if (event.exitCode !== 0) { cb.onEvent({ type: "done", exitCode: event.exitCode }); return; }
       current = startDbtRun(projectRoot, command, selector, cb, deps);
     },

@@ -70,6 +70,24 @@ describe("parseDbtLogLine", () => {
     expect(event).toBeNull();
   });
 
+  it("a node-attributed line ALSO produces a log event alongside its status event", () => {
+    const { event, logEvent } = parseDbtLogLine(nodeLine("1 of 3 START sql table model main.stg_orders", "started"));
+    expect(event).toEqual({ type: "status", nodeId: "model.proj.stg_orders", status: "running" });
+    expect(logEvent).toEqual({ type: "log", nodeId: "model.proj.stg_orders", line: "1 of 3 START sql table model main.stg_orders" });
+  });
+
+  it("a node-attributed line with an UNRECOGNIZED node_status still produces a log event, just no status event", () => {
+    const { event, logEvent } = parseDbtLogLine(nodeLine("1 of 3 WARN something main.stg_orders", "warn"));
+    expect(event).toBeNull();
+    expect(logEvent).toEqual({ type: "log", nodeId: "model.proj.stg_orders", line: "1 of 3 WARN something main.stg_orders" });
+  });
+
+  it("a line with no node attribution produces neither a status nor a log event", () => {
+    const { event, logEvent } = parseDbtLogLine(JSON.stringify({ data: {}, info: { msg: "Found 3 models", level: "info" } }));
+    expect(event).toBeNull();
+    expect(logEvent).toBeNull();
+  });
+
   it("a malformed (non-JSON) line displays raw and produces no event, without throwing", () => {
     const { event, display } = parseDbtLogLine("not json at all {{{");
     expect(display).toBe("not json at all {{{");
@@ -77,7 +95,7 @@ describe("parseDbtLogLine", () => {
   });
 
   it("an empty line displays as-is with no event", () => {
-    expect(parseDbtLogLine("")).toEqual({ event: null, display: "" });
+    expect(parseDbtLogLine("")).toEqual({ event: null, logEvent: null, display: "" });
   });
 
   // Real lines captured 2026-07-14 from `dbt run --select
@@ -109,7 +127,7 @@ describe("parseDbtLogLine", () => {
   });
 
   it("real dbt 1.11.11 blank formatting line: displays empty string, no event", () => {
-    expect(parseDbtLogLine(REAL_FORMATTING_LINE)).toEqual({ event: null, display: "" });
+    expect(parseDbtLogLine(REAL_FORMATTING_LINE)).toEqual({ event: null, logEvent: null, display: "" });
   });
 
   // Real `dbt test --select int_invoices_with_invoice_lines --log-format
@@ -133,6 +151,20 @@ describe("parseDbtLogLine", () => {
       type: "status",
       nodeId: "model.he_dbt_bi.int_invoices_with_invoice_lines",
       status: "success",
+    });
+  });
+
+  it("real dbt 1.11.11 test START line: no attached_node yet, so no log event either", () => {
+    const { logEvent } = parseDbtLogLine(REAL_TEST_START_LINE);
+    expect(logEvent).toBeNull();
+  });
+
+  it("real dbt 1.11.11 test PASS line: the log event routes to the parent model too, not the test", () => {
+    const { logEvent } = parseDbtLogLine(REAL_TEST_PASS_LINE);
+    expect(logEvent).toEqual({
+      type: "log",
+      nodeId: "model.he_dbt_bi.int_invoices_with_invoice_lines",
+      line: "1 of 2 PASS accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite  [PASS in 3.15s]",
     });
   });
 });
@@ -160,7 +192,7 @@ function fakeChild(pid = 4242) {
 }
 
 describe("startDbtRun", () => {
-  it("parses stdout lines into onWrite/onEvent calls, then emits done on close", () => {
+  it("parses stdout lines into onWrite/onEvent calls (both status AND log), then emits done on close", () => {
     const proc = fakeChild();
     const spawnSpy = vi.fn(() => proc as unknown as ChildProcess);
     const written: string[] = [];
@@ -175,11 +207,15 @@ describe("startDbtRun", () => {
     });
     proc.stdout.emit("data", Buffer.from(line + "\n"));
     expect(written).toEqual(["1 of 1 START ..."]);
-    expect(events).toEqual([{ type: "status", nodeId: "model.proj.stg_orders", status: "running" }]);
+    expect(events).toEqual([
+      { type: "status", nodeId: "model.proj.stg_orders", status: "running" },
+      { type: "log", nodeId: "model.proj.stg_orders", line: "1 of 1 START ..." },
+    ]);
 
     proc.emit("close", 0);
     expect(events).toEqual([
       { type: "status", nodeId: "model.proj.stg_orders", status: "running" },
+      { type: "log", nodeId: "model.proj.stg_orders", line: "1 of 1 START ..." },
       { type: "done", exitCode: 0 },
     ]);
   });
@@ -239,7 +275,7 @@ describe("startDbtRunWithSeed", () => {
     expect(events).toEqual([{ type: "done", exitCode: 0 }]);
   });
 
-  it("hasSeed=true runs `dbt seed` first, then the main command, on one continuous event/write stream", () => {
+  it("hasSeed=true runs `dbt seed` first, then the main command, on one continuous event/write stream (status AND log both forwarded through both phases)", () => {
     const seedProc = fakeChild(1111);
     const mainProc = fakeChild(2222);
     let call = 0;
@@ -259,7 +295,10 @@ describe("startDbtRunWithSeed", () => {
       info: { msg: "1 of 1 OK loaded seed ..." },
     });
     seedProc.stdout.emit("data", Buffer.from(seedLine + "\n"));
-    expect(events).toEqual([{ type: "status", nodeId: "seed.proj.my_seed", status: "success" }]);
+    expect(events).toEqual([
+      { type: "status", nodeId: "seed.proj.my_seed", status: "success" },
+      { type: "log", nodeId: "seed.proj.my_seed", line: "1 of 1 OK loaded seed ..." },
+    ]);
     expect(written).toContain("1 of 1 OK loaded seed ...");
 
     seedProc.emit("close", 0);
@@ -267,7 +306,10 @@ describe("startDbtRunWithSeed", () => {
     // The seed phase's own `done` is swallowed (not forwarded) — instead
     // the main command starts, using the SAME selector string.
     expect(spawnSpy).toHaveBeenNthCalledWith(2, "/proj", ["run", "--select", "stg_orders", "--log-format", "json"]);
-    expect(events).toEqual([{ type: "status", nodeId: "seed.proj.my_seed", status: "success" }]);
+    expect(events).toEqual([
+      { type: "status", nodeId: "seed.proj.my_seed", status: "success" },
+      { type: "log", nodeId: "seed.proj.my_seed", line: "1 of 1 OK loaded seed ..." },
+    ]);
 
     const mainLine = JSON.stringify({
       data: { node_info: { unique_id: "model.proj.stg_orders", node_status: "started" } },
@@ -278,7 +320,9 @@ describe("startDbtRunWithSeed", () => {
 
     expect(events).toEqual([
       { type: "status", nodeId: "seed.proj.my_seed", status: "success" },
+      { type: "log", nodeId: "seed.proj.my_seed", line: "1 of 1 OK loaded seed ..." },
       { type: "status", nodeId: "model.proj.stg_orders", status: "running" },
+      { type: "log", nodeId: "model.proj.stg_orders", line: "1 of 1 START ..." },
       { type: "done", exitCode: 0 },
     ]);
   });
