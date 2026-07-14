@@ -111,6 +111,30 @@ describe("parseDbtLogLine", () => {
   it("real dbt 1.11.11 blank formatting line: displays empty string, no event", () => {
     expect(parseDbtLogLine(REAL_FORMATTING_LINE)).toEqual({ event: null, display: "" });
   });
+
+  // Real `dbt test --select int_invoices_with_invoice_lines --log-format
+  // json` lines, captured 2026-07-14. A test's START event has no
+  // attached_node (dbt doesn't say which model a just-started test belongs
+  // to yet) — this is what originally caused test runs to show no status at
+  // all, since the test's own unique_id never matches a DAG node.
+  const REAL_TEST_START_LINE = '{"data": {"description": "test accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite", "index": 1, "node_info": {"materialized": "test", "meta": {}, "node_checksum": "", "node_finished_at": "", "node_name": "accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite", "node_path": "accepted_values_int_invoices_w_64a99420782d01b20a91c2230f4b3aec.sql", "node_relation": {"alias": "accepted_values_int_invoices_w_64a99420782d01b20a91c2230f4b3aec", "database": "testred", "relation_name": "", "schema": "dbt_kfajardo_dbt_test__audit"}, "node_started_at": "2026-07-14T17:30:50.933608", "node_status": "started", "resource_type": "test", "unique_id": "test.he_dbt_bi.accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite.836aaa3c7c"}, "total": 2}, "info": {"category": "", "code": "Q011", "extra": {}, "invocation_id": "921e2394-7259-4fee-8376-937939e6ee27", "level": "info", "msg": "1 of 2 START test accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite  [RUN]", "name": "LogStartLine", "pid": 89316, "thread": "Thread-1 (worker)", "ts": "2026-07-14T17:30:50.935312Z"}}';
+  const REAL_TEST_PASS_LINE = '{"data": {"attached_node": "model.he_dbt_bi.int_invoices_with_invoice_lines", "execution_time": 3.1510031, "index": 1, "name": "accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite", "node_info": {"materialized": "test", "meta": {}, "node_checksum": "", "node_finished_at": "2026-07-14T17:30:54.087596", "node_name": "accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite", "node_path": "accepted_values_int_invoices_w_64a99420782d01b20a91c2230f4b3aec.sql", "node_relation": {"alias": "accepted_values_int_invoices_w_64a99420782d01b20a91c2230f4b3aec", "database": "testred", "relation_name": "", "schema": "dbt_kfajardo_dbt_test__audit"}, "node_started_at": "2026-07-14T17:30:50.933608", "node_status": "pass", "resource_type": "test", "unique_id": "test.he_dbt_bi.accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite.836aaa3c7c"}, "num_failures": 0, "num_models": 2, "status": "pass"}, "info": {"category": "", "code": "Q007", "extra": {}, "invocation_id": "921e2394-7259-4fee-8376-937939e6ee27", "level": "info", "msg": "1 of 2 PASS accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite  [PASS in 3.15s]", "name": "LogTestResult", "pid": 89316, "thread": "Thread-1 (worker)", "ts": "2026-07-14T17:30:54.087993Z"}}';
+
+  it("real dbt 1.11.11 test START line: displays the human msg but emits NO status event (no attached_node yet)", () => {
+    const { event, display } = parseDbtLogLine(REAL_TEST_START_LINE);
+    expect(display).toBe("1 of 2 START test accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite  [RUN]");
+    expect(event).toBeNull();
+  });
+
+  it("real dbt 1.11.11 test PASS line: routes the status to the parent model via attached_node, not the test's own unique_id", () => {
+    const { event, display } = parseDbtLogLine(REAL_TEST_PASS_LINE);
+    expect(display).toBe("1 of 2 PASS accepted_values_int_invoices_with_invoice_lines_invoice_source__chikpea__netsuite  [PASS in 3.15s]");
+    expect(event).toEqual({
+      type: "status",
+      nodeId: "model.he_dbt_bi.int_invoices_with_invoice_lines",
+      status: "success",
+    });
+  });
 });
 
 describe("buildRunArgs", () => {

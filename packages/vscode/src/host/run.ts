@@ -50,7 +50,18 @@ export interface ParsedLine { event: RunEvent | null; display: string }
  *
  * dbt-core's real json-log schema (verified against dbt-core=1.11.11) wraps
  * every line as `{data: {...}, info: {...}}` — msg lives at `info.msg`,
- * node_info lives at `data.node_info`. Neither is top-level. */
+ * node_info lives at `data.node_info`. Neither is top-level.
+ *
+ * A `dbt test` run needs extra care: a test is its own manifest node with
+ * its own `unique_id` (e.g. `test.proj.not_null_x.<hash>`), which never
+ * matches any id in the DAG — only models/seeds/snapshots/sources are graph
+ * nodes, tests aren't. A test's status must instead route to the MODEL it
+ * tests, via `data.attached_node` (verified against a live `dbt test` run).
+ * That field is only present on the test's FINISH event, not its START —
+ * dbt doesn't say which model a just-started test belongs to — so a test
+ * starting produces no status event; the model's pilot light jumps straight
+ * from idle to pass/fail once the test ends, with no "running" blink for
+ * test-only activity. */
 export function parseDbtLogLine(line: string): ParsedLine {
   if (!line.trim()) return { event: null, display: line };
   let parsed: unknown;
@@ -58,13 +69,21 @@ export function parseDbtLogLine(line: string): ParsedLine {
   catch { return { event: null, display: line }; }
   const obj = parsed as {
     info?: { msg?: unknown };
-    data?: { node_info?: { unique_id?: unknown; node_status?: unknown } };
+    data?: {
+      node_info?: { unique_id?: unknown; node_status?: unknown; resource_type?: unknown };
+      attached_node?: unknown;
+    };
   };
   const display = typeof obj.info?.msg === "string" ? obj.info.msg : line;
   const info = obj.data?.node_info;
-  if (info && typeof info.unique_id === "string" && typeof info.node_status === "string") {
-    const status = mapNodeStatus(info.node_status);
-    if (status) return { event: { type: "status", nodeId: info.unique_id, status }, display };
+  if (info && typeof info.node_status === "string") {
+    const nodeId = info.resource_type === "test"
+      ? (typeof obj.data?.attached_node === "string" ? obj.data.attached_node : undefined)
+      : (typeof info.unique_id === "string" ? info.unique_id : undefined);
+    if (nodeId) {
+      const status = mapNodeStatus(info.node_status);
+      if (status) return { event: { type: "status", nodeId, status }, display };
+    }
   }
   return { event: null, display };
 }
