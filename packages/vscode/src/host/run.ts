@@ -2,8 +2,12 @@ import { spawn as nodeSpawn, type ChildProcess } from "child_process";
 import { resolveBin } from "./gist";
 import type { RunEvent, Status } from "@dbt-open-lineage/core/src/runStatus";
 
-export function buildRunArgs(command: "run" | "build" | "test", selector: string): string[] {
-  return [command, "--select", selector, "--log-format", "json"];
+export function buildRunArgs(command: "run" | "build" | "test", selector: string, fullRefresh: boolean): string[] {
+  const args = [command, "--select", selector, "--log-format", "json"];
+  // A test run materializes nothing, so --full-refresh is meaningless there —
+  // silently dropped rather than passed through to a command that ignores it.
+  if (fullRefresh && command !== "test") args.push("--full-refresh");
+  return args;
 }
 
 /** Accumulates chunks and yields only complete (newline-terminated) lines;
@@ -126,10 +130,10 @@ export interface RunController { cancel(): void }
  * carries node status, turned into a `RunEvent` (via `cb.onEvent`). Emits a
  * final `{type:"done"}` event when the process exits or fails to spawn. */
 export function startDbtRun(
-  projectRoot: string, command: "run" | "build" | "test", selector: string,
+  projectRoot: string, command: "run" | "build" | "test", selector: string, fullRefresh: boolean,
   cb: RunCallbacks, deps: RunDeps = defaultDeps,
 ): RunController {
-  const child = deps.spawn(projectRoot, buildRunArgs(command, selector));
+  const child = deps.spawn(projectRoot, buildRunArgs(command, selector, fullRefresh));
   const platform = deps.platform ?? process.platform;
   const out = new LineBuffer();
   const err = new LineBuffer();
@@ -204,14 +208,17 @@ export function startDbtRun(
  * `hasSeed === false` bypasses this entirely and behaves identically to
  * calling `startDbtRun` directly. */
 export function startDbtRunWithSeed(
-  projectRoot: string, command: "run" | "build" | "test", selector: string, hasSeed: boolean,
+  projectRoot: string, command: "run" | "build" | "test", selector: string, hasSeed: boolean, fullRefresh: boolean,
   cb: RunCallbacks, deps: RunDeps = defaultDeps,
 ): RunController {
-  if (!hasSeed) return startDbtRun(projectRoot, command, selector, cb, deps);
+  if (!hasSeed) return startDbtRun(projectRoot, command, selector, fullRefresh, cb, deps);
 
   // Reassigned once the main phase starts, so cancel() always delegates to
-  // whichever phase is currently in flight.
-  let current: RunController = startDbtRun(projectRoot, "seed" as "run" | "build" | "test", selector, {
+  // whichever phase is currently in flight. The SAME fullRefresh boolean
+  // reaches both phases — "full refresh" means the whole two-phase
+  // operation, not half of it; buildRunArgs's own command!=="test" check
+  // still governs whether it's actually appended per phase.
+  let current: RunController = startDbtRun(projectRoot, "seed" as "run" | "build" | "test", selector, fullRefresh, {
     onWrite: cb.onWrite,
     onEvent: (event) => {
       // Forward everything except the seed phase's own `done` — that one
@@ -219,7 +226,7 @@ export function startDbtRunWithSeed(
       // this wrapper's own `done` contract covers the WHOLE two-phase run.
       if (event.type !== "done") { cb.onEvent(event); return; }
       if (event.exitCode !== 0) { cb.onEvent({ type: "done", exitCode: event.exitCode }); return; }
-      current = startDbtRun(projectRoot, command, selector, cb, deps);
+      current = startDbtRun(projectRoot, command, selector, fullRefresh, cb, deps);
     },
   }, deps);
 
