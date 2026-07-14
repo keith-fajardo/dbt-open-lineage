@@ -259,4 +259,19 @@ describe("DagNode run status pilot light", () => {
     expect(marble.style.left).toBe("8px");
     expect(marble.style.top).toBe("4px");
   });
+
+  it("never renders on a source, even with an explicit status — dbt never runs a source directly", () => {
+    const view: ViewState = {
+      selected: null, active: null, up: new Set(), down: new Set(),
+      matched: null, spotlight: null, filtered: null, search: "",
+      favorites: new Set(), onToggleFavorite: () => {},
+      runStatus: new Map([["n", "success"]]),
+    };
+    render(
+      <ViewContext.Provider value={view}>
+        <DagNode id="n" data={data("n", { layer: "source" })} />
+      </ViewContext.Provider>,
+    );
+    expect(screen.queryByLabelText(/run status/)).toBeNull();
+  });
 });

@@ -160,8 +160,10 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           sells "glass" over "painted dot". Always rendered — no entry in
           runStatus defaults to "idle" (grey), so the marble reads as a
           persistent light on every node, not something that only appears
-          mid-run. */}
-      {(() => {
+          mid-run. Sources are the one exception: dbt never runs/tests a
+          source directly, so a status light on one is always meaningless
+          idle noise — skip it entirely rather than always-grey. */}
+      {data.layer !== "source" && (() => {
         const status: MarbleState = view.runStatus?.get(id) ?? "idle";
         const rgb = RUN_STATUS_RGB[status];
         const style: React.CSSProperties = {
