@@ -560,7 +560,24 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setToast(null);
   }, [selectedNode]);
 
+  // Per-node dbt output, only for lines dbt itself attributes to that node
+  // (RunEvent's "log" variant) — never unattributed banner/summary lines.
+  // Same three-point reset lifecycle as runStatus: a new run replaces it,
+  // Refresh clears it, a lineage change clears it. A run ENDING does not
+  // clear it — the last run's logs stay visible until one of those three
+  // things happens. Declared here (ahead of the runStatus/runErr cluster
+  // below) so `selectedLogs`, derived from it right below, isn't a
+  // temporal-dead-zone reference to a not-yet-initialized binding.
+  const [runLogs, setRunLogs] = useState<Map<string, string[]> | null>(null);
+
   const editable = !readOnly && !!selectedNode && selectedNode.resource_type !== "source";
+  const selectedLogs = selectedNode ? runLogs?.get(selectedNode.id) : undefined;
+  const logsBoxRef = useRef<HTMLDivElement>(null);
+  // Auto-scroll the logs box to its latest line while it's open — reads
+  // like a tailing terminal for a model that's actively running.
+  useEffect(() => {
+    if (logsBoxRef.current) logsBoxRef.current.scrollTop = logsBoxRef.current.scrollHeight;
+  }, [selectedLogs?.length]);
   // Baseline read via readMeta, consistent with how the drafts themselves are
   // populated above — a flat-only baseline would never match a nested-only
   // draft, leaving `dirty` permanently true for any migrated model.
@@ -755,11 +772,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   useEffect(() => {
     setRunStatus(null);
     setRunErr(null);
+    setRunLogs(null);
   }, [selector]);
 
   const onResetStatus = () => {
     setRunStatus(null);
     setRunErr(null);
+    setRunLogs(null);
   };
 
   useEffect(() => onRunEvent((e: RunEvent) => {
@@ -767,6 +786,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       setRunStatus((prev) => {
         const next = new Map(prev ?? []);
         next.set(e.nodeId, e.status);
+        return next;
+      });
+    } else if (e.type === "log") {
+      setRunLogs((prev) => {
+        const next = new Map(prev ?? []);
+        next.set(e.nodeId, [...(next.get(e.nodeId) ?? []), e.line]);
         return next;
       });
     } else {
@@ -800,6 +825,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     // until dbt's own START event for it arrives, which can be a while for
     // a large selection.
     setRunStatus(new Map([...activeIds].map((id) => [id, "queued" as const])));
+    // A second Run (without an intervening Refresh/lineage-change) REPLACES
+    // per-node logs, it does not append across runs.
+    setRunLogs(new Map());
     setRunActive(command);
     try {
       await invoke<boolean>("dbt.run", { command, selector: runSelector, hasSeed });
@@ -1502,6 +1530,28 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 )
                 : "—"}
             </dd>
+
+            {/* Only rendered once this node has at least one log line —
+                an idle/never-run node shows nothing here, keeping the
+                common case uncluttered. */}
+            {selectedLogs && selectedLogs.length > 0 && (
+              <>
+                <dt style={{ color: "#94a3b8", marginTop: 8 }}>logs</dt>
+                <dd style={{ margin: 0 }}>
+                  <div
+                    ref={logsBoxRef}
+                    style={{
+                      height: 150, overflowY: "auto", background: "#0b1220",
+                      border: "1px solid #334155", borderRadius: 6, padding: 6,
+                      fontFamily: "ui-monospace, monospace", fontSize: 11, lineHeight: 1.5,
+                      color: "#cbd5e1", whiteSpace: "pre-wrap", wordBreak: "break-word",
+                    }}
+                  >
+                    {selectedLogs.map((line, i) => <div key={i}>{line}</div>)}
+                  </div>
+                </dd>
+              </>
+            )}
           </dl>
           <style>{"@keyframes mnemo-spin{to{transform:rotate(360deg)}}"}</style>
           {toast && (

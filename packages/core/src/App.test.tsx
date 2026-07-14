@@ -702,6 +702,70 @@ describe("run/build/test button", () => {
     expect(screen.queryByLabelText("run status: success")).not.toBeInTheDocument();
     expect(screen.getByLabelText("reset run status")).toBeDisabled();
   });
+
+  it("a log RunEvent appends that line to the right node's log, shown in its sidebar section once selected", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "log", nodeId: "a", line: "1 of 4 START sql table model main.a" }));
+    act(() => runEventCb!({ type: "log", nodeId: "a", line: "1 of 4 OK created sql table model main.a" }));
+    fireEvent.click(screen.getAllByText("a")[0]);
+    await waitFor(() => expect(screen.getByText("1 of 4 START sql table model main.a")).toBeInTheDocument());
+    expect(screen.getByText("1 of 4 OK created sql table model main.a")).toBeInTheDocument();
+  });
+
+  it("a node with no logs yet shows no logs section", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText("a")[0]);
+    await waitFor(() => expect(screen.getByText("type")).toBeInTheDocument()); // sidebar is open
+    expect(screen.queryByText("logs")).not.toBeInTheDocument();
+  });
+
+  it("a second Run replaces a node's logs rather than appending to them", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "log", nodeId: "a", line: "first run's line" }));
+    act(() => runEventCb!({ type: "done", exitCode: 0 }));
+    fireEvent.click(screen.getByText("▶ Run"));
+    act(() => runEventCb!({ type: "log", nodeId: "a", line: "second run's line" }));
+    fireEvent.click(screen.getAllByText("a")[0]);
+    await waitFor(() => expect(screen.getByText("second run's line")).toBeInTheDocument());
+    expect(screen.queryByText("first run's line")).not.toBeInTheDocument();
+  });
+
+  it("Refresh clears logs alongside the pilot light", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "log", nodeId: "a", line: "a line to clear" }));
+    act(() => runEventCb!({ type: "done", exitCode: 1 })); // enables the Refresh button
+    fireEvent.click(screen.getByLabelText("reset run status"));
+    fireEvent.click(screen.getAllByText("a")[0]);
+    await waitFor(() => expect(screen.getByText("type")).toBeInTheDocument());
+    expect(screen.queryByText("a line to clear")).not.toBeInTheDocument();
+  });
+
+  it("a lineage change clears logs alongside the pilot light", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "log", nodeId: "a", line: "a line to clear" }));
+
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "a" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByText("b")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getAllByText("a")[0]);
+    await waitFor(() => expect(screen.getByText("type")).toBeInTheDocument());
+    expect(screen.queryByText("a line to clear")).not.toBeInTheDocument();
+  });
 });
 
 describe("edgeOnLineage", () => {
