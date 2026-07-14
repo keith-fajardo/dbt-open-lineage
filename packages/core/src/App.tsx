@@ -960,6 +960,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 </div>
               )}
             </div>
+            {!readOnly && (
             <div style={{ position: "relative" }}>
               {runActive ? (
                 <button
@@ -1018,6 +1019,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 </div>
               )}
             </div>
+            )}
           </div>
 
           {/* Row 1 — VIEW: what's drawn over the graph. Callouts, Draw. */}

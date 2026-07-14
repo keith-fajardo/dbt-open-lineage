@@ -29,5 +29,10 @@ export function createStaticBridge(data: StaticPageData): Bridge {
     saveExport: (filename, dataB64) => Promise.resolve(download(filename, dataB64)),
     openInIde: () => Promise.resolve(false),
     onContext: () => () => {},
+    // No live host to run dbt against (static export) — the Run/Build/Test
+    // toolbar is hidden by App's readOnly mode, and `invoke("dbt.run", ...)`
+    // would already reject via the generic read-only-viewer catch-all above,
+    // so this channel simply never fires, matching onContext's no-op shape.
+    onRunEvent: () => () => {},
   };
 }
