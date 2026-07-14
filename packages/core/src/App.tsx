@@ -892,15 +892,19 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div style={{
           display: "flex", flexDirection: "column", gap: 8, padding: "8px 10px",
-          background: "#111827", borderBottom: "1px solid #334155",
+          background: "#111827", borderBottom: "1px solid #334155", minWidth: 0,
         }}>
           {/* Row 0 — query & utilities: the selector box (kept exactly),
               its Focus mode, live search, Export, and Run. flexWrap (matching
               Rows 1/2) so a narrow panel wraps controls onto a new line
               instead of clipping the rightmost one (e.g. Cancel) behind a
               horizontal scrollbar — adding Run/Cancel pushed this row's
-              natural width past what a docked/narrow panel can show. */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              natural width past what a docked/narrow panel can show. minWidth:0
+              is required too — without it, this row (a flex item inside the
+              column above) defaults to min-width:auto and grows to fit its
+              UNWRAPPED content instead of respecting the stretched width,
+              so flexWrap alone never gets the chance to trigger. */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
             <input
               placeholder="select… e.g. stg_orders+ or tag:mart --exclude config.materialized:view  (Enter shows only the selection)"
               value={raw}
@@ -921,7 +925,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontVariantLigatures: "none" }}
+              style={{ flex: 1, minWidth: 200, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontVariantLigatures: "none" }}
             />
             <label style={TOGGLE_PILL}>
               <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
