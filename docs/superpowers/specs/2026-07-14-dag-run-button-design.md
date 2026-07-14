@@ -31,7 +31,14 @@ pilot light on the graph itself.
 - `filtered` — the subject-area/label/tag chip result (`App.tsx:703`,
   currently dim-only)
 
-No selector and no filters active → the whole graph.
+A blank selector box → the DAG itself renders nothing (existing behavior,
+`App.tsx`: `visibleGraph` returns `{nodes:[],edges:[]}` whenever the selector
+is empty, regardless of any category filter) — so a blank selector means an
+**empty** active set, not "the whole graph." Populating the selector box is
+required before Run does anything; this avoids a blank-screen click
+accidentally kicking off a full-project `dbt run`. Once the selector is
+non-blank, the active set is `matched ∪ filtered` (filtered treated as
+contributing nothing when no category filter is active).
 
 New pure function, `packages/core/src/selector.ts`:
 
