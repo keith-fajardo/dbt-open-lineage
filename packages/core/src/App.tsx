@@ -6,9 +6,10 @@ import {
 import "@xyflow/react/dist/style.css";
 import { toPng, toSvg } from "html-to-image";
 import type { Graph, GraphNode } from "./graphTypes";
-import { invoke, onContext, saveExport, openInIde } from "./bridge";
+import { invoke, onContext, onRunEvent, saveExport, openInIde } from "./bridge";
 import { layoutGraph } from "./layout";
-import { resolveSelector, focalName } from "./selector";
+import { resolveSelector, focalName, buildSelector } from "./selector";
+import type { Status, RunEvent } from "./runStatus";
 import { nodeTypes, isDimmed, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
@@ -22,7 +23,7 @@ import { AreaControl } from "./AreaControl";
 import { LabelBar } from "./LabelBar";
 import { resolveStyles } from "./styles";
 import { loadFavorites, saveFavorites } from "./favorites";
-import { computeFiltered } from "./filters";
+import { computeFiltered, computeActiveIds } from "./filters";
 import { TagChips } from "./TagChips";
 import { DrawLayer, type DrawMode } from "./DrawLayer";
 import { type Stroke } from "./drawing";
@@ -704,6 +705,55 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     [graph, favActive, favorites, areaFilter, labelFilter, tagFilter],
   );
 
+  // The run/build/test button's scope: the union of the selector-matched and
+  // category-filtered sets — but ONLY once the selector box is non-blank.
+  // A blank selector already blanks the whole DAG (see `visibleGraph` above,
+  // which returns {nodes:[],edges:[]} whenever `!selector.trim()`, filters
+  // notwithstanding) — so Run must see nothing active in that state too,
+  // rather than falling back to "the whole project."
+  const activeIds = useMemo(
+    () => (selector.trim() ? computeActiveIds(matched, filtered) : new Set<string>()),
+    [selector, matched, filtered],
+  );
+  const runSelector = useMemo(() => (graph ? buildSelector(activeIds, graph) : ""), [graph, activeIds]);
+
+  const [runMenu, setRunMenu] = useState(false);
+  const [runActive, setRunActive] = useState<"run" | "build" | "test" | null>(null);
+  const [runStatus, setRunStatus] = useState<Map<string, Status> | null>(null);
+  const [runErr, setRunErr] = useState<string | null>(null);
+
+  useEffect(() => onRunEvent((e: RunEvent) => {
+    if (e.type === "status") {
+      setRunStatus((prev) => {
+        const next = new Map(prev ?? []);
+        next.set(e.nodeId, e.status);
+        return next;
+      });
+    } else {
+      setRunActive(null);
+      if (e.exitCode !== 0) setRunErr(`run failed (exit ${e.exitCode})`);
+    }
+  }), []);
+
+  const onRun = async (command: "run" | "build" | "test") => {
+    setRunMenu(false);
+    if (!runSelector) return;
+    setRunErr(null);
+    setRunStatus(new Map());
+    setRunActive(command);
+    try {
+      await invoke<boolean>("dbt.run", { command, selector: runSelector });
+    } catch (e) {
+      setRunActive(null);
+      setRunErr(String((e as Error).message ?? e));
+    }
+  };
+
+  const onCancelRun = async () => {
+    try { await invoke<boolean>("dbt.cancel", {}); }
+    catch (e) { setRunErr(String((e as Error).message ?? e)); }
+  };
+
   const view: ViewState = useMemo(() => ({
     selected,
     active: activeId,
@@ -718,8 +768,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     search: searchQ,
     favorites,
     onToggleFavorite,
-    runStatus: null,
-  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite]);
+    runStatus,
+  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus]);
 
   const dimmedIds = useMemo(
     () => (graph ? new Set(graph.nodes.filter((n) => isDimmed(n.id, view)).map((n) => n.id)) : new Set<string>()),
@@ -823,7 +873,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   };
 
   return (
-    <div style={{ width: "100vw", height: "100vh", display: "flex", background: "#0b1220", fontFamily: FONT_UI }}>
+    <>
+      <style>{"@keyframes dol-run-sweep{0%{background-position:-60px 0}100%{background-position:240px 0}}"}</style>
+      <div style={{ width: "100vw", height: "100vh", display: "flex", background: "#0b1220", fontFamily: FONT_UI }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div style={{
           display: "flex", flexDirection: "column", gap: 8, padding: "8px 10px",
@@ -904,6 +956,64 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                         fontFamily: "inherit", fontSize: 13,
                       }}
                     >{label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ position: "relative" }}>
+              {runActive ? (
+                <button
+                  onClick={() => void onCancelRun()}
+                  style={{
+                    padding: "6px 10px", borderRadius: 7, border: "1px solid #f87171",
+                    background: "#1e293b", color: "#f87171", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                  }}
+                >■ Cancel</button>
+              ) : (
+                <div style={{ display: "flex", borderRadius: 7, border: "1px solid #334155", overflow: "hidden" }}>
+                  <button
+                    disabled={!runSelector}
+                    title={runSelector ? undefined : "no runnable models in current view"}
+                    onClick={() => void onRun("run")}
+                    style={{
+                      padding: "6px 10px", border: "none", borderRight: "1px solid #334155",
+                      background: "#111827", color: runSelector ? "#4ade80" : "#475569",
+                      cursor: runSelector ? "pointer" : "default", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+                    }}
+                  >▶ Run</button>
+                  <button
+                    aria-label="run command menu"
+                    aria-haspopup="menu"
+                    aria-expanded={runMenu}
+                    onClick={() => setRunMenu((v) => !v)}
+                    style={{
+                      padding: "6px 8px", border: "none", background: "#111827",
+                      color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                    }}
+                  >▾</button>
+                </div>
+              )}
+              {runMenu && !runActive && (
+                <div
+                  role="menu"
+                  style={{
+                    position: "absolute", right: 0, top: "110%", zIndex: 20, minWidth: 110,
+                    background: "#111827", border: "1px solid #334155", borderRadius: 8, overflow: "hidden",
+                    boxShadow: "0 16px 34px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  {(["run", "build", "test"] as const).map((cmd) => (
+                    <button
+                      key={cmd}
+                      role="menuitem"
+                      disabled={!runSelector}
+                      onClick={() => void onRun(cmd)}
+                      style={{
+                        display: "block", width: "100%", textAlign: "left", padding: "7px 12px",
+                        background: "none", border: "none", color: runSelector ? "#e5e7eb" : "#475569",
+                        cursor: runSelector ? "pointer" : "default", fontFamily: "inherit", fontSize: 13, textTransform: "capitalize",
+                      }}
+                    >{cmd}</button>
                   ))}
                 </div>
               )}
@@ -994,6 +1104,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         </div>
         {error && <div style={{ color: "#fca5a5", padding: 8 }}>{error}</div>}
         {exportErr && <div style={{ color: "#fca5a5", padding: 8 }}>export failed: {exportErr}</div>}
+        {runErr && <div style={{ color: "#fca5a5", padding: 8 }}>run failed: {runErr}</div>}
         <div style={{ flex: 1, position: "relative" }}>
           {graph && !error && !selector.trim() && (
             <div
@@ -1323,6 +1434,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           )}
         </aside>
       )}
-    </div>
+      </div>
+    </>
   );
 }

@@ -42,6 +42,7 @@ const oneModelGraph: Graph = {
 // test set via `manifestGraph`, and the panel-edit tests need fs.readText /
 // fs.writeText / dbt.gist stubbed too.
 let contextCb: ((v: string) => void) | null = null;
+let runEventCb: ((e: import("./runStatus").RunEvent) => void) | null = null;
 let manifestGraph: Graph = g;
 const saveExport = vi.fn(async () => true);
 const openInIde = vi.fn(async () => true);
@@ -55,6 +56,7 @@ const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) =>
 vi.mock("./bridge", () => ({
   invoke: (...a: unknown[]) => invokeMock(...(a as [string, Record<string, unknown>])),
   onContext: (cb: (v: string) => void) => { contextCb = cb; return () => { contextCb = null; }; },
+  onRunEvent: (cb: (e: import("./runStatus").RunEvent) => void) => { runEventCb = cb; return () => { runEventCb = null; }; },
   saveExport: (...a: unknown[]) => saveExport(...(a as [])),
   openInIde: (...a: unknown[]) => openInIde(...(a as [])),
 }));
@@ -78,7 +80,7 @@ vi.mock("./layout", async (orig) => {
 
 import App, { lineageOf, edgeOnLineage } from "./App";
 
-beforeEach(() => { layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g; lastCalloutHeights = undefined; });
+beforeEach(() => { layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g; lastCalloutHeights = undefined; runEventCb = null; });
 afterEach(cleanup);
 
 describe("dbt DAG App", () => {
@@ -504,6 +506,62 @@ describe("readOnly mode", () => {
     expect(container.querySelector('input[type="color"]')).not.toBeInTheDocument();
     // …and the recolor path (which would fs.writeText the sidecar) never fired.
     expect(invokeMock).not.toHaveBeenCalledWith("fs.writeText", expect.anything());
+  });
+});
+
+describe("run/build/test button", () => {
+  it("is disabled with no runnable models in view (blank selector)", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    expect(screen.getByText("▶ Run")).toBeDisabled();
+  });
+
+  it("invokes dbt.run with the union of matched+filtered active ids as a selector, on click", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d" }),
+    );
+  });
+
+  it("dropdown offers Build and Test, each invoking dbt.run with that command", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByLabelText("run command menu"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "build" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "build", selector: "a b c d" }),
+    );
+  });
+
+  it("shows Cancel instead of Run while a run is active, and invokes dbt.cancel on click", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(screen.getByText("■ Cancel")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("■ Cancel"));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.cancel", {}));
+  });
+
+  it("run-status events from the bridge drive the pilot light, and a done event restores the Run button", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "status", nodeId: "a", status: "success" }));
+    await waitFor(() => expect(screen.getByLabelText("run status: success")).toBeInTheDocument());
+    act(() => runEventCb!({ type: "done", exitCode: 0 }));
+    await waitFor(() => expect(screen.getByText("▶ Run")).toBeInTheDocument());
+  });
+
+  it("a nonzero exit code on done surfaces a run-failed error", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "done", exitCode: 1 }));
+    await waitFor(() => expect(screen.getByText(/run failed/)).toBeInTheDocument());
   });
 });
 
