@@ -148,7 +148,7 @@ describe("startDbtRun", () => {
       info: { msg: "1 of 1 START ..." },
     });
     proc.stdout.emit("data", Buffer.from(line + "\n"));
-    expect(written).toEqual(["1 of 1 START ...\r\n"]);
+    expect(written).toEqual(["1 of 1 START ..."]);
     expect(events).toEqual([{ type: "status", nodeId: "model.proj.stg_orders", status: "running" }]);
 
     proc.emit("close", 0);
@@ -164,7 +164,7 @@ describe("startDbtRun", () => {
     startDbtRun("/proj", "run", "x", { onWrite: (t) => written.push(t), onEvent: () => {} }, { spawn: () => proc as unknown as ChildProcess });
     proc.stdout.emit("data", Buffer.from("no trailing newline"));
     proc.emit("close", 0);
-    expect(written).toEqual(["no trailing newline\r\n"]);
+    expect(written).toEqual(["no trailing newline"]);
   });
 
   it("a spawn error is written to the terminal and closes the run with exit -1", () => {

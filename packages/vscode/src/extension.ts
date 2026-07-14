@@ -19,6 +19,15 @@ let view: vscode.Webview | undefined; // the resolved panel view's webview
 let projectRoot: string | undefined;
 let lastGraph: Graph | undefined;
 let activeRun: RunController | undefined; // set while a dbt.run is in flight; guards against overlapping runs
+let runOutputChannel: vscode.OutputChannel | undefined;
+
+// A dedicated Output channel (not vscode.window.createTerminal) so a run
+// shows up under the OUTPUT tab, not TERMINAL — the extension host's focus
+// shouldn't get yanked onto a shell tab every time a run starts.
+function getRunOutputChannel(): vscode.OutputChannel {
+  if (!runOutputChannel) runOutputChannel = vscode.window.createOutputChannel("dbt Open Lineage");
+  return runOutputChannel;
+}
 
 const COMPILED_SCHEME = "dbt-compiled";
 const compiledContent = new Map<string, string>(); // uri.toString() -> compiled SQL
@@ -116,36 +125,22 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const command = String(msg.args.command ?? "run") as "run" | "build" | "test";
         const selector = String(msg.args.selector ?? "");
         if (!selector.trim()) throw new Error("no runnable models in current view");
-        const writeEmitter = new vscode.EventEmitter<string>();
-        const closeEmitter = new vscode.EventEmitter<number>();
-        // Captured per-pty-instance (not just read off the shared `activeRun`)
-        // so that closing a stale, already-finished run's terminal tab can't
-        // cancel/clear a *different*, currently active run that started later.
-        let myRun: RunController | undefined;
-        const pty: vscode.Pseudoterminal = {
-          onDidWrite: writeEmitter.event,
-          onDidClose: closeEmitter.event,
-          open: () => {
-            const controller = startDbtRun(root, command, selector, {
-              onWrite: (text) => writeEmitter.fire(text),
-              onEvent: (event) => {
-                view?.postMessage({ evt: "run", event });
-                if (event.type === "done") {
-                  if (activeRun === myRun) activeRun = undefined;
-                  closeEmitter.fire(event.exitCode);
-                }
-              },
-            });
-            myRun = controller;
-            activeRun = controller;
+        const channel = getRunOutputChannel();
+        // Fresh view per run (a stale prior run's output doesn't linger) —
+        // preserveFocus (the `true` arg) reveals the Output panel without
+        // stealing keyboard focus from the editor, and critically without
+        // switching the bottom panel to the Terminal tab the way
+        // vscode.Task/Pseudoterminal-based output would.
+        channel.clear();
+        channel.show(true);
+        channel.appendLine(`> dbt ${command} --select ${selector}`);
+        activeRun = startDbtRun(root, command, selector, {
+          onWrite: (text) => channel.appendLine(text),
+          onEvent: (event) => {
+            view?.postMessage({ evt: "run", event });
+            if (event.type === "done") activeRun = undefined;
           },
-          close: () => {
-            myRun?.cancel();
-            if (activeRun === myRun) activeRun = undefined;
-          },
-        };
-        const terminal = vscode.window.createTerminal({ name: `dbt ${command}`, pty });
-        terminal.show();
+        });
         reply({ ok: true, result: true });
         break;
       }

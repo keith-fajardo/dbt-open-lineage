@@ -92,10 +92,10 @@ export interface RunController { cancel(): void }
 
 /** Spawn `dbt <command> --select <selector> --log-format json` in
  * `projectRoot`, parsing stdout/stderr line-by-line: every line is written
- * to the terminal (via `cb.onWrite`, CRLF-terminated as vscode.Pseudoterminal
- * requires) and, when it carries node status, turned into a `RunEvent` (via
- * `cb.onEvent`). Emits a final `{type:"done"}` event when the process exits
- * or fails to spawn. */
+ * out (via `cb.onWrite`, one line, no trailing newline — the host's own sink
+ * adds line breaks, e.g. vscode.OutputChannel.appendLine) and, when it
+ * carries node status, turned into a `RunEvent` (via `cb.onEvent`). Emits a
+ * final `{type:"done"}` event when the process exits or fails to spawn. */
 export function startDbtRun(
   projectRoot: string, command: "run" | "build" | "test", selector: string,
   cb: RunCallbacks, deps: RunDeps = defaultDeps,
@@ -108,7 +108,7 @@ export function startDbtRun(
   const handle = (lines: string[]) => {
     for (const line of lines) {
       const { event, display } = parseDbtLogLine(line);
-      cb.onWrite(display + "\r\n");
+      cb.onWrite(display);
       if (event) cb.onEvent(event);
     }
   };
@@ -131,7 +131,7 @@ export function startDbtRun(
     emitDone(code ?? -1);
   });
   child.on("error", (e: Error) => {
-    cb.onWrite(`spawn error: ${e.message}\r\n`);
+    cb.onWrite(`spawn error: ${e.message}`);
     emitDone(-1);
   });
 
