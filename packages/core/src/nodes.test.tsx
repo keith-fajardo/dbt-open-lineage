@@ -228,25 +228,32 @@ describe("DagNode run status pilot light", () => {
     expect(screen.queryByLabelText(/run status/)).toBeNull();
   });
 
-  it("renders an animated sweep bar while running", () => {
+  it("renders a blinking marble while running", () => {
     withStatus("running");
-    const bar = screen.getByLabelText("run status: running");
-    expect(bar).toHaveAttribute("data-run-status", "running");
-    expect(bar.style.animation).toContain("dol-run-sweep");
+    const marble = screen.getByLabelText("run status: running");
+    expect(marble).toHaveAttribute("data-run-status", "running");
+    expect(marble.style.animation).toContain("dol-run-blink");
+    expect(marble.style.background).toContain("249, 115, 22");
   });
 
-  it("renders a solid green bar on success", () => {
-    withStatus("success");
-    expect(screen.getByLabelText("run status: success").style.background).toBe("rgb(34, 197, 94)");
+  it("renders a neon-green marble on success (static, no animation)", () => {
+    const marble = withStatus("success").getByLabelText("run status: success");
+    expect(marble.style.background).toContain("57, 255, 20");
+    expect(marble.style.animation).toBe("");
   });
 
-  it("renders a solid red bar on failure", () => {
-    withStatus("failed");
-    expect(screen.getByLabelText("run status: failed").style.background).toBe("rgb(239, 68, 68)");
+  it("renders a deep-red marble on failure", () => {
+    expect(withStatus("failed").getByLabelText("run status: failed").style.background).toContain("220, 38, 38");
   });
 
-  it("renders a solid amber bar when skipped", () => {
-    withStatus("skipped");
-    expect(screen.getByLabelText("run status: skipped").style.background).toBe("rgb(245, 158, 11)");
+  it("renders an amber marble when skipped", () => {
+    expect(withStatus("skipped").getByLabelText("run status: skipped").style.background).toContain("245, 158, 11");
+  });
+
+  it("has no border, inset in the upper-left corner (mirrors the ☆ favorite)", () => {
+    const marble = withStatus("success").getByLabelText("run status: success");
+    expect(marble.style.border).toBe("");
+    expect(marble.style.left).toBe("7px");
+    expect(marble.style.top).toBe("3px");
   });
 });

@@ -902,7 +902,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
 
   return (
     <>
-      <style>{"@keyframes dol-run-sweep{0%{background-position:-60px 0}100%{background-position:240px 0}}"}</style>
+      <style>{"@keyframes dol-run-blink{0%,100%{opacity:1}50%{opacity:0.45}}"}</style>
       <div style={{ width: "100vw", height: "100vh", display: "flex", background: "#0b1220", fontFamily: FONT_UI }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div style={{

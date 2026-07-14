@@ -1,6 +1,7 @@
 import { useContext } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ViewContext, type ViewState } from "./viewContext";
+import type { Status } from "./runStatus";
 
 export type DimView = Pick<ViewState, "selected" | "active" | "up" | "down" | "matched" | "spotlight" | "filtered">;
 
@@ -28,6 +29,22 @@ const LAYER_COLOR: Record<string, string> = {
   mart: "#f59e0b",
   report: "#ef4444",
   model: "#64748b",
+};
+
+/** Per-state color recipe for the run-status marble (see the render site for
+ * how these compose into the gradient/glow). Tuned via a mocked-up eyeball
+ * pass: running blinks orange, skipped is the same hue but solid so the two
+ * stay distinguishable only by motion; failed is a deeper/cooler red than a
+ * plain #ef4444 because a translucent warm red drifts toward looking orange
+ * next to running otherwise. */
+const RUN_STATUS_RGB: Record<Status, {
+  rgb: string; hi: number; a1: number; a2: number; a3: number;
+  glint: number; glow: number; glowSpread: number; glowAlpha: number;
+}> = {
+  running: { rgb: "249, 115, 22", hi: 0.95, a1: 0.9, a2: 0.82, a3: 0.45, glint: 0.45, glow: 8, glowSpread: 2, glowAlpha: 0.95 },
+  success: { rgb: "57, 255, 20", hi: 0.9, a1: 0.85, a2: 0.78, a3: 0.4, glint: 0.4, glow: 6, glowSpread: 1.5, glowAlpha: 0.85 },
+  failed: { rgb: "220, 38, 38", hi: 0.85, a1: 0.88, a2: 0.8, a3: 0.45, glint: 0.38, glow: 6, glowSpread: 1.5, glowAlpha: 0.85 },
+  skipped: { rgb: "245, 158, 11", hi: 0.9, a1: 0.85, a2: 0.78, a3: 0.4, glint: 0.4, glow: 6, glowSpread: 1.5, glowAlpha: 0.8 },
 };
 
 export interface DagNodeData {
@@ -126,27 +143,28 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           ))}
         </div>
       )}
+      {/* Run-status marble: inset in the corner mirroring the ☆ favorite,
+          transparent glass rather than a solid bulb — the body stays richly
+          colored through ~70% of its radius (a full fade-to-transparent
+          reads as a black marble with a colored halo) while the outer rim
+          tapers to let a hint of the node's own dark fill show through, plus
+          a lower-right glint opposite the main highlight, which is what
+          sells "glass" over "painted dot". No entry in runStatus = idle =
+          nothing rendered (this node hasn't been touched by a run yet). */}
       {(() => {
         const status = view.runStatus?.get(id);
         if (!status) return null;
-        const solid = status === "success" ? "#22c55e" : status === "failed" ? "#ef4444" : status === "skipped" ? "#f59e0b" : undefined;
-        const baseStyle: React.CSSProperties = {
-          position: "absolute", left: 6, right: 6, top: -2, height: 3, borderRadius: 2,
+        const rgb = RUN_STATUS_RGB[status];
+        const style: React.CSSProperties = {
+          position: "absolute", left: 7, top: 3, width: 12, height: 12, borderRadius: "50%",
+          background: [
+            `radial-gradient(circle at 68% 80%, rgba(255,255,255,${rgb.glint}) 0%, rgba(255,255,255,0) 40%)`,
+            `radial-gradient(circle at 32% 26%, rgba(255,255,255,${rgb.hi}) 0%, rgba(${rgb.rgb}, ${rgb.a1}) 30%, rgba(${rgb.rgb}, ${rgb.a2}) 68%, rgba(${rgb.rgb}, ${rgb.a3}) 100%)`,
+          ].join(", "),
+          boxShadow: `0 0 ${rgb.glow}px ${rgb.glowSpread}px rgba(${rgb.rgb}, ${rgb.glowAlpha})`,
         };
-        if (status === "running") {
-          baseStyle.backgroundImage = "linear-gradient(90deg, transparent, #93c5fd, transparent)";
-          baseStyle.backgroundSize = "60px 100%";
-          baseStyle.animation = "dol-run-sweep 1.2s linear infinite";
-        } else if (solid) {
-          baseStyle.background = solid;
-        }
-        return (
-          <div
-            aria-label={`run status: ${status}`}
-            data-run-status={status}
-            style={baseStyle}
-          />
-        );
+        if (status === "running") style.animation = "dol-run-blink 1s ease-in-out infinite";
+        return <div aria-label={`run status: ${status}`} data-run-status={status} style={style} />;
       })()}
       {/* dbt names have no spaces (snake_case), so allow breaks anywhere and
           clamp to 2 lines — the title attribute carries the full name. */}
