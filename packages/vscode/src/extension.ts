@@ -7,7 +7,7 @@ import { findProjectRoot } from "./host/projectRoot";
 import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
 import { makeCompileTask, runTaskToCompletion, makeCompileSelectTask } from "./host/compile";
-import { startDbtRun, type RunController } from "./host/run";
+import { startDbtRunWithSeed, type RunController } from "./host/run";
 import { readCompiledSql, compiledDocUri, parseCompiledDocQuery } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
@@ -124,6 +124,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const root = projectRoot;
         const command = String(msg.args.command ?? "run") as "run" | "build" | "test";
         const selector = String(msg.args.selector ?? "");
+        const hasSeed = msg.args.hasSeed === true;
         if (!selector.trim()) throw new Error("no runnable models in current view");
         const channel = getRunOutputChannel();
         // Fresh view per run (a stale prior run's output doesn't linger).
@@ -142,7 +143,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         // once diagnosed.
         console.log("[dbt-open-lineage] output channel:", `> dbt ${command} --select ${selector}`);
         channel.appendLine(`> dbt ${command} --select ${selector}`);
-        activeRun = startDbtRun(root, command, selector, {
+        activeRun = startDbtRunWithSeed(root, command, selector, hasSeed, {
           onWrite: (text) => {
             console.log("[dbt-open-lineage] output channel:", text);
             channel.appendLine(text);
