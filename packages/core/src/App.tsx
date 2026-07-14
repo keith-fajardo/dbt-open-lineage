@@ -722,6 +722,21 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [runStatus, setRunStatus] = useState<Map<string, Status> | null>(null);
   const [runErr, setRunErr] = useState<string | null>(null);
 
+  // Stale pilot-light colors from a previous lineage view are confusing once
+  // the DAG retargets — e.g. double-clicking a node opens it in the IDE,
+  // which pushes a new context and changes `selector` (see the onContext
+  // effect above). Clear run status whenever the visible lineage changes, not
+  // just on an explicit new run.
+  useEffect(() => {
+    setRunStatus(null);
+    setRunErr(null);
+  }, [selector]);
+
+  const onResetStatus = () => {
+    setRunStatus(null);
+    setRunErr(null);
+  };
+
   useEffect(() => onRunEvent((e: RunEvent) => {
     if (e.type === "status") {
       setRunStatus((prev) => {
@@ -982,6 +997,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               )}
             </div>
             {canRun && !readOnly && (
+            <>
             <div style={{ position: "relative" }}>
               {runActive ? (
                 <button
@@ -1040,6 +1056,18 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 </div>
               )}
             </div>
+            <button
+              aria-label="reset run status"
+              title="Clear pilot-light status from the last run"
+              disabled={!runStatus}
+              onClick={onResetStatus}
+              style={{
+                padding: "6px 9px", borderRadius: 7, border: "1px solid #334155",
+                background: "#111827", color: runStatus ? "#e5e7eb" : "#475569",
+                cursor: runStatus ? "pointer" : "default", fontFamily: "inherit", fontSize: 12,
+              }}
+            >↻</button>
+            </>
             )}
           </div>
 

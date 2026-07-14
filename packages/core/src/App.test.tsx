@@ -582,6 +582,44 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getByLabelText("run status: skipped")).toBeInTheDocument());
     expect(screen.queryByLabelText("run status: running")).not.toBeInTheDocument();
   });
+
+  it("the reset button is disabled with nothing to reset, and clears the pilot light + any run error on click", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.getByLabelText("reset run status")).toBeDisabled();
+
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "status", nodeId: "a", status: "success" }));
+    await waitFor(() => expect(screen.getByLabelText("run status: success")).toBeInTheDocument());
+    act(() => runEventCb!({ type: "done", exitCode: 1 }));
+    await waitFor(() => expect(screen.getByText(/run failed/)).toBeInTheDocument());
+    expect(screen.getByLabelText("reset run status")).not.toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText("reset run status"));
+    expect(screen.queryByLabelText("run status: success")).not.toBeInTheDocument();
+    expect(screen.queryByText(/run failed/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("reset run status")).toBeDisabled();
+  });
+
+  it("clears the pilot light and any run error when the lineage changes (selector commit)", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "status", nodeId: "a", status: "success" }));
+    await waitFor(() => expect(screen.getByLabelText("run status: success")).toBeInTheDocument());
+
+    // Simulate double-clicking a node to open it in the IDE: the host pushes
+    // a new context, which commits a different selector — same mechanism as
+    // typing a new selector and pressing Enter.
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "b" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByText("a")).not.toBeInTheDocument());
+    expect(screen.queryByLabelText("run status: success")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("reset run status")).toBeDisabled();
+  });
 });
 
 describe("edgeOnLineage", () => {

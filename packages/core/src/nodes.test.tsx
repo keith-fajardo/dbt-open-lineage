@@ -102,12 +102,12 @@ describe("DagNode open-model emphasis", () => {
       </ViewContext.Provider>,
     );
 
-  it("rings the OPEN model with a white ring + glow and tags it 'open'", () => {
+  it("rings the OPEN model with a white ring + glow (no text label)", () => {
     withView("n1", { active: "n1" });
     const box = screen.getByTitle("dim_date (open)");
     expect(box.style.boxShadow).toContain("#e5e7eb"); // white ring
     expect(box.style.boxShadow).toContain("18px");    // glow
-    expect(screen.getByLabelText("open model")).toHaveTextContent("open");
+    expect(screen.queryByText("open")).toBeNull();
   });
 
   it("never dims the open model, even outside the clicked node's lineage", () => {
@@ -118,7 +118,7 @@ describe("DagNode open-model emphasis", () => {
 
   it("leaves non-active nodes unmarked", () => {
     withView("n1", { active: "n2" });
-    expect(screen.queryByLabelText("open model")).toBeNull();
+    expect(screen.queryByTitle("dim_date (open)")).toBeNull();
     expect(screen.getByTitle("dim_date")).toBeInTheDocument();
   });
 });

@@ -148,20 +148,6 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           />
         );
       })()}
-      {/* Corner tag marking THE open model, so it reads even at low zoom. */}
-      {active && (
-        <span
-          aria-label="open model"
-          style={{
-            position: "absolute", left: -1, top: -8,
-            padding: "0 4px", height: 12, borderRadius: 6,
-            background: "#e5e7eb", color: "#0b1220",
-            fontSize: 8, lineHeight: "12px", fontWeight: 600, letterSpacing: 0.3,
-          }}
-        >
-          open
-        </span>
-      )}
       {/* dbt names have no spaces (snake_case), so allow breaks anywhere and
           clamp to 2 lines — the title attribute carries the full name. */}
       <span
