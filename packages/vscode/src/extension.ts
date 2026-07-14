@@ -133,9 +133,20 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         // The channel still exists and accumulates output; open it from the
         // Output dropdown ("dbt Open Lineage") if you want to watch it live.
         channel.clear();
+        // TEMPORARY diagnostic (2026-07-15): appendLine isn't showing in the
+        // Output panel despite the run genuinely executing (pilot lights
+        // update correctly). Mirroring to console.log — visible via Help >
+        // Toggle Developer Tools > Console — to confirm whether appendLine
+        // is actually being called with real content, or whether this is a
+        // VSCode Output-panel rendering issue unrelated to our code. Remove
+        // once diagnosed.
+        console.log("[dbt-open-lineage] output channel:", `> dbt ${command} --select ${selector}`);
         channel.appendLine(`> dbt ${command} --select ${selector}`);
         activeRun = startDbtRun(root, command, selector, {
-          onWrite: (text) => channel.appendLine(text),
+          onWrite: (text) => {
+            console.log("[dbt-open-lineage] output channel:", text);
+            channel.appendLine(text);
+          },
           onEvent: (event) => {
             view?.postMessage({ evt: "run", event });
             if (event.type === "done") activeRun = undefined;
