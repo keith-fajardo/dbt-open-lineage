@@ -730,6 +730,23 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [runStatus, setRunStatus] = useState<Map<string, RunDisplayStatus> | null>(null);
   const [runErr, setRunErr] = useState<string | null>(null);
 
+  const runMenuRef = useRef<HTMLDivElement>(null);
+  // Click anywhere outside the Run▾ dropdown (or its own toggle button)
+  // closes it. mousedown, not click, so a click ON the toggle button still
+  // fires its own onClick afterward instead of racing this listener — by
+  // the time a "click" would fire, this handler has already run and closed
+  // the menu, which would make the toggle immediately reopen it.
+  useEffect(() => {
+    if (!runMenu) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (runMenuRef.current && e.target instanceof Node && !runMenuRef.current.contains(e.target)) {
+        setRunMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [runMenu]);
+
   // Stale pilot-light colors from a previous lineage view are confusing once
   // the DAG retargets — e.g. double-clicking a node opens it in the IDE,
   // which pushes a new context and changes `selector` (see the onContext
@@ -1013,7 +1030,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             </div>
             {canRun && !readOnly && (
             <>
-            <div style={{ position: "relative" }}>
+            <div ref={runMenuRef} style={{ position: "relative" }}>
               {runActive ? (
                 <button
                   onClick={() => void onCancelRun()}

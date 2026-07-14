@@ -578,6 +578,21 @@ describe("run/build/test button", () => {
     );
   });
 
+  it("closes the run dropdown when clicking outside it, but not when clicking inside it", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByLabelText("run command menu"));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // Clicking inside the dropdown itself must not spuriously close it out
+    // from under the click (a naive "close on any click" would race the
+    // menu item's own onClick handler).
+    fireEvent.mouseDown(screen.getByRole("menu"));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // Clicking anywhere outside it (the toolbar background) closes it.
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
   it("shows Cancel instead of Run while a run is active, and invokes dbt.cancel on click", async () => {
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
