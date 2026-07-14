@@ -895,8 +895,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           background: "#111827", borderBottom: "1px solid #334155",
         }}>
           {/* Row 0 — query & utilities: the selector box (kept exactly),
-              its Focus mode, live search, and Export. */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              its Focus mode, live search, Export, and Run. flexWrap (matching
+              Rows 1/2) so a narrow panel wraps controls onto a new line
+              instead of clipping the rightmost one (e.g. Cancel) behind a
+              horizontal scrollbar — adding Run/Cancel pushed this row's
+              natural width past what a docked/narrow panel can show. */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <input
               placeholder="select… e.g. stg_orders+ or tag:mart --exclude config.materialized:view  (Enter shows only the selection)"
               value={raw}
