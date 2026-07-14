@@ -134,6 +134,16 @@ describe("startDbtRun", () => {
     expect(events).toEqual([{ type: "done", exitCode: -1 }]);
   });
 
+  it("emits exactly one done event when a spawn failure fires both 'error' and 'close' (real Node behavior)", () => {
+    const proc = fakeChild();
+    const written: string[] = [];
+    const events: unknown[] = [];
+    startDbtRun("/proj", "run", "x", { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) }, { spawn: () => proc as unknown as ChildProcess });
+    proc.emit("error", new Error("ENOENT"));
+    proc.emit("close", null);
+    expect(events).toEqual([{ type: "done", exitCode: -1 }]);
+  });
+
   it("cancel() sends SIGTERM to the process group (negative pid) on POSIX", () => {
     const proc = fakeChild();
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);

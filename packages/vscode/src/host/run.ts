@@ -106,23 +106,39 @@ export function startDbtRun(
     }
   };
 
+  // On a real spawn failure (e.g. dbt not installed), Node emits BOTH
+  // 'error' and 'close' — guard so only the first of the two sends the
+  // single `done` event the RunEvent contract promises.
+  let done = false;
+  const emitDone = (exitCode: number) => {
+    if (done) return;
+    done = true;
+    cb.onEvent({ type: "done", exitCode });
+  };
+
   child.stdout?.on("data", (chunk: Buffer) => handle(out.push(chunk.toString("utf8"))));
   child.stderr?.on("data", (chunk: Buffer) => handle(err.push(chunk.toString("utf8"))));
   child.on("close", (code: number | null) => {
     handle(out.flush());
     handle(err.flush());
-    cb.onEvent({ type: "done", exitCode: code ?? -1 });
+    emitDone(code ?? -1);
   });
   child.on("error", (e: Error) => {
     cb.onWrite(`spawn error: ${e.message}\r\n`);
-    cb.onEvent({ type: "done", exitCode: -1 });
+    emitDone(-1);
   });
 
   return {
     cancel: () => {
       if (!child.pid) return;
       try {
-        if (platform === "win32") nodeSpawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+        if (platform === "win32") {
+          const killer = nodeSpawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+          // Best-effort: nothing else can be done if taskkill itself fails
+          // to spawn, but leaving 'error' unhandled would throw and could
+          // crash the extension host.
+          killer.on("error", () => {});
+        }
         // Negative pid = signal the whole process GROUP, not just the direct
         // child — dbt/db-adapter children must die too, or Cancel leaves
         // orphans running (the class of bug process-group kills exist for).
