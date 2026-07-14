@@ -223,9 +223,12 @@ describe("DagNode run status pilot light", () => {
     );
   };
 
-  it("shows nothing when the node has no run status", () => {
+  it("defaults to a grey idle marble when the node has no run status (always shown, not hidden)", () => {
     withStatus();
-    expect(screen.queryByLabelText(/run status/)).toBeNull();
+    const marble = screen.getByLabelText("run status: idle");
+    expect(marble).toHaveAttribute("data-run-status", "idle");
+    expect(marble.style.background).toContain("148, 163, 184");
+    expect(marble.style.animation).toBe("");
   });
 
   it("renders a blinking marble while running", () => {

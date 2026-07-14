@@ -31,16 +31,24 @@ const LAYER_COLOR: Record<string, string> = {
   model: "#64748b",
 };
 
+/** The run-status marble's rendered state — every `Status` value plus "idle"
+ * (no entry in `runStatus` for this node, or no run has ever touched it).
+ * Idle is a UI-only default, never a value that arrives over `RunEvent`. */
+export type MarbleState = Status | "idle";
+
 /** Per-state color recipe for the run-status marble (see the render site for
  * how these compose into the gradient/glow). Tuned via a mocked-up eyeball
  * pass: running blinks orange, skipped is the same hue but solid so the two
  * stay distinguishable only by motion; failed is a deeper/cooler red than a
  * plain #ef4444 because a translucent warm red drifts toward looking orange
- * next to running otherwise. */
-const RUN_STATUS_RGB: Record<Status, {
+ * next to running otherwise. Idle is always shown (a grey marble on every
+ * node), not hidden, so the indicator reads as a persistent light rather
+ * than something that only appears mid-run. */
+const RUN_STATUS_RGB: Record<MarbleState, {
   rgb: string; hi: number; a1: number; a2: number; a3: number;
   glint: number; glow: number; glowSpread: number; glowAlpha: number;
 }> = {
+  idle: { rgb: "148, 163, 184", hi: 0.8, a1: 0.72, a2: 0.62, a3: 0.3, glint: 0.28, glow: 5, glowSpread: 1, glowAlpha: 0.5 },
   running: { rgb: "249, 115, 22", hi: 0.95, a1: 0.9, a2: 0.82, a3: 0.45, glint: 0.45, glow: 8, glowSpread: 2, glowAlpha: 0.95 },
   success: { rgb: "57, 255, 20", hi: 0.9, a1: 0.85, a2: 0.78, a3: 0.4, glint: 0.4, glow: 6, glowSpread: 1.5, glowAlpha: 0.85 },
   failed: { rgb: "220, 38, 38", hi: 0.85, a1: 0.88, a2: 0.8, a3: 0.45, glint: 0.38, glow: 6, glowSpread: 1.5, glowAlpha: 0.85 },
@@ -149,11 +157,12 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           reads as a black marble with a colored halo) while the outer rim
           tapers to let a hint of the node's own dark fill show through, plus
           a lower-right glint opposite the main highlight, which is what
-          sells "glass" over "painted dot". No entry in runStatus = idle =
-          nothing rendered (this node hasn't been touched by a run yet). */}
+          sells "glass" over "painted dot". Always rendered — no entry in
+          runStatus defaults to "idle" (grey), so the marble reads as a
+          persistent light on every node, not something that only appears
+          mid-run. */}
       {(() => {
-        const status = view.runStatus?.get(id);
-        if (!status) return null;
+        const status: MarbleState = view.runStatus?.get(id) ?? "idle";
         const rgb = RUN_STATUS_RGB[status];
         const style: React.CSSProperties = {
           position: "absolute", left: 8, top: 4, width: 9, height: 9, borderRadius: "50%",

@@ -126,13 +126,13 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const selector = String(msg.args.selector ?? "");
         if (!selector.trim()) throw new Error("no runnable models in current view");
         const channel = getRunOutputChannel();
-        // Fresh view per run (a stale prior run's output doesn't linger) —
-        // preserveFocus (the `true` arg) reveals the Output panel without
-        // stealing keyboard focus from the editor, and critically without
-        // switching the bottom panel to the Terminal tab the way
-        // vscode.Task/Pseudoterminal-based output would.
+        // Fresh view per run (a stale prior run's output doesn't linger).
+        // Deliberately NOT calling channel.show() — a run must never yank
+        // the user's active panel/tab over to Output, the same complaint
+        // that ruled out vscode.Task/Pseudoterminal (which forced Terminal).
+        // The channel still exists and accumulates output; open it from the
+        // Output dropdown ("dbt Open Lineage") if you want to watch it live.
         channel.clear();
-        channel.show(true);
         channel.appendLine(`> dbt ${command} --select ${selector}`);
         activeRun = startDbtRun(root, command, selector, {
           onWrite: (text) => channel.appendLine(text),
