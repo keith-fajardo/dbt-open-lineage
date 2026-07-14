@@ -551,6 +551,23 @@ describe("run/build/test button", () => {
     );
   });
 
+  it("passes hasSeed:false when a seed exists in the graph but is excluded from the active selection", async () => {
+    manifestGraph = {
+      nodes: [
+        { id: "seed.proj.unrelated_seed", name: "unrelated_seed", resource_type: "seed", layer: "model", path: "seeds/unrelated_seed.csv", description: "" },
+        { id: "model.proj.uses_unrelated_seed", name: "uses_unrelated_seed", resource_type: "model", layer: "staging", path: "a.sql", description: "" },
+        { id: "model.proj.selected_model", name: "selected_model", resource_type: "model", layer: "staging", path: "b.sql", description: "" },
+      ],
+      edges: [{ from: "seed.proj.unrelated_seed", to: "model.proj.uses_unrelated_seed" }],
+    };
+    render(<App projectPath="/proj" initialSelector="selected_model" debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("selected_model").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "selected_model", hasSeed: false }),
+    );
+  });
+
   it("dropdown offers Build and Test, each invoking dbt.run with that command", async () => {
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
