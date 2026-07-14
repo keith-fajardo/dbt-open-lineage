@@ -512,13 +512,13 @@ describe("readOnly mode", () => {
 
 describe("run/build/test button", () => {
   it("is disabled with no runnable models in view (blank selector)", async () => {
-    render(<App projectPath="/proj" debounceMs={0} />);
+    render(<App projectPath="/proj" debounceMs={0} canRun />);
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
     expect(screen.getByText("▶ Run")).toBeDisabled();
   });
 
   it("invokes dbt.run with the union of matched+filtered active ids as a selector, on click", async () => {
-    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
@@ -527,7 +527,7 @@ describe("run/build/test button", () => {
   });
 
   it("dropdown offers Build and Test, each invoking dbt.run with that command", async () => {
-    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByLabelText("run command menu"));
     fireEvent.click(screen.getByRole("menuitem", { name: "build" }));
@@ -537,7 +537,7 @@ describe("run/build/test button", () => {
   });
 
   it("shows Cancel instead of Run while a run is active, and invokes dbt.cancel on click", async () => {
-    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() => expect(screen.getByText("■ Cancel")).toBeInTheDocument());
@@ -546,7 +546,7 @@ describe("run/build/test button", () => {
   });
 
   it("run-status events from the bridge drive the pilot light, and a done event restores the Run button", async () => {
-    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() => expect(runEventCb).not.toBeNull());
@@ -557,12 +557,30 @@ describe("run/build/test button", () => {
   });
 
   it("a nonzero exit code on done surfaces a run-failed error", async () => {
-    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() => expect(runEventCb).not.toBeNull());
     act(() => runEventCb!({ type: "done", exitCode: 1 }));
     await waitFor(() => expect(screen.getByText(/run failed/)).toBeInTheDocument());
+  });
+
+  it("does not render the Run button when canRun is not passed, even without readOnly (Mnemo-shaped mount)", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.queryByText("▶ Run")).not.toBeInTheDocument();
+  });
+
+  it("reconciles any still-running node to skipped when the run ends, so nothing is left spinning", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "status", nodeId: "a", status: "running" }));
+    await waitFor(() => expect(screen.getByLabelText("run status: running")).toBeInTheDocument());
+    act(() => runEventCb!({ type: "done", exitCode: 0 }));
+    await waitFor(() => expect(screen.getByLabelText("run status: skipped")).toBeInTheDocument());
+    expect(screen.queryByLabelText("run status: running")).not.toBeInTheDocument();
   });
 });
 

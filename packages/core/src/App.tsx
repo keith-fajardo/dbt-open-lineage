@@ -28,7 +28,7 @@ import { TagChips } from "./TagChips";
 import { DrawLayer, type DrawMode } from "./DrawLayer";
 import { type Stroke } from "./drawing";
 
-interface Props { projectPath: string; initialSelector?: string; debounceMs?: number; readOnly?: boolean }
+interface Props { projectPath: string; initialSelector?: string; debounceMs?: number; readOnly?: boolean; canRun?: boolean }
 
 // The sandboxed iframe gets no font from the host app — without this the DAG
 // renders in the user agent's default serif (Times). System UI sans, like the
@@ -242,7 +242,7 @@ export function edgeOnLineage(
      e.from === selected || lineage.down.has(e.from));
 }
 
-export default function App({ projectPath, initialSelector = "", debounceMs = 150, readOnly = false }: Props) {
+export default function App({ projectPath, initialSelector = "", debounceMs = 150, readOnly = false, canRun = false }: Props) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
   // An initial selector (from the IDE's Lineage panel) starts committed AND
@@ -731,6 +731,19 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       });
     } else {
       setRunActive(null);
+      // "Never left spinning": any node still `running` when the run ends
+      // (success, failure, or cancel) has no terminal status coming — Cancel
+      // sends SIGTERM mid-flight, so the in-flight node's dbt process never
+      // emits one. Flip it to `skipped` so the pilot light stops sweeping.
+      setRunStatus((prev) => {
+        if (!prev) return prev;
+        const next = new Map(prev);
+        let changed = false;
+        for (const [id, status] of next) {
+          if (status === "running") { next.set(id, "skipped"); changed = true; }
+        }
+        return changed ? next : prev;
+      });
       if (e.exitCode !== 0) setRunErr(`run failed (exit ${e.exitCode})`);
     }
   }), []);
@@ -960,7 +973,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 </div>
               )}
             </div>
-            {!readOnly && (
+            {canRun && !readOnly && (
             <div style={{ position: "relative" }}>
               {runActive ? (
                 <button
