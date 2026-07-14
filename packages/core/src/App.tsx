@@ -716,6 +716,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     [selector, matched, filtered],
   );
   const runSelector = useMemo(() => (graph ? buildSelector(activeIds, graph) : ""), [graph, activeIds]);
+  // dbt run/test can never build a seed regardless of what's in --select —
+  // dbt excludes seeds from those commands by resource type, not selection
+  // scope. When the active view includes a seed, the host runs `dbt seed`
+  // as a prerequisite before the requested command (see onRun below).
+  const hasSeed = useMemo(
+    () => (graph ? graph.nodes.some((n) => activeIds.has(n.id) && n.resource_type === "seed") : false),
+    [graph, activeIds],
+  );
 
   const [runMenu, setRunMenu] = useState(false);
   const [runActive, setRunActive] = useState<"run" | "build" | "test" | null>(null);
@@ -777,7 +785,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setRunStatus(new Map([...activeIds].map((id) => [id, "queued" as const])));
     setRunActive(command);
     try {
-      await invoke<boolean>("dbt.run", { command, selector: runSelector });
+      await invoke<boolean>("dbt.run", { command, selector: runSelector, hasSeed });
     } catch (e) {
       setRunActive(null);
       setRunErr(String((e as Error).message ?? e));

@@ -522,7 +522,32 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d" }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false }),
+    );
+  });
+
+  it("passes hasSeed:true when the active selection includes a seed", async () => {
+    manifestGraph = {
+      nodes: [
+        { id: "seed.proj.my_seed", name: "my_seed", resource_type: "seed", layer: "model", path: "seeds/my_seed.csv", description: "" },
+        { id: "model.proj.uses_seed", name: "uses_seed", resource_type: "model", layer: "staging", path: "m.sql", description: "" },
+      ],
+      edges: [{ from: "seed.proj.my_seed", to: "model.proj.uses_seed" }],
+    };
+    render(<App projectPath="/proj" initialSelector="my_seed uses_seed" debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("uses_seed").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "my_seed uses_seed", hasSeed: true }),
+    );
+  });
+
+  it("passes hasSeed:false when the active selection has no seed", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false }),
     );
   });
 
@@ -532,7 +557,7 @@ describe("run/build/test button", () => {
     fireEvent.click(screen.getByLabelText("run command menu"));
     fireEvent.click(screen.getByRole("menuitem", { name: "build" }));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "build", selector: "a b c d" }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "build", selector: "a b c d", hasSeed: false }),
     );
   });
 
