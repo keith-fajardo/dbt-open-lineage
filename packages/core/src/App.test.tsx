@@ -768,6 +768,36 @@ describe("run/build/test button", () => {
   });
 });
 
+describe("run-result toast", () => {
+  it("shows a success toast when a run completes with exit code 0", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "done", exitCode: 0 }));
+    await waitFor(() => expect(screen.getByText("✓ Run succeeded")).toBeInTheDocument());
+  });
+
+  it("shows a failure toast when a run completes with a nonzero exit code", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "done", exitCode: 1 }));
+    await waitFor(() => expect(screen.getByText("✗ Run failed")).toBeInTheDocument());
+  });
+
+  it("the toast is visible with no node selected (sidebar closed) — the common case", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "done", exitCode: 0 }));
+    await waitFor(() => expect(screen.getByText("✓ Run succeeded")).toBeInTheDocument());
+  });
+});
+
 describe("--full-refresh flag", () => {
   it("passes hasFullRefresh:true and strips the token before resolving, when present in the committed selector", async () => {
     render(<App projectPath="/proj" initialSelector="a b c d --full-refresh" debounceMs={0} canRun />);

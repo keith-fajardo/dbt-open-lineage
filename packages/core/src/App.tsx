@@ -570,6 +570,17 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2500);
   };
+  // Separate from `toast` above: that one only renders inside the details
+  // sidebar (visible only when a node is selected), but a run typically
+  // starts/ends with nothing selected — this one is anchored to the DAG
+  // canvas itself instead, so it's visible either way.
+  const [runToast, setRunToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const runToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const flashRunToast = (msg: string, ok: boolean) => {
+    setRunToast({ msg, ok });
+    clearTimeout(runToastTimer.current);
+    runToastTimer.current = setTimeout(() => setRunToast(null), 2500);
+  };
   useEffect(() => {
     setDescDraft(selectedNode?.description ?? "");
     setGistDraft(typeof readMeta(selectedNode?.meta, "gist") === "string" ? (readMeta(selectedNode?.meta, "gist") as string) : "");
@@ -835,6 +846,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         return changed ? next : prev;
       });
       if (e.exitCode !== 0) setRunErr(`run failed (exit ${e.exitCode})`);
+      // Cancel and a genuine failure both produce this same exitCode!==0
+      // shape (SIGTERM'd processes don't distinguish "cancelled" from
+      // "crashed") — the toast inherits that ambiguity, same as runErr
+      // above. Known, pre-existing limitation; not addressed here.
+      flashRunToast(e.exitCode === 0 ? "✓ Run succeeded" : "✗ Run failed", e.exitCode === 0);
     }
   }), []);
 
@@ -1367,6 +1383,19 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             />
           </ReactFlow>
           </ViewContext.Provider>
+          {runToast && (
+            <div
+              role="status"
+              style={{
+                position: "absolute", left: "50%", bottom: 16, transform: "translateX(-50%)",
+                background: runToast.ok ? "#065f46" : "#7f1d1d",
+                color: runToast.ok ? "#d1fae5" : "#fecaca",
+                border: `1px solid ${runToast.ok ? "#10b981" : "#f87171"}`,
+                borderRadius: 6, padding: "8px 14px", fontSize: 12, textAlign: "center",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.35)", zIndex: 10, whiteSpace: "nowrap",
+              }}
+            >{runToast.msg}</div>
+          )}
         </div>
       </div>
       {selectedNode && (
