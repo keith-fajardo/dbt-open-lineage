@@ -156,7 +156,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
         if (!status) return null;
         const rgb = RUN_STATUS_RGB[status];
         const style: React.CSSProperties = {
-          position: "absolute", left: 7, top: 3, width: 12, height: 12, borderRadius: "50%",
+          position: "absolute", left: 8, top: 4, width: 9, height: 9, borderRadius: "50%",
           background: [
             `radial-gradient(circle at 68% 80%, rgba(255,255,255,${rgb.glint}) 0%, rgba(255,255,255,0) 40%)`,
             `radial-gradient(circle at 32% 26%, rgba(255,255,255,${rgb.hi}) 0%, rgba(${rgb.rgb}, ${rgb.a1}) 30%, rgba(${rgb.rgb}, ${rgb.a2}) 68%, rgba(${rgb.rgb}, ${rgb.a3}) 100%)`,

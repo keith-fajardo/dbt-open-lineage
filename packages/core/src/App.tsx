@@ -940,7 +940,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              style={{ flex: 1, minWidth: 200, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontVariantLigatures: "none" }}
+              style={{ flex: 1, minWidth: 200, maxWidth: 380, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontVariantLigatures: "none" }}
             />
             <label style={TOGGLE_PILL}>
               <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus

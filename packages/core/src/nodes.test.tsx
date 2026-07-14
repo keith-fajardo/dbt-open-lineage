@@ -253,7 +253,7 @@ describe("DagNode run status pilot light", () => {
   it("has no border, inset in the upper-left corner (mirrors the ☆ favorite)", () => {
     const marble = withStatus("success").getByLabelText("run status: success");
     expect(marble.style.border).toBe("");
-    expect(marble.style.left).toBe("7px");
-    expect(marble.style.top).toBe("3px");
+    expect(marble.style.left).toBe("8px");
+    expect(marble.style.top).toBe("4px");
   });
 });
