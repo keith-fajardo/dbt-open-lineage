@@ -9,6 +9,7 @@ import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde } from "./bridge";
 import { layoutGraph } from "./layout";
 import { resolveSelector, focalName, buildSelector } from "./selector";
+import { hasFullRefreshFlag, stripFullRefreshFlag } from "./runFlags";
 import type { RunDisplayStatus, RunEvent } from "./runStatus";
 import { nodeTypes, isDimmed, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
@@ -389,6 +390,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setActiveName(focalName(value)); // the newly-opened model becomes the focus
   }), []);
 
+  // Detected from the COMMITTED selector (mirrors hasSeed's dependency
+  // style below), not the per-keystroke raw text — avoids recomputing
+  // before the debounce settles. The token is stripped before the text
+  // reaches resolveSelector; it isn't real dbt selector syntax and would
+  // otherwise silently match nothing as an unrecognized term.
+  const hasFullRefresh = useMemo(() => hasFullRefreshFlag(selector), [selector]);
+  const cleanedSelector = useMemo(() => stripFullRefreshFlag(selector), [selector]);
+
   // debounce selector input → no resolve per keystroke
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
@@ -403,10 +412,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // callers; we gate it here.
   const matched = useMemo(() => {
     if (!graph) return new Set<string>();
-    if (selector.trim()) return resolveSelector(graph, selector);
+    if (cleanedSelector.trim()) return resolveSelector(graph, cleanedSelector);
     if (showAll) return new Set(graph.nodes.map((n) => n.id));
     return new Set<string>();
-  }, [graph, selector, showAll]);
+  }, [graph, cleanedSelector, showAll]);
 
   // Unfiltered view: layout runs ONCE per graph (positions keyed on graph
   // identity only — typing a selector just dims, never re-lays-out). With the
@@ -416,13 +425,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     if (!graph) return graph;
     // Empty selector → empty DAG (no default "show every model"), unless
     // the user confirmed "show all" via the blank-Enter modal.
-    if (!selector.trim() && !showAll) return { nodes: [], edges: [] };
+    if (!cleanedSelector.trim() && !showAll) return { nodes: [], edges: [] };
     if (!focus) return graph;
     return {
       nodes: graph.nodes.filter((n) => matched.has(n.id)),
       edges: graph.edges.filter((e) => matched.has(e.from) && matched.has(e.to)),
     };
-  }, [graph, focus, matched, selector, showAll]);
+  }, [graph, focus, matched, cleanedSelector, showAll]);
   // Reserve layout space for callout bubbles: when callouts are on, a model
   // that actually has a callout gets extra height in dagre (see layout.ts), so
   // its bubble no longer overlaps the row above. Empty when callouts are off →
@@ -492,7 +501,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     // "show every model"), unless the user confirmed "show all". Otherwise
     // focus filters to the matched set, and without focus every node
     // renders (dimming handles emphasis).
-    !graph || (!selector.trim() && !showAll) ? [] : graph.nodes
+    !graph || (!cleanedSelector.trim() && !showAll) ? [] : graph.nodes
       .filter((n) => (focus ? matched.has(n.id) : true))
       .map((n) => ({
         id: n.id,
@@ -739,12 +748,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // The run/build/test button's scope: the union of the selector-matched and
   // category-filtered sets — but ONLY once the selector box is non-blank.
   // A blank selector already blanks the whole DAG (see `visibleGraph` above,
-  // which returns {nodes:[],edges:[]} whenever `!selector.trim()`, filters
+  // which returns {nodes:[],edges:[]} whenever `!cleanedSelector.trim()`, filters
   // notwithstanding) — so Run must see nothing active in that state too,
   // rather than falling back to "the whole project."
   const activeIds = useMemo(
-    () => ((selector.trim() || showAll) ? computeActiveIds(matched, filtered) : new Set<string>()),
-    [selector, matched, filtered, showAll],
+    () => ((cleanedSelector.trim() || showAll) ? computeActiveIds(matched, filtered) : new Set<string>()),
+    [cleanedSelector, matched, filtered, showAll],
   );
   const runSelector = useMemo(() => (graph ? buildSelector(activeIds, graph) : ""), [graph, activeIds]);
   // dbt run/test can never build a seed regardless of what's in --select —
@@ -844,7 +853,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setRunLogs(new Map());
     setRunActive(command);
     try {
-      await invoke<boolean>("dbt.run", { command, selector: runSelector, hasSeed });
+      await invoke<boolean>("dbt.run", { command, selector: runSelector, hasSeed, hasFullRefresh });
     } catch (e) {
       setRunActive(null);
       setRunErr(String((e as Error).message ?? e));
@@ -886,7 +895,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
 
   const rfEdges: Edge[] = useMemo(() => {
     // empty selector → blank DAG, unless "show all" is confirmed
-    if (!graph || (!selector.trim() && !showAll)) return [];
+    if (!graph || (!cleanedSelector.trim() && !showAll)) return [];
     return graph.edges
       .filter((e) => (focus ? matched.has(e.from) && matched.has(e.to) : true))
       .map((e) => {
@@ -909,7 +918,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, matched, focus, selected, lineage, view, selector, showAll]);
+  }, [graph, matched, focus, selected, lineage, view, cleanedSelector, showAll]);
 
   const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
   // Double-click a node → open its model/source file in the IDE editor
@@ -1275,7 +1284,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         {exportErr && <div style={{ color: "#fca5a5", padding: 8 }}>export failed: {exportErr}</div>}
         {runErr && <div style={{ color: "#fca5a5", padding: 8 }}>run failed: {runErr}</div>}
         <div style={{ flex: 1, position: "relative" }}>
-          {graph && !error && !selector.trim() && !showAll && (
+          {graph && !error && !cleanedSelector.trim() && !showAll && (
             <div
               aria-label="empty selector hint"
               style={{

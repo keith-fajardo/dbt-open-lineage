@@ -522,7 +522,7 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false }),
     );
   });
 
@@ -538,7 +538,7 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("uses_seed").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "my_seed uses_seed", hasSeed: true }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "my_seed uses_seed", hasSeed: true, hasFullRefresh: false }),
     );
   });
 
@@ -547,7 +547,7 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false }),
     );
   });
 
@@ -564,7 +564,7 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("selected_model").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "selected_model", hasSeed: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "selected_model", hasSeed: false, hasFullRefresh: false }),
     );
   });
 
@@ -574,7 +574,7 @@ describe("run/build/test button", () => {
     fireEvent.click(screen.getByLabelText("run command menu"));
     fireEvent.click(screen.getByRole("menuitem", { name: "build" }));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "build", selector: "a b c d", hasSeed: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "build", selector: "a b c d", hasSeed: false, hasFullRefresh: false }),
     );
   });
 
@@ -765,6 +765,33 @@ describe("run/build/test button", () => {
     fireEvent.click(screen.getAllByText("a")[0]);
     await waitFor(() => expect(screen.getByText("type")).toBeInTheDocument());
     expect(screen.queryByText("a line to clear")).not.toBeInTheDocument();
+  });
+});
+
+describe("--full-refresh flag", () => {
+  it("passes hasFullRefresh:true and strips the token before resolving, when present in the committed selector", async () => {
+    render(<App projectPath="/proj" initialSelector="a b c d --full-refresh" debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: true }),
+    );
+  });
+
+  it("passes hasFullRefresh:false when the token is absent", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false }),
+    );
+  });
+
+  it("the token alone (no other selector text) resolves to nothing, same as today's pre-flag no-op", async () => {
+    render(<App projectPath="/proj" initialSelector="--full-refresh" debounceMs={0} canRun />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    expect(screen.queryByText("a")).not.toBeInTheDocument();
+    expect(screen.getByText("▶ Run")).toBeDisabled();
   });
 });
 
