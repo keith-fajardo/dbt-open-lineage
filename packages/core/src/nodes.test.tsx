@@ -256,8 +256,8 @@ describe("DagNode run status pilot light", () => {
     expect(withStatus("failed").getByLabelText("run status: failed").style.background).toContain("220, 38, 38");
   });
 
-  it("renders an amber marble when skipped", () => {
-    expect(withStatus("skipped").getByLabelText("run status: skipped").style.background).toContain("245, 158, 11");
+  it("renders a bright yellow marble when skipped (distinct from running's orange)", () => {
+    expect(withStatus("skipped").getByLabelText("run status: skipped").style.background).toContain("250, 204, 21");
   });
 
   it("has no border, inset in the upper-left corner (mirrors the ☆ favorite)", () => {

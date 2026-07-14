@@ -40,10 +40,12 @@ export type MarbleState = RunDisplayStatus | "idle";
 
 /** Per-state color recipe for the run-status marble (see the render site for
  * how these compose into the gradient/glow). Tuned via a mocked-up eyeball
- * pass: running blinks orange, skipped is the same hue but solid so the two
- * stay distinguishable only by motion; failed is a deeper/cooler red than a
- * plain #ef4444 because a translucent warm red drifts toward looking orange
- * next to running otherwise. Idle is always shown (a grey marble on every
+ * pass: running blinks orange; skipped was originally the same hue held
+ * static, but that read as indistinguishable from running at a glance, so
+ * skipped is now a clear yellow (`#facc15`) instead — steady, no blink, and
+ * no longer orange-family. Failed is a deeper/cooler red than a plain
+ * #ef4444 because a translucent warm red drifts toward looking orange next
+ * to running otherwise. Idle is always shown (a grey marble on every
  * node), not hidden, so the indicator reads as a persistent light rather
  * than something that only appears mid-run. Queued is a distinct sky-blue —
  * a plain grey would have been indistinguishable from idle, defeating the
@@ -59,7 +61,7 @@ const RUN_STATUS_RGB: Record<MarbleState, {
   running: { rgb: "249, 115, 22", hi: 0.95, a1: 0.9, a2: 0.82, a3: 0.45, glint: 0.45, glow: 8, glowSpread: 2, glowAlpha: 0.95 },
   success: { rgb: "57, 255, 20", hi: 0.9, a1: 0.85, a2: 0.78, a3: 0.4, glint: 0.4, glow: 6, glowSpread: 1.5, glowAlpha: 0.85 },
   failed: { rgb: "220, 38, 38", hi: 0.85, a1: 0.88, a2: 0.8, a3: 0.45, glint: 0.38, glow: 6, glowSpread: 1.5, glowAlpha: 0.85 },
-  skipped: { rgb: "245, 158, 11", hi: 0.9, a1: 0.85, a2: 0.78, a3: 0.4, glint: 0.4, glow: 6, glowSpread: 1.5, glowAlpha: 0.8 },
+  skipped: { rgb: "250, 204, 21", hi: 0.9, a1: 0.85, a2: 0.78, a3: 0.4, glint: 0.4, glow: 6, glowSpread: 1.5, glowAlpha: 0.8 },
 };
 
 export interface DagNodeData {
