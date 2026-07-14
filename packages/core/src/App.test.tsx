@@ -545,6 +545,29 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.cancel", {}));
   });
 
+  it("seeds every active node as queued immediately on click, before any host event arrives", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    // a, b, c, d are all in ALL's active set — every one queues right away,
+    // distinguishing "waiting its turn in this run" from idle-grey.
+    await waitFor(() => expect(screen.getAllByLabelText("run status: queued").length).toBe(4));
+  });
+
+  it("reconciles any still-queued node (never reached) to skipped when the run ends", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(screen.getAllByLabelText("run status: queued").length).toBe(4));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "status", nodeId: "a", status: "success" }));
+    await waitFor(() => expect(screen.getByLabelText("run status: success")).toBeInTheDocument());
+    // b, c, d never started (Cancel or an early exit) — must not stay stuck queued.
+    act(() => runEventCb!({ type: "done", exitCode: 0 }));
+    await waitFor(() => expect(screen.queryByLabelText("run status: queued")).not.toBeInTheDocument());
+    expect(screen.getAllByLabelText("run status: skipped").length).toBe(3);
+  });
+
   it("run-status events from the bridge drive the pilot light, and a done event restores the Run button", async () => {
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
@@ -579,7 +602,9 @@ describe("run/build/test button", () => {
     act(() => runEventCb!({ type: "status", nodeId: "a", status: "running" }));
     await waitFor(() => expect(screen.getByLabelText("run status: running")).toBeInTheDocument());
     act(() => runEventCb!({ type: "done", exitCode: 0 }));
-    await waitFor(() => expect(screen.getByLabelText("run status: skipped")).toBeInTheDocument());
+    // "a" (was running) and b/c/d (still queued, never reached) all settle
+    // to skipped — nothing is left spinning or stuck looking queued.
+    await waitFor(() => expect(screen.getAllByLabelText("run status: skipped").length).toBe(4));
     expect(screen.queryByLabelText("run status: running")).not.toBeInTheDocument();
   });
 

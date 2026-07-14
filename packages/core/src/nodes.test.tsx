@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import type { Status } from "./runStatus";
+import type { RunDisplayStatus } from "./runStatus";
 
 // Handle needs a live ReactFlow store; the node's own markup is what's under test.
 vi.mock("@xyflow/react", () => ({
@@ -209,7 +209,7 @@ describe("DagNode favorites", () => {
 });
 
 describe("DagNode run status pilot light", () => {
-  const withStatus = (status?: Status) => {
+  const withStatus = (status?: RunDisplayStatus) => {
     const view: ViewState = {
       selected: null, active: null, up: new Set(), down: new Set(),
       matched: null, spotlight: null, filtered: null, search: "",
@@ -228,6 +228,13 @@ describe("DagNode run status pilot light", () => {
     const marble = screen.getByLabelText("run status: idle");
     expect(marble).toHaveAttribute("data-run-status", "idle");
     expect(marble.style.background).toContain("148, 163, 184");
+    expect(marble.style.animation).toBe("");
+  });
+
+  it("renders a steady sky-blue marble when queued (distinct from idle grey, no blink)", () => {
+    const marble = withStatus("queued").getByLabelText("run status: queued");
+    expect(marble).toHaveAttribute("data-run-status", "queued");
+    expect(marble.style.background).toContain("56, 189, 248");
     expect(marble.style.animation).toBe("");
   });
 

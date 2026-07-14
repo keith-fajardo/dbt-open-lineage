@@ -9,7 +9,7 @@ import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde } from "./bridge";
 import { layoutGraph } from "./layout";
 import { resolveSelector, focalName, buildSelector } from "./selector";
-import type { Status, RunEvent } from "./runStatus";
+import type { RunDisplayStatus, RunEvent } from "./runStatus";
 import { nodeTypes, isDimmed, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
 import { exportScope, toCsv, toMermaid, b64encode } from "./export";
@@ -719,7 +719,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
 
   const [runMenu, setRunMenu] = useState(false);
   const [runActive, setRunActive] = useState<"run" | "build" | "test" | null>(null);
-  const [runStatus, setRunStatus] = useState<Map<string, Status> | null>(null);
+  const [runStatus, setRunStatus] = useState<Map<string, RunDisplayStatus> | null>(null);
   const [runErr, setRunErr] = useState<string | null>(null);
 
   // Stale pilot-light colors from a previous lineage view are confusing once
@@ -746,16 +746,18 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       });
     } else {
       setRunActive(null);
-      // "Never left spinning": any node still `running` when the run ends
-      // (success, failure, or cancel) has no terminal status coming — Cancel
-      // sends SIGTERM mid-flight, so the in-flight node's dbt process never
-      // emits one. Flip it to `skipped` so the pilot light stops sweeping.
+      // "Never left spinning": any node still `running` OR `queued` when the
+      // run ends (success, failure, or cancel) has no terminal status
+      // coming — Cancel sends SIGTERM mid-flight, so an in-flight node's dbt
+      // process never emits one, and a cancelled/early-failed run can leave
+      // many nodes still queued, never even reached. Flip both to `skipped`
+      // so nothing is left spinning OR stuck looking like it's still queued.
       setRunStatus((prev) => {
         if (!prev) return prev;
         const next = new Map(prev);
         let changed = false;
         for (const [id, status] of next) {
-          if (status === "running") { next.set(id, "skipped"); changed = true; }
+          if (status === "running" || status === "queued") { next.set(id, "skipped"); changed = true; }
         }
         return changed ? next : prev;
       });
@@ -767,7 +769,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setRunMenu(false);
     if (!runSelector) return;
     setRunErr(null);
-    setRunStatus(new Map());
+    // Seed every node in the run's scope as "queued" immediately, rather
+    // than an empty map — otherwise a node waiting its turn looks identical
+    // to a node that isn't part of this run at all (both render idle-grey)
+    // until dbt's own START event for it arrives, which can be a while for
+    // a large selection.
+    setRunStatus(new Map([...activeIds].map((id) => [id, "queued" as const])));
     setRunActive(command);
     try {
       await invoke<boolean>("dbt.run", { command, selector: runSelector });

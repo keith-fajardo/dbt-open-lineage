@@ -1,7 +1,7 @@
 import { useContext } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ViewContext, type ViewState } from "./viewContext";
-import type { Status } from "./runStatus";
+import type { RunDisplayStatus } from "./runStatus";
 
 export type DimView = Pick<ViewState, "selected" | "active" | "up" | "down" | "matched" | "spotlight" | "filtered">;
 
@@ -31,10 +31,12 @@ const LAYER_COLOR: Record<string, string> = {
   model: "#64748b",
 };
 
-/** The run-status marble's rendered state — every `Status` value plus "idle"
- * (no entry in `runStatus` for this node, or no run has ever touched it).
- * Idle is a UI-only default, never a value that arrives over `RunEvent`. */
-export type MarbleState = Status | "idle";
+/** The run-status marble's rendered state — every `RunDisplayStatus` value
+ * plus "idle" (no entry in `runStatus` for this node, or no run has ever
+ * touched it). Idle is a UI-only default, never a value that arrives over
+ * `RunEvent` (queued is also UI-only, but it IS part of `RunDisplayStatus`
+ * — see runStatus.ts). */
+export type MarbleState = RunDisplayStatus | "idle";
 
 /** Per-state color recipe for the run-status marble (see the render site for
  * how these compose into the gradient/glow). Tuned via a mocked-up eyeball
@@ -43,12 +45,17 @@ export type MarbleState = Status | "idle";
  * plain #ef4444 because a translucent warm red drifts toward looking orange
  * next to running otherwise. Idle is always shown (a grey marble on every
  * node), not hidden, so the indicator reads as a persistent light rather
- * than something that only appears mid-run. */
+ * than something that only appears mid-run. Queued is a distinct sky-blue —
+ * a plain grey would have been indistinguishable from idle, defeating the
+ * point of showing "this node is part of the run, waiting its turn" versus
+ * "not part of this run at all". Steady, not blinking, so it doesn't
+ * compete with running's more urgent blink. */
 const RUN_STATUS_RGB: Record<MarbleState, {
   rgb: string; hi: number; a1: number; a2: number; a3: number;
   glint: number; glow: number; glowSpread: number; glowAlpha: number;
 }> = {
   idle: { rgb: "148, 163, 184", hi: 0.8, a1: 0.72, a2: 0.62, a3: 0.3, glint: 0.28, glow: 5, glowSpread: 1, glowAlpha: 0.5 },
+  queued: { rgb: "56, 189, 248", hi: 0.85, a1: 0.78, a2: 0.68, a3: 0.35, glint: 0.32, glow: 5, glowSpread: 1, glowAlpha: 0.6 },
   running: { rgb: "249, 115, 22", hi: 0.95, a1: 0.9, a2: 0.82, a3: 0.45, glint: 0.45, glow: 8, glowSpread: 2, glowAlpha: 0.95 },
   success: { rgb: "57, 255, 20", hi: 0.9, a1: 0.85, a2: 0.78, a3: 0.4, glint: 0.4, glow: 6, glowSpread: 1.5, glowAlpha: 0.85 },
   failed: { rgb: "220, 38, 38", hi: 0.85, a1: 0.88, a2: 0.8, a3: 0.45, glint: 0.38, glow: 6, glowSpread: 1.5, glowAlpha: 0.85 },
