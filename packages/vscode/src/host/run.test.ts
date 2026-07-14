@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
-import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, startDbtRun } from "./run";
+import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, startDbtRun, startDbtRunWithSeed } from "./run";
 
 describe("LineBuffer", () => {
   it("splits complete lines and carries a partial one across pushes", () => {
@@ -149,11 +149,13 @@ describe("buildRunArgs", () => {
 
 // A minimal fake ChildProcess: an EventEmitter with stdout/stderr sub-emitters
 // and a pid, enough to drive startDbtRun's wiring without a real process.
-function fakeChild() {
+// Optional pid override lets a test distinguish two concurrent-in-sequence
+// fake processes (e.g. a seed phase's process vs the main command's).
+function fakeChild(pid = 4242) {
   const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; pid: number };
   proc.stdout = new EventEmitter();
   proc.stderr = new EventEmitter();
-  proc.pid = 4242;
+  proc.pid = pid;
   return proc;
 }
 
@@ -217,6 +219,119 @@ describe("startDbtRun", () => {
     const controller = startDbtRun("/proj", "run", "x", { onWrite: () => {}, onEvent: () => {} }, { spawn: () => proc as unknown as ChildProcess, platform: "darwin" });
     controller.cancel();
     expect(killSpy).toHaveBeenCalledWith(-4242, "SIGTERM");
+    killSpy.mockRestore();
+  });
+});
+
+describe("startDbtRunWithSeed", () => {
+  it("hasSeed=false bypasses straight to a single-phase run (no seed invocation)", () => {
+    const proc = fakeChild();
+    const spawnSpy = vi.fn(() => proc as unknown as ChildProcess);
+    const events: unknown[] = [];
+    startDbtRunWithSeed(
+      "/proj", "run", "stg_orders", false,
+      { onWrite: () => {}, onEvent: (e) => events.push(e) },
+      { spawn: spawnSpy },
+    );
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    expect(spawnSpy).toHaveBeenCalledWith("/proj", ["run", "--select", "stg_orders", "--log-format", "json"]);
+    proc.emit("close", 0);
+    expect(events).toEqual([{ type: "done", exitCode: 0 }]);
+  });
+
+  it("hasSeed=true runs `dbt seed` first, then the main command, on one continuous event/write stream", () => {
+    const seedProc = fakeChild(1111);
+    const mainProc = fakeChild(2222);
+    let call = 0;
+    const spawnSpy = vi.fn(() => (call++ === 0 ? seedProc : mainProc) as unknown as ChildProcess);
+    const written: string[] = [];
+    const events: unknown[] = [];
+    startDbtRunWithSeed(
+      "/proj", "run", "stg_orders", true,
+      { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) },
+      { spawn: spawnSpy },
+    );
+
+    expect(spawnSpy).toHaveBeenNthCalledWith(1, "/proj", ["seed", "--select", "stg_orders", "--log-format", "json"]);
+
+    const seedLine = JSON.stringify({
+      data: { node_info: { unique_id: "seed.proj.my_seed", node_status: "success" } },
+      info: { msg: "1 of 1 OK loaded seed ..." },
+    });
+    seedProc.stdout.emit("data", Buffer.from(seedLine + "\n"));
+    expect(events).toEqual([{ type: "status", nodeId: "seed.proj.my_seed", status: "success" }]);
+    expect(written).toContain("1 of 1 OK loaded seed ...");
+
+    seedProc.emit("close", 0);
+
+    // The seed phase's own `done` is swallowed (not forwarded) — instead
+    // the main command starts, using the SAME selector string.
+    expect(spawnSpy).toHaveBeenNthCalledWith(2, "/proj", ["run", "--select", "stg_orders", "--log-format", "json"]);
+    expect(events).toEqual([{ type: "status", nodeId: "seed.proj.my_seed", status: "success" }]);
+
+    const mainLine = JSON.stringify({
+      data: { node_info: { unique_id: "model.proj.stg_orders", node_status: "started" } },
+      info: { msg: "1 of 1 START ..." },
+    });
+    mainProc.stdout.emit("data", Buffer.from(mainLine + "\n"));
+    mainProc.emit("close", 0);
+
+    expect(events).toEqual([
+      { type: "status", nodeId: "seed.proj.my_seed", status: "success" },
+      { type: "status", nodeId: "model.proj.stg_orders", status: "running" },
+      { type: "done", exitCode: 0 },
+    ]);
+  });
+
+  it("aborts with the seed's exit code when the seed phase fails, never starting the main command", () => {
+    const seedProc = fakeChild(1111);
+    const spawnSpy = vi.fn(() => seedProc as unknown as ChildProcess);
+    const events: unknown[] = [];
+    startDbtRunWithSeed(
+      "/proj", "run", "x", true,
+      { onWrite: () => {}, onEvent: (e) => events.push(e) },
+      { spawn: spawnSpy },
+    );
+    seedProc.emit("close", 1);
+    expect(events).toEqual([{ type: "done", exitCode: 1 }]);
+    expect(spawnSpy).toHaveBeenCalledTimes(1); // the main command was never spawned
+  });
+
+  it("cancel() during the seed phase kills the seed process and the main command never starts", () => {
+    const seedProc = fakeChild(1111);
+    const spawnSpy = vi.fn(() => seedProc as unknown as ChildProcess);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const events: unknown[] = [];
+    const controller = startDbtRunWithSeed(
+      "/proj", "run", "x", true,
+      { onWrite: () => {}, onEvent: (e) => events.push(e) },
+      { spawn: spawnSpy, platform: "darwin" },
+    );
+    controller.cancel();
+    expect(killSpy).toHaveBeenCalledWith(-1111, "SIGTERM");
+    // Cancel sends SIGTERM; the process then exits non-zero, which the
+    // wrapper treats the same as any other seed failure — abort.
+    seedProc.emit("close", null);
+    expect(events).toEqual([{ type: "done", exitCode: -1 }]);
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    killSpy.mockRestore();
+  });
+
+  it("cancel() during the main phase delegates to the main command's controller, not the already-finished seed one", () => {
+    const seedProc = fakeChild(1111);
+    const mainProc = fakeChild(2222);
+    let call = 0;
+    const spawnSpy = vi.fn(() => (call++ === 0 ? seedProc : mainProc) as unknown as ChildProcess);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const controller = startDbtRunWithSeed(
+      "/proj", "run", "x", true,
+      { onWrite: () => {}, onEvent: () => {} },
+      { spawn: spawnSpy, platform: "darwin" },
+    );
+    seedProc.emit("close", 0); // seed succeeds → main phase starts (mainProc)
+    controller.cancel();
+    expect(killSpy).toHaveBeenCalledWith(-2222, "SIGTERM");
+    expect(killSpy).not.toHaveBeenCalledWith(-1111, "SIGTERM");
     killSpy.mockRestore();
   });
 });

@@ -173,3 +173,41 @@ export function startDbtRun(
     },
   };
 }
+
+/** Like `startDbtRun`, but when `hasSeed` is true, runs `dbt seed --select
+ * <selector>` first — dbt run/build/test can never build a seed regardless
+ * of what's in --select, since dbt excludes seeds from those commands by
+ * resource type, not by selection scope. The SAME selector string is reused
+ * for both phases; each dbt command's own resource-type filtering resolves
+ * it to the subset it cares about, so there's no need to build a
+ * seed-only selector separately.
+ *
+ * The seed phase's own `done` event is swallowed (never forwarded to `cb`)
+ * — only its exit code is inspected. On success, the main command starts
+ * exactly as `startDbtRun` would run it alone, and ITS `done` event is what
+ * finally reaches `cb`. On failure, `cb` receives a `done` with the seed's
+ * exit code immediately, and the main command never starts — a model that
+ * depends on a seed that failed to load is likely to fail or produce wrong
+ * data anyway, so stopping there is safer than proceeding.
+ *
+ * `hasSeed === false` bypasses this entirely and behaves identically to
+ * calling `startDbtRun` directly. */
+export function startDbtRunWithSeed(
+  projectRoot: string, command: "run" | "build" | "test", selector: string, hasSeed: boolean,
+  cb: RunCallbacks, deps: RunDeps = defaultDeps,
+): RunController {
+  if (!hasSeed) return startDbtRun(projectRoot, command, selector, cb, deps);
+
+  // Reassigned once the main phase starts, so cancel() always delegates to
+  // whichever phase is currently in flight.
+  let current: RunController = startDbtRun(projectRoot, "seed" as "run" | "build" | "test", selector, {
+    onWrite: cb.onWrite,
+    onEvent: (event) => {
+      if (event.type === "status") { cb.onEvent(event); return; }
+      if (event.exitCode !== 0) { cb.onEvent({ type: "done", exitCode: event.exitCode }); return; }
+      current = startDbtRun(projectRoot, command, selector, cb, deps);
+    },
+  }, deps);
+
+  return { cancel: () => current.cancel() };
+}
