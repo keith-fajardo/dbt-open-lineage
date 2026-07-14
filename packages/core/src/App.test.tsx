@@ -469,6 +469,7 @@ describe("readOnly mode", () => {
     expect(screen.queryByRole("button", { name: /generate gist/i })).not.toBeInTheDocument();
     expect(screen.queryByText("subject areas")).not.toBeInTheDocument();
     expect(screen.queryByText("Draw")).not.toBeInTheDocument();
+    expect(screen.queryByText("▶ Run")).not.toBeInTheDocument();
   });
 
   it("still shows read-only info: description text, tests, materialization", async () => {
