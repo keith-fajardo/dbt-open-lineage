@@ -18,6 +18,16 @@ describe("parseArgs", () => {
   it("returns an empty object for no args", () => {
     expect(parseArgs([])).toEqual({});
   });
+
+  it("parses a boolean flag (--column-lineage) without consuming the next token as its value", () => {
+    expect(parseArgs(["--manifest", "a.json", "--out", "./public", "--column-lineage", "--catalog", "c.json"]))
+      .toEqual({ manifest: "a.json", out: "./public", "column-lineage": "true", catalog: "c.json" });
+  });
+
+  it("parses --column-lineage as the last argument", () => {
+    expect(parseArgs(["--manifest", "a.json", "--out", "./public", "--column-lineage"]))
+      .toEqual({ manifest: "a.json", out: "./public", "column-lineage": "true" });
+  });
 });
 
 describe("isMainModule", () => {

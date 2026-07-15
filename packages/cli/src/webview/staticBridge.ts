@@ -1,10 +1,12 @@
 import type { Bridge } from "@dbt-open-lineage/core";
 import type { Graph } from "@dbt-open-lineage/core";
+import type { ColumnLineagePayload } from "@dbt-open-lineage/core/src/columnLineage";
 
 export interface StaticPageData {
   graph: Graph;
   sidecarText: string | null;
   title?: string;
+  columnLineage?: ColumnLineagePayload;
 }
 
 function download(filename: string, dataB64: string): boolean {

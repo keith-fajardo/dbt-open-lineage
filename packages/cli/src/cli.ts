@@ -5,17 +5,24 @@ import { generate } from "./generate";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const BOOLEAN_FLAGS = new Set(["column-lineage"]);
+
 export function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith("--")) { out[a.slice(2)] = argv[i + 1]; i++; }
+    if (a.startsWith("--")) {
+      const key = a.slice(2);
+      if (BOOLEAN_FLAGS.has(key)) { out[key] = "true"; continue; }
+      out[key] = argv[i + 1];
+      i++;
+    }
   }
   return out;
 }
 
 function usage(): string {
-  return "Usage: dbt-open-lineage generate --manifest <path> --out <dir> [--sidecar <path>] [--title <name>]";
+  return "Usage: dbt-open-lineage generate --manifest <path> --out <dir> [--sidecar <path>] [--title <name>] [--catalog <path>] [--column-lineage]";
 }
 
 export function main(argv: string[]): void {
@@ -35,6 +42,8 @@ export function main(argv: string[]): void {
       outDir: args.out,
       sidecarPath: args.sidecar,
       title: args.title,
+      catalogPath: args.catalog,
+      columnLineage: args["column-lineage"] === "true",
       // This is the one place the real build output is referenced by
       // build-relative path — see generate()'s GenerateOptions comment
       // in Task 5 for why generate() itself takes assetsDir as an input
