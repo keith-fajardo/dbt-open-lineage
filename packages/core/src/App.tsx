@@ -19,7 +19,7 @@ import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, typ
 import { nodeAreas, nodeLabels } from "./zones";
 import { readMeta } from "./meta";
 import type { ColumnLineagePayload } from "./columnLineage";
-import { estimateColumnNodeSize, traceColumn, endpointKey, type ColEndpoint } from "./columnTrace";
+import { estimateColumnNodeSize, traceColumn, columnTraceEdges, endpointKey, type ColEndpoint } from "./columnTrace";
 import { ZonesOverlay } from "./ZonesOverlay";
 import { CalloutOverlay, estimateCalloutHeight } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
@@ -246,28 +246,6 @@ export function edgeOnLineage(
   return selected != null &&
     (e.to === selected || lineage.up.has(e.to) ||
      e.from === selected || lineage.down.has(e.from));
-}
-
-/** Column-to-column edges for the interactive toggle — pure and exported
- * so it's unit-testable directly, the same way edgeOnLineage is, rather
- * than through React Flow's rendered SVG. Reuses the same focus/pruned
- * node-id-set semantics the model-edge computation already applies. */
-export function columnEdgesFor(
-  columnLineage: ColumnLineagePayload,
-  matched: Set<string>,
-  focus: boolean,
-  pruned: Set<string> | null,
-): Edge[] {
-  return columnLineage.edges
-    .filter((e) => (focus ? matched.has(e.source) && matched.has(e.target) : true))
-    .filter((e) => pruned === null || (pruned.has(e.source) && pruned.has(e.target)))
-    .map((e, i) => ({
-      id: `col-${i}-${e.source}->${e.target}`,
-      source: e.source,
-      target: e.target,
-      label: `${e.sourceColumn} → ${e.targetColumn}`,
-      style: { stroke: "#38bdf8", strokeWidth: 1.5, strokeDasharray: "4 2" },
-    }));
 }
 
 export default function App({ projectPath, initialSelector = "", debounceMs = 150, readOnly = false, canRun = false }: Props) {
@@ -1087,19 +1065,27 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const rfEdges: Edge[] = useMemo(() => {
     // empty selector → blank DAG, unless "show all" is confirmed
     if (!graph || (!cleanedSelector.trim() && !showAll)) return [];
-    if (columnLineageMode && columnLineage) {
-      return columnEdgesFor(columnLineage, matched, focus, pruned);
-    }
-    return graph.edges
-      .filter((e) => (focus ? matched.has(e.from) && matched.has(e.to) : true))
-      .filter((e) => pruned === null || (pruned.has(e.from) && pruned.has(e.to)))
+    const passes = (from: string, to: string) =>
+      (!focus || (matched.has(from) && matched.has(to))) &&
+      (pruned === null || (pruned.has(from) && pruned.has(to)));
+
+    const modelEdges: Edge[] = graph.edges
+      .filter((e) => passes(e.from, e.to))
       .map((e) => {
         const onLineage = edgeOnLineage(selected, lineage, e);
+        if (columnLineageMode && columnLineage) {
+          // QUIET: model edges stay drawn but never animate or compete with the
+          // column trace.
+          return {
+            id: `${e.from}->${e.to}`, source: e.from, target: e.to, animated: false,
+            style: {
+              stroke: "#b1b1b7", strokeWidth: 1,
+              opacity: (isDimmed(e.from, view) || isDimmed(e.to, view)) ? 0.1 : 0.45,
+            },
+          };
+        }
         return {
-          id: `${e.from}->${e.to}`,
-          source: e.from,
-          target: e.to,
-          animated: onLineage,
+          id: `${e.from}->${e.to}`, source: e.from, target: e.to, animated: onLineage,
           style: {
             opacity: hasSel
               ? (onLineage ? 0.95 : 0.06)
@@ -1112,8 +1098,29 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           },
         };
       });
+
+    if (columnLineageMode && columnLineage && selectedColumn) {
+      const trace = traceColumn(columnLineage, selectedColumn);
+      // Every edge columnTraceEdges returns has BOTH endpoints ON THE TRACE —
+      // and DagNode's picked∪trace render union (Task 3) means the trace IS
+      // exactly the set of endpoints guaranteed a rendered row (and therefore
+      // a Handle) on their node, whether manually picked or auto-revealed.
+      // No separate "is it picked" gate needed (flipped from an earlier draft
+      // of this plan — see scope-decision 1).
+      const traceEdges: Edge[] = columnTraceEdges(columnLineage, trace)
+        .filter((e) => passes(e.source, e.target))
+        .map((e, i) => ({
+          id: `col-${i}-${e.source}.${e.sourceColumn}->${e.target}.${e.targetColumn}`,
+          source: e.source, target: e.target,
+          sourceHandle: e.sourceColumn, targetHandle: e.targetColumn, // row-to-row
+          animated: true,
+          style: { stroke: "#38bdf8", strokeWidth: 2 },
+        }));
+      return [...modelEdges, ...traceEdges];
+    }
+    return modelEdges;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, matched, focus, selected, lineage, view, cleanedSelector, showAll, pruned, columnLineageMode, columnLineage]);
+  }, [graph, matched, focus, selected, lineage, view, cleanedSelector, showAll, pruned, columnLineageMode, columnLineage, selectedColumn]);
 
   const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
   // Double-click a node → open its model/source file in the IDE editor

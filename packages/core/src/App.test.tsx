@@ -88,7 +88,7 @@ vi.mock("./layout", async (orig) => {
   };
 });
 
-import App, { lineageOf, edgeOnLineage, columnEdgesFor } from "./App";
+import App, { lineageOf, edgeOnLineage } from "./App";
 import type { ColumnLineagePayload } from "./columnLineage";
 
 beforeEach(() => {
@@ -1280,47 +1280,6 @@ describe("edgeOnLineage", () => {
   });
 });
 
-describe("columnEdgesFor", () => {
-  const payload: ColumnLineagePayload = {
-    nodes: {},
-    edges: [
-      { source: "a", target: "b", sourceColumn: "id", targetColumn: "id" },
-      { source: "b", target: "c", sourceColumn: "id", targetColumn: "id" },
-    ],
-  };
-
-  it("builds one React Flow edge per column edge, labeled sourceColumn → targetColumn", () => {
-    const result = columnEdgesFor(payload, new Set(["a", "b", "c"]), false, null);
-    expect(result).toHaveLength(2);
-    expect(result[0]).toMatchObject({ source: "a", target: "b", label: "id → id" });
-    expect(result[1]).toMatchObject({ source: "b", target: "c", label: "id → id" });
-  });
-
-  it("filters to matched-only when focus is on", () => {
-    const result = columnEdgesFor(payload, new Set(["a", "b"]), true, null);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ source: "a", target: "b" });
-  });
-
-  it("filters to pruned-only when a prune set is active", () => {
-    const result = columnEdgesFor(payload, new Set(["a", "b", "c"]), false, new Set(["b", "c"]));
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ source: "b", target: "c" });
-  });
-
-  it("gives every edge a unique id even for repeated source/target pairs", () => {
-    const dup: ColumnLineagePayload = {
-      nodes: {},
-      edges: [
-        { source: "a", target: "b", sourceColumn: "id", targetColumn: "id" },
-        { source: "a", target: "b", sourceColumn: "name", targetColumn: "name" },
-      ],
-    };
-    const result = columnEdgesFor(dup, new Set(["a", "b"]), false, null);
-    expect(result[0].id).not.toBe(result[1].id);
-  });
-});
-
 describe("in-node column picking + selection", () => {
   const withCols: ColumnLineagePayload = {
     nodes: {
@@ -1363,5 +1322,33 @@ describe("in-node column picking + selection", () => {
     fireEvent.click(screen.getAllByText("id")[0]);
     await new Promise((r) => setTimeout(r, 50));
     expect(layoutSpy.mock.calls.length).toBe(layoutsAfterPick); // Invariant 3: selecting never relays out
+  });
+
+  it("selecting a picked column auto-reveals its trace row on a node where it was never manually picked (transient, visual-only)", async () => {
+    columnLineageResult = withCols;
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Columns" })).toHaveAttribute("aria-pressed", "true"));
+    // Text queries (not *ByRole) for the same jsdom hidden-ancestor reason as
+    // the test above — wait for the columnLineage fetch to land before the
+    // pick bar exists at all.
+    await waitFor(() => expect(screen.getAllByText(/trace column/i).length).toBeGreaterThan(0));
+    // Pick "id" on node a ONLY — b never gets a manual pick.
+    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
+    fireEvent.click(await screen.findByText(/^id/));
+    // Close the still-open pick-bar dropdown first — its "id" option and the
+    // newly rendered row both match /id/ text (same gotcha as the test above)
+    // — before asserting only a's row is showing so far.
+    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(1)); // only a's row so far
+    // Select a.id. traceColumn = {a::id, b::id} → b's row appears WITHOUT ever picking it.
+    fireEvent.click(screen.getAllByText("id")[0]);
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(2)); // a's (picked) + b's (auto)
+    const bRow = screen.getAllByText("id")[1].closest("[data-col-row]") as HTMLElement;
+    expect(bRow.getAttribute("data-on-trace")).toBe("true");
+    // Deselecting collapses the trace — b's auto row disappears; no stray state survives.
+    fireEvent.click(screen.getAllByText("id")[0]); // same row again → toggles selection off
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(1));
   });
 });
