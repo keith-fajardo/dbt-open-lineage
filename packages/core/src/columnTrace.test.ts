@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  endpointKey, traceColumn, columnTraceEdges, estimateColumnNodeSize,
+  endpointKey, traceColumn, columnTraceEdges, estimateColumnNodeSize, toRfTraceEdge,
   HEADER_H, PICKBAR_H, ROW_H,
 } from "./columnTrace";
-import type { ColumnLineagePayload } from "./columnLineage";
+import type { ColumnLineagePayload, ColumnLineageEdge } from "./columnLineage";
 
 // a.id → b.id → c.id  (a straight two-hop chain, same column name each hop)
 const chain: ColumnLineagePayload = {
@@ -88,6 +88,39 @@ describe("columnTraceEdges", () => {
     expect(edges).toEqual([
       { source: "a", target: "b", sourceColumn: "id", targetColumn: "id" },
     ]);
+  });
+});
+
+describe("toRfTraceEdge", () => {
+  const edge: ColumnLineageEdge = { source: "a", target: "b", sourceColumn: "acct_id", targetColumn: "account_id" };
+
+  it("maps source/target straight through and sourceHandle/targetHandle to the RAW column names (not swapped)", () => {
+    const rf = toRfTraceEdge(edge, 0);
+    expect(rf.source).toBe("a");
+    expect(rf.target).toBe("b");
+    // This is exactly the swap-typo this test exists to catch: sourceHandle
+    // must be the SOURCE column, not the target column, or every trace edge
+    // silently fails to attach to the right Handle (nodes.tsx row id).
+    expect(rf.sourceHandle).toBe("acct_id");
+    expect(rf.targetHandle).toBe("account_id");
+    expect(rf.animated).toBe(true);
+  });
+
+  it("produces a stable, predictable id", () => {
+    const rf = toRfTraceEdge(edge, 3);
+    expect(rf.id).toBe("col-3-a.acct_id->b.account_id");
+  });
+
+  it("gives two different edges (or the same edge at different indices) two different ids — no collision", () => {
+    const other: ColumnLineageEdge = { source: "b", target: "c", sourceColumn: "account_id", targetColumn: "account_id" };
+    const rf0 = toRfTraceEdge(edge, 0);
+    const rf1 = toRfTraceEdge(other, 1);
+    expect(rf0.id).not.toBe(rf1.id);
+  });
+
+  it("styles the trace edge with the sky-blue stroke and a 2px width", () => {
+    const rf = toRfTraceEdge(edge, 0);
+    expect(rf.style).toMatchObject({ stroke: "#38bdf8", strokeWidth: 2 });
   });
 });
 

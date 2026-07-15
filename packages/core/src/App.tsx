@@ -19,7 +19,7 @@ import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, typ
 import { nodeAreas, nodeLabels } from "./zones";
 import { readMeta } from "./meta";
 import type { ColumnLineagePayload } from "./columnLineage";
-import { estimateColumnNodeSize, traceColumn, columnTraceEdges, endpointKey, type ColEndpoint } from "./columnTrace";
+import { estimateColumnNodeSize, traceColumn, columnTraceEdges, toRfTraceEdge, endpointKey, type ColEndpoint } from "./columnTrace";
 import { ZonesOverlay } from "./ZonesOverlay";
 import { CalloutOverlay, estimateCalloutHeight } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
@@ -1109,13 +1109,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       // of this plan — see scope-decision 1).
       const traceEdges: Edge[] = columnTraceEdges(columnLineage, trace)
         .filter((e) => passes(e.source, e.target))
-        .map((e, i) => ({
-          id: `col-${i}-${e.source}.${e.sourceColumn}->${e.target}.${e.targetColumn}`,
-          source: e.source, target: e.target,
-          sourceHandle: e.sourceColumn, targetHandle: e.targetColumn, // row-to-row
-          animated: true,
-          style: { stroke: "#38bdf8", strokeWidth: 2 },
-        }));
+        .map((e, i) => toRfTraceEdge(e, i));
       return [...modelEdges, ...traceEdges];
     }
     return modelEdges;

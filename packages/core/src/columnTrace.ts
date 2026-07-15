@@ -1,3 +1,4 @@
+import type { Edge } from "@xyflow/react";
 import { NODE_W } from "./layout";
 import type { ColumnLineagePayload, ColumnLineageEdge } from "./columnLineage";
 
@@ -55,6 +56,24 @@ export function columnTraceEdges(
       trace.has(endpointKey(e.source, e.sourceColumn)) &&
       trace.has(endpointKey(e.target, e.targetColumn)),
   );
+}
+
+/** Maps one ColumnLineageEdge to its React Flow row-to-row edge props. `i` is
+ * the edge's position in the trace-edges array, folded into `id` for
+ * uniqueness. sourceHandle/targetHandle MUST equal the raw column names —
+ * they must match the `id` DagNode (nodes.tsx) puts on each column row's
+ * Handle — so this mapping is pulled out of the App.tsx memo specifically to
+ * be unit-tested directly (see columnTrace.test.ts): a swapped
+ * sourceColumn/targetColumn here silently breaks every trace edge's
+ * rendering, with nothing else in CI to catch it. */
+export function toRfTraceEdge(e: ColumnLineageEdge, i: number): Edge {
+  return {
+    id: `col-${i}-${e.source}.${e.sourceColumn}->${e.target}.${e.targetColumn}`,
+    source: e.source, target: e.target,
+    sourceHandle: e.sourceColumn, targetHandle: e.targetColumn, // row-to-row
+    animated: true,
+    style: { stroke: "#38bdf8", strokeWidth: 2 },
+  };
 }
 
 /** Header chrome height (today's fixed 44px box). */
