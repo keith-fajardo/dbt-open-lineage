@@ -113,6 +113,32 @@ describe("layoutGraph", () => {
     expect(reservedGap).toBeGreaterThan(baseGap);
   });
 
+  it("a taller (stacked, two-bubble) callout height reserves MORE space than a shorter (single-bubble) one", () => {
+    const stacked: Graph = {
+      nodes: [
+        node("int_a", "intermediate"),
+        node("int_b", "intermediate"),
+        node("mrt", "mart"),
+      ],
+      edges: [
+        { from: "int_a", to: "mrt" },
+        { from: "int_b", to: "mrt" },
+      ],
+    };
+    const gapOf = (pos: Map<string, { x: number; y: number }>) =>
+      Math.abs(pos.get("int_a")!.y - pos.get("int_b")!.y);
+    const base = layoutGraph(stacked);
+    const lower = base.get("int_a")!.y > base.get("int_b")!.y ? "int_a" : "int_b";
+
+    // 60 ≈ a single short bubble's reserved height; 110 ≈ two bubbles
+    // stacked (roughly estimateStackedCalloutHeight's ballpark for two
+    // short notes) — the exact numbers don't matter, only that taller
+    // reserves more room than shorter.
+    const single = layoutGraph(stacked, new Map([[lower, 60]]));
+    const doubled = layoutGraph(stacked, new Map([[lower, 110]]));
+    expect(gapOf(doubled)).toBeGreaterThan(gapOf(single));
+  });
+
   it("collapses locked columns that are empty", () => {
     // No sources or seeds at all → no locked columns. The free subgraph
     // (staging a → mart b) starts at x = 0 and steps right by one column.

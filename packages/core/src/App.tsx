@@ -21,7 +21,7 @@ import { readMeta } from "./meta";
 import type { ColumnLineagePayload } from "./columnLineage";
 import { estimateColumnNodeSize, traceColumn, columnTraceEdges, toRfTraceEdge, endpointKey, type ColEndpoint } from "./columnTrace";
 import { ZonesOverlay } from "./ZonesOverlay";
-import { CalloutOverlay, estimateCalloutHeight } from "./CalloutOverlay";
+import { CalloutOverlay, estimateStackedCalloutHeight } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
 import { LabelBar } from "./LabelBar";
 import { resolveStyles } from "./styles";
@@ -599,12 +599,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // changes this map → re-layout → nodes shift (accepted tradeoff).
   const calloutHeights = useMemo(() => {
     const m = new Map<string, number>();
-    // Mirror CalloutOverlay's gistOf exactly (readMeta, namespaced-first) —
-    // this memo's whole purpose is predicting what gistOf will render, so a
-    // node with nested-only meta must reserve space too, not just flat.
+    // Mirror CalloutOverlay's gistOf/grainOf exactly (readMeta, namespaced-first)
+    // — this memo's whole purpose is predicting what CalloutOverlay will
+    // render, so a node with nested-only meta must reserve space too, not
+    // just flat.
     if (showCallouts && graph) for (const n of graph.nodes) {
       const g = readMeta(n.meta, "gist"), c = readMeta(n.meta, "callout");
-      if (typeof g === "string" && g.trim() && c) m.set(n.id, estimateCalloutHeight(g));
+      const gr = readMeta(n.meta, "grain"), gc = readMeta(n.meta, "grain_callout");
+      const gistText = (typeof g === "string" && g.trim() && c) ? g.trim() : null;
+      const grainText = (typeof gr === "string" && gr.trim() && gc) ? gr.trim() : null;
+      if (gistText || grainText) m.set(n.id, estimateStackedCalloutHeight(gistText, grainText));
     }
     return m;
   }, [graph, showCallouts]);
