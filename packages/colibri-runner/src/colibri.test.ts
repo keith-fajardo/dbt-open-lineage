@@ -1,13 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { EventEmitter } from "events";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { spawnSync } from "child_process";
+import { spawn } from "child_process";
 import { runColibri } from "./colibri";
 
-vi.mock("child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("child_process", () => ({ spawn: vi.fn() }));
 
-const mockedSpawnSync = vi.mocked(spawnSync);
+const mockedSpawn = vi.mocked(spawn);
+
+/** A minimal fake ChildProcess: an EventEmitter with stdout/stderr as their
+ * own EventEmitters, matching the shape runColibri() listens on. */
+function fakeChild() {
+  const child = new EventEmitter() as any;
+  const stdout = new EventEmitter() as any;
+  const stderr = new EventEmitter() as any;
+  stdout.setEncoding = (enc: string) => stdout;
+  stderr.setEncoding = (enc: string) => stderr;
+  child.stdout = stdout;
+  child.stderr = stderr;
+  return child;
+}
 
 let workDir: string;
 
@@ -21,38 +35,53 @@ afterEach(() => {
 });
 
 describe("runColibri", () => {
-  it("spawns colibri generate with --light and --disable-telemetry, and returns the extracted payload", () => {
+  it("spawns colibri generate with --light and --disable-telemetry, and resolves the extracted payload", async () => {
     writeFileSync(join(workDir, "colibri-manifest.json"), JSON.stringify({
       nodes: { "model.a": { columns: { id: { columnName: "id", hasLineage: true, lineageType: "unknown" } } } },
       lineage: { edges: [{ id: 1, source: "model.a", target: "model.b", sourceColumn: "id", targetColumn: "id" }] },
     }));
-    mockedSpawnSync.mockReturnValue({ status: 0, stdout: "", stderr: "", error: undefined } as any);
+    const child = fakeChild();
+    mockedSpawn.mockReturnValue(child);
 
-    const result = runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir });
+    const resultPromise = runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir });
+    child.emit("close", 0);
+    const result = await resultPromise;
 
-    expect(mockedSpawnSync).toHaveBeenCalledWith(
+    expect(mockedSpawn).toHaveBeenCalledWith(
       "colibri",
       ["generate", "--manifest", "m.json", "--catalog", "c.json", "--output-dir", workDir, "--light", "--disable-telemetry"],
-      { encoding: "utf8" },
     );
     expect(result.edges).toEqual([{ source: "model.a", target: "model.b", sourceColumn: "id", targetColumn: "id" }]);
   });
 
-  it("throws a clear install-instruction error when colibri is not on PATH", () => {
-    mockedSpawnSync.mockReturnValue({ error: new Error("spawn colibri ENOENT") } as any);
-    expect(() => runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir }))
-      .toThrow(/pip install dbt-colibri/);
+  it("rejects with a clear install-instruction error when colibri is not on PATH", async () => {
+    const child = fakeChild();
+    mockedSpawn.mockReturnValue(child);
+
+    const resultPromise = runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir });
+    child.emit("error", new Error("spawn colibri ENOENT"));
+
+    await expect(resultPromise).rejects.toThrow(/pip install dbt-colibri/);
   });
 
-  it("throws wrapping stderr when colibri exits non-zero", () => {
-    mockedSpawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "manifest not found at target/manifest.json", error: undefined } as any);
-    expect(() => runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir }))
-      .toThrow(/manifest not found at target\/manifest\.json/);
+  it("rejects wrapping stderr when colibri exits non-zero", async () => {
+    const child = fakeChild();
+    mockedSpawn.mockReturnValue(child);
+
+    const resultPromise = runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir });
+    child.stderr.emit("data", "manifest not found at target/manifest.json");
+    child.emit("close", 1);
+
+    await expect(resultPromise).rejects.toThrow(/manifest not found at target\/manifest\.json/);
   });
 
-  it("throws if colibri exits 0 but never wrote colibri-manifest.json", () => {
-    mockedSpawnSync.mockReturnValue({ status: 0, stdout: "", stderr: "", error: undefined } as any);
-    expect(() => runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir }))
-      .toThrow(/did not produce/);
+  it("rejects if colibri exits 0 but never wrote colibri-manifest.json", async () => {
+    const child = fakeChild();
+    mockedSpawn.mockReturnValue(child);
+
+    const resultPromise = runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir });
+    child.emit("close", 0);
+
+    await expect(resultPromise).rejects.toThrow(/did not produce/);
   });
 });
