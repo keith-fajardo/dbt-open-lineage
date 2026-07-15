@@ -45,7 +45,7 @@ const SECTION_LABEL: React.CSSProperties = {
   textTransform: "uppercase", color: "#94a3b8", whiteSpace: "nowrap",
 };
 
-// Bordered-pill toggle (Focus / Callouts): keeps the native checkbox (label
+// Bordered-pill toggle (Callouts): keeps Callouts' native checkbox (label
 // association + tests) inside the mockup's quiet chip frame.
 const TOGGLE_PILL: React.CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer",
