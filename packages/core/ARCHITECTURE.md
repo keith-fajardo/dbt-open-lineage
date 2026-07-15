@@ -58,6 +58,28 @@ through as `GraphNode.meta`. Core reads it; it does **not** write model `.yml` e
    Known v1 limitation: `zones.ts` `memberCorners` hulls and `CalloutOverlay` anchors still assume 180×44,
    so a subject-area zone or callout drawn over a grown column-mode node is slightly misplaced — this mirrors
    the existing "overlays read layout positions, not live drags" caveat and is accepted for v1.
+
+   **SUPERSEDED (2026-07-15) — column selection now relayouts in Column Lineage mode.** The original
+   column-lineage design carried over "selecting a column costs ZERO relayout" (an overlay-style invariant
+   from zones/callouts): `nodeSizes` was computed from a static *picked-columns* set only, deliberately
+   ignoring the live trace, so an auto-revealed row rendered taller than its dagre-reserved slot. In practice
+   this caused real overlap (a multi-column derivation reveals 5–10+ rows that collided with neighbouring
+   nodes) AND made trace edges appear to converge at the node *centre* rather than the traced row — the
+   node's true DOM height exceeded its reserved size, so React Flow never measured a `handleBounds` entry for
+   the unreserved rows and fell back to the node centre for those handles. Picking (search dropdown) is
+   removed entirely; a node is now **collapsed by default** with a per-node expand/collapse chevron, and its
+   rendered rows are: expanded → the full catalog, collapsed → only the columns on the live trace. Because a
+   collapsed node's row count is a function of the trace, `nodeSizes` now depends on `columnTrace`, so
+   **selecting/deselecting a column re-lays-out** (a single relayout, exactly like toggling callouts or the
+   old picking). The reserved box therefore always matches what renders — no overlap, and every rendered
+   row's `Handle` measures at a correct Y, so trace edges anchor to the row. This reversal is **scoped to
+   Column Lineage mode only**: `nodeSizes` is empty otherwise → normal mode and every other overlay feature
+   are byte-identical and still relayout-free on selection. It does **not** violate Invariant 1: a relayout
+   is only ever driven by a CLICK (`onSelectColumn` / `onToggleExpand`), which is never concurrent with a
+   node drag — a drag routes through `applyNodeChanges` and touches neither `selectedColumn` nor
+   `expandedNodes`, so the build key never changes mid-drag. Expand state (`expandedNodes`) is **structural**
+   (a `nodeBuildKey` + `nodeSizes` dependency, like the old `pickedColumns`), NOT a ViewContext value; only
+   the `onToggleExpand` callback rides in context.
 5. **YAML writes use `doc.toString({ lineWidth: 0 })`** (comment/format-preserving, no spurious re-wrap).
 6. **All host I/O goes through the Bridge.** No host imports in core. Paths are project-relative.
 

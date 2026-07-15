@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ViewContext, type ViewState } from "./viewContext";
 import { endpointKey } from "./columnTrace";
@@ -77,15 +77,17 @@ export interface DagNodeData {
   testCount: number;
   /** Resolved colors of this node's labels (meta.labels), left-edge stripes. */
   labelColors?: string[];
-  /** Column-lineage mode only. PRESENT (even if []) ⇒ render the column body.
-   * These are the user's MANUALLY PICKED columns. Static per build key
-   * (Invariant 2's allowed exception, like labelColors). DagNode renders the
-   * UNION of these with any column on the live trace (via allColumns) — see
-   * the `rendered` derivation in DagNode below; this array alone is not the
-   * full set of rows shown. */
-  columns?: { name: string; hasLineage: boolean }[];
-  /** The node's full column catalog, for the in-node pick dropdown. */
+  /** Column-lineage mode only. The node's full column catalog. PRESENT (even
+   * if []) ⇒ render the column body instead of the fixed box. When the node is
+   * EXPANDED every entry renders as a clickable row; when COLLAPSED only the
+   * entries on the live trace (view.columnTrace) render. Static per build key
+   * (Invariant 2's allowed exception, like labelColors). */
   allColumns?: { name: string; hasLineage: boolean }[];
+  /** Column-lineage mode only. Whether this node's full catalog is expanded.
+   * Structural (drives the reserved box height + layout via App's
+   * `expandedNodes`), so it lives in `data` and only changes via a build-key
+   * change (Invariant 2), never per interaction. */
+  expanded?: boolean;
   /** Box size from estimateColumnNodeSize (column mode). */
   width?: number;
   height?: number;
@@ -114,88 +116,36 @@ function highlightLabel(label: string, q: string) {
     ));
 }
 
-/** The `+ trace column…` strip under a node's header. Opens a text-filtered
- * dropdown of the node's full column catalog; picking adds a row (stays open
- * for picking several). Already-picked columns show a check and unpick. */
-function PickBar({
-  id, data, picked, onPick, onUnpick,
+/** The expand/collapse control strip under a node's header. Shows the node's
+ * column count and a chevron; clicking toggles this node's expansion (via
+ * view.onToggleExpand). Collapsed ⇒ the body shows only trace-revealed rows;
+ * expanded ⇒ the full catalog. Disabled when the node has no columns. */
+function ExpandToggle({
+  id, count, expanded, onToggle,
 }: {
   id: string;
-  data: DagNodeData;
-  picked: Set<string>;
-  onPick?: (node: string, column: string) => void;
-  onUnpick?: (node: string, column: string) => void;
+  count: number;
+  expanded: boolean;
+  onToggle?: (node: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const all = data.allColumns ?? [];
-  const ql = q.trim().toLowerCase();
-  const shown = all.filter((c) => ql === "" || c.name.toLowerCase().includes(ql));
+  const hasCols = count > 0;
   return (
-    <div style={{ position: "relative", flex: "0 0 auto", padding: "2px 6px", height: 22, boxSizing: "border-box" }}>
+    <div style={{ flex: "0 0 auto", padding: "2px 6px", height: 22, boxSizing: "border-box" }}>
       <button
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        aria-label={expanded ? "collapse columns" : "expand columns"}
+        aria-expanded={expanded}
+        disabled={!hasCols}
+        onClick={(e) => { e.stopPropagation(); if (hasCols) onToggle?.(id); }}
         style={{
-          width: "100%", height: 18, textAlign: "left", cursor: "pointer",
-          background: "#0b1220", border: "1px dashed #334155", borderRadius: 4,
-          color: "#94a3b8", fontSize: 10, padding: "0 6px", fontFamily: "inherit",
+          display: "flex", alignItems: "center", gap: 5, width: "100%", height: 18,
+          textAlign: "left", cursor: hasCols ? "pointer" : "default",
+          background: "#0b1220", border: "1px solid #334155", borderRadius: 4,
+          color: hasCols ? "#94a3b8" : "#475569", fontSize: 10, padding: "0 6px", fontFamily: "inherit",
         }}
-      >+ trace column…</button>
-      {open && (
-        <div
-          role="listbox"
-          className="dol-thin-scroll"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            // Bubbles up from whichever child has focus (input or an option
-            // button after a pick) — Escape closes regardless of which one.
-            if (e.key === "Escape") { e.stopPropagation(); setOpen(false); }
-          }}
-          style={{
-            position: "absolute", left: 6, right: 6, top: "100%", zIndex: 40,
-            maxHeight: 180, overflowY: "auto",
-            background: "#111827", border: "1px solid #334155", borderRadius: 6, padding: 4,
-            scrollbarWidth: "thin", scrollbarColor: "#334155 transparent",
-            boxShadow: "0 12px 28px rgba(0,0,0,0.5)",
-          }}>
-          {/* Chromium (VSCode/Mnemo webviews) ignores scrollbar-width/-color;
-              this pseudo-element rule is the only way to thin its scrollbar. */}
-          <style>{"\
-            .dol-thin-scroll::-webkit-scrollbar{width:6px;height:6px}\
-            .dol-thin-scroll::-webkit-scrollbar-track{background:transparent}\
-            .dol-thin-scroll::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}\
-          "}</style>
-          <input
-            autoFocus value={q} placeholder="filter columns…"
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && shown[0]) { e.preventDefault();
-                picked.has(shown[0].name) ? onUnpick?.(id, shown[0].name) : onPick?.(id, shown[0].name); }
-            }}
-            style={{ width: "100%", boxSizing: "border-box", marginBottom: 4, padding: "3px 6px",
-              background: "#0b1220", border: "1px solid #334155", borderRadius: 4,
-              color: "#e5e7eb", fontSize: 10, fontFamily: "inherit" }}
-          />
-          {shown.map((c) => {
-            const on = picked.has(c.name);
-            return (
-              <button
-                key={c.name} role="option" aria-selected={on}
-                onClick={() => (on ? onUnpick?.(id, c.name) : onPick?.(id, c.name))}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left",
-                  background: "none", border: "none", cursor: "pointer", borderRadius: 4,
-                  color: c.hasLineage ? "#e5e7eb" : "#64748b",
-                  fontFamily: "ui-monospace, monospace", fontSize: 9.5, padding: "3px 6px",
-                }}
-              >
-                <span aria-hidden style={{ width: 12 }}>{on ? "✓" : ""}</span>
-                {c.name}{!c.hasLineage && <span style={{ color: "#475569" }}> (unresolved)</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      >
+        <span aria-hidden style={{ width: 8, display: "inline-block" }}>{expanded ? "▾" : "▸"}</span>
+        {count} column{count === 1 ? "" : "s"}
+      </button>
     </div>
   );
 }
@@ -322,7 +272,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
     </>
   );
   // Normal path: today's exact fixed box, byte-identical (column branch unreachable).
-  if (data.columns == null) {
+  if (data.allColumns == null) {
     return (
       <div
         title={active ? `${data.label} (open)` : data.label}
@@ -351,25 +301,25 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
       </div>
     );
   }
-  // Column path: header chrome on top, a `+ trace column…` pick bar, then one
-  // row per RENDERED column. Outer box is content-sized; the header stays 44px.
-  const picked = new Set((data.columns ?? []).map((c) => c.name));
+  // Column path: header chrome on top, an expand/collapse toggle, then one row
+  // per RENDERED column. Outer box is content-sized; the header stays 44px.
+  const all = data.allColumns ?? [];
+  const expanded = data.expanded ?? false;
   const selKey = view.selectedColumn ? endpointKey(view.selectedColumn.node, view.selectedColumn.column) : null;
   const trace = view.columnTrace ?? EMPTY_KEYS;
   const searchHits = view.columnSearchHits ?? EMPTY_KEYS;
   const current = view.currentHit ?? null;
-  // RENDERED rows = manually PICKED columns ∪ any column on the live trace
-  // passing through this node (transient, visual-only — never written back to
-  // pickedColumns/data.columns). Computed here, at render time, from
-  // data.allColumns + view.columnTrace — both already exist (Task 4). When the
-  // trace clears (columnTrace empty), the union collapses back to just the
-  // picked set on the very next render — no cleanup code needed, no stray rows
-  // survive a toggle-off. A column that is both picked AND on the trace is
-  // still only in the union once (the `!picked.has` guard below skips it).
-  const onTraceOnly = (data.allColumns ?? []).filter(
-    (c) => !picked.has(c.name) && trace.has(endpointKey(id, c.name)),
-  );
-  const rendered = [...(data.columns ?? []), ...onTraceOnly];
+  // RENDERED rows: when EXPANDED, the full catalog; when COLLAPSED, only the
+  // columns on the live trace (view.columnTrace) passing through this node.
+  // The collapsed set is transient/visual-only — computed at render time, so
+  // when the trace clears it collapses back to nothing on the very next render
+  // (no cleanup code, no stray rows survive a deselect). The reserved box size
+  // (data.width/height, from App's nodeSizes) is computed from this SAME set,
+  // so the box always fits its rows exactly — no overlap, and every row's
+  // Handle measures at a correct position (trace edges anchor to the row).
+  const rendered = expanded
+    ? all
+    : all.filter((c) => trace.has(endpointKey(id, c.name)));
   return (
     <div
       title={active ? `${data.label} (open)` : data.label}
@@ -396,7 +346,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
       }}>
         {header}
       </div>
-      <PickBar id={id} data={data} picked={picked} onPick={view.onPickColumn} onUnpick={view.onUnpickColumn} />
+      <ExpandToggle id={id} count={all.length} expanded={expanded} onToggle={view.onToggleExpand} />
       {rendered.map((col) => {
         const key = endpointKey(id, col.name);
         const onTrace = key === selKey || trace.has(key);

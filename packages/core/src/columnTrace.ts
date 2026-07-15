@@ -115,24 +115,28 @@ export function toRfTraceEdge(e: ColumnLineageEdge, i: number): Edge {
 
 /** Header chrome height (today's fixed 44px box). */
 export const HEADER_H = 44;
-/** The `+ trace column…` pick-bar strip under the header. */
-export const PICKBAR_H = 22;
-/** One picked-column row. */
+/** The expand/collapse control strip ("▸ N columns") under the header. */
+export const TOGGLE_H = 22;
+/** One rendered column row. */
 export const ROW_H = 18;
 const CHAR_W = 7;   // ~monospace advance at 11px
 const PAD = 22;     // row horizontal padding (dot + gutters)
 const MAX_W = 260;  // width cap — long column names ellipsize past this
 
-/** Per-node box size in column mode, estimated from the picked column NAMES
- * (monospace rows make width estimable without DOM measurement, the same
- * spirit as estimateCalloutHeight). Zero picks → the plain NODE_W box plus the
- * header + pick-bar strip, so most nodes stay compact even with column mode on.
- * dagre only needs this to APPROXIMATE spacing — edge endpoints use React
- * Flow's DOM-measured handle positions, so a small estimate error never
- * affects edge correctness. */
+/** Per-node box size in column mode, estimated from the ACTUALLY RENDERED
+ * column NAMES (monospace rows make width estimable without DOM measurement,
+ * the same spirit as estimateCalloutHeight). The caller passes whichever list
+ * is currently rendered on the node — the full catalog when the node is
+ * EXPANDED, or just the live trace-revealed rows when it is COLLAPSED — so the
+ * dagre-reserved box always matches what renders and neighbouring nodes never
+ * overlap (see App.tsx `nodeSizes`). Zero rows → the plain NODE_W box plus the
+ * header + toggle strip, so most nodes stay compact even with column mode on.
+ * Because the reserved height now tracks the rendered rows exactly, React Flow
+ * measures a correct handle position for every row's Handle — trace edges
+ * anchor to the row, not the (formerly stale, undersized) node centre. */
 export function estimateColumnNodeSize(columns: string[]): { w: number; h: number } {
   const longest = columns.reduce((m, c) => Math.max(m, c.length), 0);
   const w = Math.max(NODE_W, Math.min(MAX_W, PAD + longest * CHAR_W));
-  const h = HEADER_H + PICKBAR_H + columns.length * ROW_H;
+  const h = HEADER_H + TOGGLE_H + columns.length * ROW_H;
   return { w, h };
 }

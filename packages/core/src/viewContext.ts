@@ -44,16 +44,18 @@ export interface ViewState {
    * ReadonlySet (not Set) so the shared EMPTY_KEYS constant and traceColumn's
    * Set both assign cleanly. */
   columnTrace?: ReadonlySet<string>;
-  /** Endpoint keys of picked columns whose name matches the search query. */
+  /** Endpoint keys of an EXPANDED node's columns whose name matches the search
+   * query (a collapsed node's transient trace rows are not search targets). */
   columnSearchHits?: ReadonlySet<string>;
   /** Node id OR endpoint key of the current Prev/Next target (stronger ring). */
   currentHit?: string | null;
-  /** Click a picked column row → select it (toggles). */
+  /** Click a column row → select it and trace it (toggles). */
   onSelectColumn?: (node: string, column: string) => void;
-  /** Add a column as a row on its node (from the in-node dropdown or the panel). */
-  onPickColumn?: (node: string, column: string) => void;
-  /** Remove a picked column row. */
-  onUnpickColumn?: (node: string, column: string) => void;
+  /** Toggle a node's expand/collapse state: expanded ⇒ show the full column
+   * catalog as rows, collapsed ⇒ show only the live trace-revealed rows.
+   * Structural (feeds node size + layout via App's `expandedNodes`), so only
+   * the callback rides in context — the expanded SET does not (Invariant 2). */
+  onToggleExpand?: (node: string) => void;
 }
 
 export const ViewContext = createContext<ViewState>({

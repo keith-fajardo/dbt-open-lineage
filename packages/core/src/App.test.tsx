@@ -233,17 +233,16 @@ describe("dbt DAG App", () => {
       },
       edges: [{ source: "a", target: "b", sourceColumn: "id", targetColumn: "id" }],
     };
+    const CHEVRON = /\d+ columns?/;
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     const toggle = screen.getByRole("button", { name: "Columns" });
     fireEvent.click(toggle); // on: fetches STALE
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
-    await waitFor(() => expect(screen.getAllByText(/trace column/i).length).toBeGreaterThan(0));
-    // Pick id on a, then select it → with the stale payload only a+b reveal.
-    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
-    fireEvent.click(await screen.findByText(/^id/));
-    fireEvent.click(screen.getAllByText(/trace column/i)[0]); // close dropdown
-    await waitFor(() => expect(screen.getAllByText("id").length).toBe(1)); // only a's picked row
+    await waitFor(() => expect(screen.getAllByText(CHEVRON).length).toBeGreaterThan(0));
+    // Expand a, then select a.id → with the stale payload only a+b reveal.
+    fireEvent.click(screen.getAllByText(CHEVRON)[0]);
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(1)); // only a's expanded row
     fireEvent.click(screen.getAllByText("id")[0]); // select a.id
     await waitFor(() => expect(screen.getAllByText("id").length).toBe(2)); // a + b (stale: c missing)
 
@@ -259,14 +258,17 @@ describe("dbt DAG App", () => {
         { source: "b", target: "c", sourceColumn: "id", targetColumn: "id" },
       ],
     };
-    fireEvent.click(toggle); // off — drops the stale cache
+    fireEvent.click(toggle); // off — drops the stale cache AND resets expansion
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
     fireEvent.click(toggle); // on — MUST re-fetch the fresh payload
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
     expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(2);
-    // Re-select a.id against the fresh payload → now the second hop reveals c.
-    await waitFor(() => expect(screen.getAllByText(/trace column/i).length).toBeGreaterThan(0));
-    fireEvent.click(screen.getAllByText("id")[0]); // a's picked row still present; select it
+    // Re-expand a (expansion was reset by the off toggle) and re-select a.id
+    // against the fresh payload → now the second hop reveals c.
+    await waitFor(() => expect(screen.getAllByText(CHEVRON).length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText(CHEVRON)[0]); // expand a again
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(1)); // a's row back
+    fireEvent.click(screen.getAllByText("id")[0]); // select a.id
     await waitFor(() => expect(screen.getAllByText("id").length).toBe(3)); // a + b + c
     const cRow = screen.getAllByText("id")[2].closest("[data-col-row]") as HTMLElement;
     expect(cRow.getAttribute("data-on-trace")).toBe("true");
@@ -351,7 +353,7 @@ describe("dbt DAG App", () => {
     expect(screen.queryByText("columns")).not.toBeInTheDocument();
   });
 
-  it("picking a column from the details panel adds it as a row on the node", async () => {
+  it("tracing a column from the details panel reveals it as a row on the node", async () => {
     columnLineageResult = {
       nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } },
       edges: [],
@@ -363,9 +365,11 @@ describe("dbt DAG App", () => {
     fireEvent.click(screen.getAllByText("a")[0]);
     const panel = await screen.findByRole("complementary");
     await waitFor(() => expect(panel).toHaveTextContent("columns"));
-    // The panel lists every column with a pick control; pick "id".
-    fireEvent.click(screen.getByRole("button", { name: "pick column id" }));
-    // The row now renders on node a (a monospace row appears on the canvas).
+    // Only the panel's own "id" button is present so far (node a is collapsed).
+    expect(screen.getAllByText("id").length).toBe(1);
+    // The panel lists every column as a trace control (no more pick). Tracing
+    // "id" reveals it as a row on the still-collapsed node a (auto-reveal).
+    fireEvent.click(screen.getByRole("button", { name: "trace column id" }));
     await waitFor(() => expect(screen.getAllByText("id").length).toBeGreaterThan(1));
   });
 });
@@ -1502,7 +1506,7 @@ describe("edgeOnLineage", () => {
   });
 });
 
-describe("in-node column picking + selection", () => {
+describe("in-node column expand/collapse + selection", () => {
   const withCols: ColumnLineagePayload = {
     nodes: {
       a: { columns: { id: { columnName: "id", hasLineage: true } } },
@@ -1511,62 +1515,52 @@ describe("in-node column picking + selection", () => {
     edges: [{ source: "a", target: "b", sourceColumn: "id", targetColumn: "id" }],
   };
 
-  it("picking a column from a node's dropdown renders it as a row and re-lays-out once; selecting it relays out zero times", async () => {
+  // Text queries (not *ByRole): React Flow node wrappers stay visibility:hidden
+  // in jsdom (no real ResizeObserver ever marks them "measured"), and RTL's
+  // role queries exclude hidden-ancestor descendants — the same reason every
+  // other in-node interaction in this suite uses getByText, not getByRole.
+  const CHEVRON = /\d+ columns?/; // matches the "▸ N columns" toggle, not the panel "columns" header
+
+  it("expanding a node renders its catalog and re-lays out once; selecting a column ALSO re-lays out (nodeSizes now tracks the trace — Invariant 4 reversal)", async () => {
     columnLineageResult = withCols;
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "Columns" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Columns" })).toHaveAttribute("aria-pressed", "true"));
-    // The Columns toggle flips aria-pressed synchronously, before the async
-    // dbt.columnLineage fetch resolves — wait for the fetch to actually land
-    // (the node's pick-bar only renders once columnLineage data has arrived)
-    // before measuring the layout count, so the assertion below isolates the
-    // relayout caused by PICKING, not the one caused by column mode turning on.
-    // Text queries (not *ByRole): React Flow node wrappers stay
-    // visibility:hidden in jsdom (no real ResizeObserver ever marks them
-    // "measured"), and RTL's role queries exclude hidden-ancestor
-    // descendants — the same reason every other in-node interaction in this
-    // suite (e.g. clicking a node to select it) uses getByText, not getByRole.
-    await waitFor(() => expect(screen.getAllByText(/trace column/i).length).toBeGreaterThan(0));
+    // Wait for the fetch to land (chevrons only render once columnLineage data
+    // has arrived) before measuring layout counts, so the assertions below
+    // isolate the relayout caused by EXPANDING/SELECTING, not by column mode
+    // turning on.
+    await waitFor(() => expect(screen.getAllByText(CHEVRON).length).toBeGreaterThan(0));
     const layoutsBefore = layoutSpy.mock.calls.length;
-    // Open node a's pick bar and pick "id".
-    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
-    fireEvent.click(await screen.findByText(/^id/));
-    // The row now renders on the node, and picking (a data change) triggered a
-    // relayout — never mid-drag (Invariant 1), the accepted callout-style tradeoff.
+    // Expand node a → its "id" row renders, and expansion (a data change)
+    // triggers exactly one relayout — never mid-drag (Invariant 1), the
+    // accepted callout-style tradeoff.
+    fireEvent.click(screen.getAllByText(CHEVRON)[0]);
     await waitFor(() => expect(screen.getAllByText("id").length).toBeGreaterThan(0));
     expect(layoutSpy.mock.calls.length).toBe(layoutsBefore + 1);
-    const layoutsAfterPick = layoutSpy.mock.calls.length;
-    // Close the still-open pick-bar dropdown first (its "id" option and the
-    // newly rendered row both now match /id/ text) so the click below hits
-    // the actual row, not the dropdown option (which would unpick, not select).
-    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
+    const layoutsAfterExpand = layoutSpy.mock.calls.length;
+    // Select a.id. This is the DELIBERATE reversal of the old "selecting costs
+    // zero relayout": b's collapsed box must now reserve space for its
+    // auto-revealed row, so nodeSizes changes → a relayout fires on selection.
     fireEvent.click(screen.getAllByText("id")[0]);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(layoutSpy.mock.calls.length).toBe(layoutsAfterPick); // Invariant 3: selecting never relays out
+    await waitFor(() => expect(layoutSpy.mock.calls.length).toBeGreaterThan(layoutsAfterExpand));
   });
 
-  it("selecting a picked column auto-reveals its trace row on a node where it was never manually picked (transient, visual-only)", async () => {
+  it("selecting a column auto-reveals its trace row on another node that stays COLLAPSED (transient, visual-only)", async () => {
     columnLineageResult = withCols;
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "Columns" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Columns" })).toHaveAttribute("aria-pressed", "true"));
-    // Text queries (not *ByRole) for the same jsdom hidden-ancestor reason as
-    // the test above — wait for the columnLineage fetch to land before the
-    // pick bar exists at all.
-    await waitFor(() => expect(screen.getAllByText(/trace column/i).length).toBeGreaterThan(0));
-    // Pick "id" on node a ONLY — b never gets a manual pick.
-    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
-    fireEvent.click(await screen.findByText(/^id/));
-    // Close the still-open pick-bar dropdown first — its "id" option and the
-    // newly rendered row both match /id/ text (same gotcha as the test above)
-    // — before asserting only a's row is showing so far.
-    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
+    await waitFor(() => expect(screen.getAllByText(CHEVRON).length).toBeGreaterThan(0));
+    // Expand a so its "id" row is clickable — b is never expanded.
+    fireEvent.click(screen.getAllByText(CHEVRON)[0]);
     await waitFor(() => expect(screen.getAllByText("id").length).toBe(1)); // only a's row so far
-    // Select a.id. traceColumn = {a::id, b::id} → b's row appears WITHOUT ever picking it.
+    // Select a.id. traceColumn = {a::id, b::id} → b's row auto-reveals though b
+    // stays collapsed and was never expanded.
     fireEvent.click(screen.getAllByText("id")[0]);
-    await waitFor(() => expect(screen.getAllByText("id").length).toBe(2)); // a's (picked) + b's (auto)
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(2)); // a (expanded) + b (auto)
     const bRow = screen.getAllByText("id")[1].closest("[data-col-row]") as HTMLElement;
     expect(bRow.getAttribute("data-on-trace")).toBe("true");
     // Deselecting collapses the trace — b's auto row disappears; no stray state survives.

@@ -270,7 +270,9 @@ export function computeSearchHits(searchQ: string, rfNodes: Node<DagNodeData>[])
     if (n.data.label.toLowerCase().includes(searchQ)) {
       out.push({ key: n.id, cx: pos.x + w / 2, cy: pos.y + h / 2 });
     }
-    for (const c of n.data.columns ?? []) {
+    // Only an EXPANDED node's full catalog is search-steppable; a collapsed
+    // node's transient trace rows are not jump targets (see columnSearchHits).
+    for (const c of n.data.expanded ? n.data.allColumns ?? [] : []) {
       if (c.name.toLowerCase().includes(searchQ)) {
         out.push({ key: endpointKey(n.id, c.name), cx: pos.x + w / 2, cy: pos.y + h / 2 });
       }
@@ -382,8 +384,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     catch (e) { setError(String((e as Error).message ?? e)); }
   };
   useEffect(() => { void load("dbt.manifest"); /* eslint-disable-next-line */ }, []);
-  // A fresh compile / manifest reload invalidates any picked-column selection.
-  useEffect(() => { setSelectedColumn(null); }, [graph]);
+  // A fresh compile / manifest reload invalidates any column selection/expansion.
+  // The expansion reset returns the SAME empty set when already empty so React
+  // bails out — otherwise a fresh `new Set()` would change nodeSizes' identity
+  // and force a spurious extra layout on every graph load (normal mode too).
+  useEffect(() => {
+    setSelectedColumn(null);
+    setExpandedNodes((prev) => (prev.size ? new Set() : prev));
+  }, [graph]);
 
   const [annotations, setAnnotations] = useState<Annotations>(EMPTY_ANNOTATIONS);
   useEffect(() => {
@@ -493,34 +501,40 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [columnLineageBusy, setColumnLineageBusy] = useState(false);
   const [columnLineageErr, setColumnLineageErr] = useState<string | null>(null);
 
-  // Which columns are rendered as rows on each node (user-controlled). Picking
-  // changes node data → one rebuild + relayout (accepted, like toggling
-  // callouts). Empty in normal mode → nodeSizes empty → identical layout.
-  const [pickedColumns, setPickedColumns] = useState<Map<string, Set<string>>>(new Map());
-  const onPickColumn = useCallback((node: string, column: string) => {
-    setPickedColumns((prev) => {
-      const next = new Map(prev);
-      const set = new Set(next.get(node) ?? []);
-      set.add(column);
-      next.set(node, set);
+  // Which nodes have their full column catalog EXPANDED (collapsed by default).
+  // Structural: a node's rendered row count — hence its box size and the
+  // layout — depends on this, so it lives in App state and is a nodeBuildKey +
+  // nodeSizes dependency (like the old pickedColumns it replaces), NOT
+  // ViewContext. Toggling expansion changes node data → one rebuild + relayout
+  // (accepted, like toggling callouts). Empty in normal mode → nodeSizes empty
+  // → identical layout.
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const onToggleExpand = useCallback((node: string) => {
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      next.has(node) ? next.delete(node) : next.add(node);
       return next;
     });
   }, []);
-  const onUnpickColumn = useCallback((node: string, column: string) => {
-    setPickedColumns((prev) => {
-      const next = new Map(prev);
-      const set = new Set(next.get(node) ?? []);
-      set.delete(column);
-      if (set.size) next.set(node, set); else next.delete(node);
-      return next;
-    });
-  }, []);
-  // The clicked column whose trace animates (interaction → ViewContext, no relayout).
+  // The clicked column whose trace animates. Selecting a column now DOES
+  // relayout in column mode — a deliberate superseding of the old "selecting
+  // costs zero relayout" invariant: a COLLAPSED node's rendered rows are
+  // exactly the trace-revealed ones, so nodeSizes depends on the trace and must
+  // re-reserve space when the selection changes (see nodeSizes below +
+  // ARCHITECTURE.md Invariant 4). Still only ever fired by a CLICK, never
+  // concurrent with a drag, so Invariant 1 (never rebuild mid-drag) holds.
   const [selectedColumn, setSelectedColumn] = useState<ColEndpoint | null>(null);
   const onSelectColumn = useCallback((node: string, column: string) => {
     setSelectedColumn((prev) =>
       prev && prev.node === node && prev.column === column ? null : { node, column });
   }, []);
+  // Endpoint keys on the selected column's trace. Declared HERE (ahead of the
+  // other column derivations lower down) because nodeSizes below reads it — a
+  // collapsed node reserves height for exactly its trace-revealed rows.
+  const columnTrace = useMemo(
+    () => (columnLineage && selectedColumn ? traceColumn(columnLineage, selectedColumn) : EMPTY_KEYS),
+    [columnLineage, selectedColumn],
+  );
 
   // An empty selector matches NOTHING (not everything) UNLESS the user has
   // explicitly confirmed "show all" via the blank-Enter modal below —
@@ -584,22 +598,29 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     }
     return m;
   }, [graph, showCallouts]);
-  // Per-node box size in column mode: header + pick bar + one row per
-  // MANUALLY picked column. Intentionally excludes the live columnTrace (an
-  // auto-revealed row from selecting a column) — selecting must trigger ZERO
-  // relayout (Invariant 3), so an auto-row is not reserved height here; the
-  // node can render slightly taller than its slot (accepted v1 visual
-  // crowding — see scope-decision 1). Empty unless column mode is on with
-  // data loaded → layoutGraph falls back to NODE_W×NODE_H and produces
-  // byte-identical output to today.
+  // Per-node box size in column mode: header + toggle strip + one row per
+  // ACTUALLY RENDERED column — EXPANDED nodes reserve their whole catalog,
+  // COLLAPSED nodes reserve exactly the columns on the live trace passing
+  // through them. This is the fix for the overlap the user reported: the
+  // reserved dagre box now matches what DagNode renders, so a node whose trace
+  // reveals several rows no longer collides with its neighbours (and every
+  // rendered row's Handle measures at a correct Y, so trace edges anchor to the
+  // row instead of the node centre). Because this reads columnTrace, SELECTING
+  // a column re-lays-out in column mode — the deliberate Invariant 4 reversal.
+  // Empty unless column mode is on with data loaded → layoutGraph falls back to
+  // NODE_W×NODE_H and produces byte-identical output to today.
   const nodeSizes = useMemo(() => {
     const m = new Map<string, { w: number; h: number }>();
     if (!(columnLineageMode && columnLineage) || !graph) return m;
     for (const n of graph.nodes) {
-      m.set(n.id, estimateColumnNodeSize([...(pickedColumns.get(n.id) ?? [])]));
+      const cols = Object.values(columnLineage.nodes[n.id]?.columns ?? {}).map((c) => c.columnName);
+      const rendered = expandedNodes.has(n.id)
+        ? cols
+        : cols.filter((name) => columnTrace.has(endpointKey(n.id, name)));
+      m.set(n.id, estimateColumnNodeSize(rendered));
     }
     return m;
-  }, [columnLineageMode, columnLineage, pickedColumns, graph]);
+  }, [columnLineageMode, columnLineage, expandedNodes, columnTrace, graph]);
   const positioned = useMemo(
     () => (visibleGraph ? layoutGraph(visibleGraph, calloutHeights, nodeSizes) : new Map()),
     [visibleGraph, calloutHeights, nodeSizes],
@@ -669,17 +690,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           labelColors: nodeLabels(n)
             .map((l) => labelStyles.get(l)?.color)
             .filter((c): c is string => !!c),
-          // Column mode: PRESENT (even if []) ⇒ DagNode renders the column body.
+          // Column mode: allColumns PRESENT (even if []) ⇒ DagNode renders the
+          // column body. `expanded` drives whether the full catalog or only the
+          // trace-revealed rows show (structural — build-key gated below).
           ...(columnLineageMode && columnLineage
             ? {
-                columns: [...(pickedColumns.get(n.id) ?? [])].map((name) => ({
-                  name,
-                  hasLineage: columnLineage.nodes[n.id]?.columns[name]?.hasLineage ?? false,
-                })),
                 allColumns: Object.values(columnLineage.nodes[n.id]?.columns ?? {}).map((c) => ({
                   name: c.columnName,
                   hasLineage: c.hasLineage,
                 })),
+                expanded: expandedNodes.has(n.id),
                 width: nodeSizes.get(n.id)?.w,
                 height: nodeSizes.get(n.id)?.h,
               }
@@ -690,8 +710,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // (label colors live in node data). A drag never changes either, so this
   // never rebuilds mid-drag — preserving node identity for React Flow.
   const nodeBuildKey = useMemo(
-    () => ({ positioned, labelStyles, pickedColumns, columnLineageMode, columnLineage }),
-    [positioned, labelStyles, pickedColumns, columnLineageMode, columnLineage],
+    () => ({ positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage }),
+    [positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage],
   );
   const [nodeState, setNodeState] = useState<{ base: unknown; nodes: Node<DagNodeData>[] }>(
     { base: null, nodes: [] },
@@ -875,6 +895,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       // stg→int hop present, the new int→dim hop missing) with no way to
       // recover short of a full window reload.
       setSelectedColumn(null);
+      setExpandedNodes(new Set());
       setColumnLineage(null);
       return;
     }
@@ -1112,26 +1133,21 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     catch (e) { setRunErr(String((e as Error).message ?? e)); }
   };
 
-  // Endpoint keys on the selected column's trace — passed to every node so each
-  // highlights its participating picked rows (the multi-hop path reads as one).
-  const columnTrace = useMemo(
-    () => (columnLineage && selectedColumn ? traceColumn(columnLineage, selectedColumn) : EMPTY_KEYS),
-    [columnLineage, selectedColumn],
-  );
-
-  // Endpoint keys of PICKED columns whose name matches — only rendered rows can
-  // carry a meaningful amber hit or be a Prev/Next jump target (plan scope
-  // decision: search doesn't reach unpicked/transient auto-trace-only columns).
+  // Endpoint keys of an EXPANDED node's columns whose name matches — only rows
+  // shown as the full expanded catalog carry a meaningful amber hit or a
+  // Prev/Next jump target. A collapsed node's transient trace-revealed rows are
+  // not search targets (mirrors the old scope decision that search didn't reach
+  // transient auto-trace-only rows).
   const columnSearchHits = useMemo(() => {
     const out = new Set<string>();
     if (!searchQ || !(columnLineageMode && columnLineage)) return out;
-    for (const [node, cols] of pickedColumns) {
-      for (const col of cols) {
-        if (col.toLowerCase().includes(searchQ)) out.add(endpointKey(node, col));
+    for (const node of expandedNodes) {
+      for (const col of Object.values(columnLineage.nodes[node]?.columns ?? {})) {
+        if (col.columnName.toLowerCase().includes(searchQ)) out.add(endpointKey(node, col.columnName));
       }
     }
     return out;
-  }, [searchQ, columnLineageMode, columnLineage, pickedColumns]);
+  }, [searchQ, columnLineageMode, columnLineage, expandedNodes]);
 
   // One ordered hit list: node-name hits + column hits, top-to-bottom then
   // left-to-right, so Prev/Next stepping feels spatial. A hit's key is the node
@@ -1197,11 +1213,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     selectedColumn,
     columnTrace,
     onSelectColumn,
-    onPickColumn,
-    onUnpickColumn,
+    onToggleExpand,
     columnSearchHits,
     currentHit,
-  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus, selectedColumn, columnTrace, onSelectColumn, onPickColumn, onUnpickColumn, columnSearchHits, currentHit]);
+  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus, selectedColumn, columnTrace, onSelectColumn, onToggleExpand, columnSearchHits, currentHit]);
 
   const dimmedIds = useMemo(
     () => (graph ? new Set(graph.nodes.filter((n) => isDimmed(n.id, view)).map((n) => n.id)) : new Set<string>()),
@@ -2049,46 +2064,58 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 : "—"}
             </dd>
 
-            {columnLineage?.nodes[selectedNode.id] && (
-              <>
-                <dt style={{ color: "#94a3b8", marginTop: 8 }}>columns</dt>
-                <dd style={{ margin: 0 }}>
-                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                    {Object.values(columnLineage.nodes[selectedNode.id].columns).map((c) => {
-                      const isPicked = !!pickedColumns.get(selectedNode.id)?.has(c.columnName);
-                      const isSel = selectedColumn?.node === selectedNode.id && selectedColumn?.column === c.columnName;
-                      return (
-                        <li key={c.columnName} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0" }}>
-                          <button
-                            aria-label={isPicked ? `unpick column ${c.columnName}` : `pick column ${c.columnName}`}
-                            title={isPicked ? "Remove row from node" : "Add row to node"}
-                            onClick={() => (isPicked ? onUnpickColumn : onPickColumn)(selectedNode.id, c.columnName)}
-                            style={{
-                              width: 18, height: 18, flexShrink: 0, borderRadius: 4,
-                              border: `1px solid ${isPicked ? "#38bdf8" : "#334155"}`,
-                              background: isPicked ? "#16233d" : "#0b1220",
-                              color: isPicked ? "#38bdf8" : "#64748b", cursor: "pointer",
-                              fontSize: 12, lineHeight: 1, padding: 0,
-                            }}
-                          >{isPicked ? "✓" : "+"}</button>
-                          <button
-                            onClick={() => onSelectColumn(selectedNode.id, c.columnName)}
-                            style={{
-                              flex: 1, textAlign: "left", background: "none", border: "none", cursor: "pointer",
-                              padding: 0, fontFamily: "ui-monospace, monospace", fontSize: 12,
-                              color: isSel ? "#38bdf8" : c.hasLineage ? "#e5e7eb" : "#64748b",
-                            }}
-                          >
-                            {c.columnName}
-                            {!c.hasLineage && <span style={{ color: "#64748b" }}> (unresolved)</span>}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </dd>
-              </>
-            )}
+            {columnLineage?.nodes[selectedNode.id] && (() => {
+              // No more per-column "pick": clicking a column TRACES it (same as
+              // clicking its row on the canvas), and the whole node's catalog is
+              // shown/hidden on the canvas via one expand toggle — matching the
+              // in-node chevron so the panel and canvas stay consistent.
+              const cols = Object.values(columnLineage.nodes[selectedNode.id].columns);
+              const isExpanded = expandedNodes.has(selectedNode.id);
+              return (
+                <>
+                  <dt style={{ color: "#94a3b8", marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                    columns
+                    {cols.length > 0 && (
+                      <button
+                        aria-label={isExpanded ? "collapse columns on node" : "expand columns on node"}
+                        title="Show/hide the full column list on the node in the DAG"
+                        onClick={() => onToggleExpand(selectedNode.id)}
+                        style={{
+                          background: "#0b1220", border: "1px solid #334155", borderRadius: 4,
+                          color: "#94a3b8", cursor: "pointer", fontFamily: "inherit", fontSize: 11,
+                          padding: "1px 7px",
+                        }}
+                      >{isExpanded ? "▾ collapse" : "▸ expand"}</button>
+                    )}
+                  </dt>
+                  <dd style={{ margin: 0 }}>
+                    <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                      {cols.map((c) => {
+                        const isSel = selectedColumn?.node === selectedNode.id && selectedColumn?.column === c.columnName;
+                        return (
+                          <li key={c.columnName} style={{ padding: "1px 0" }}>
+                            <button
+                              aria-label={`trace column ${c.columnName}`}
+                              title="Trace this column's lineage"
+                              onClick={() => onSelectColumn(selectedNode.id, c.columnName)}
+                              style={{
+                                width: "100%", textAlign: "left", cursor: "pointer",
+                                background: isSel ? "#16233d" : "none", border: "none", borderRadius: 4,
+                                padding: "3px 6px", fontFamily: "ui-monospace, monospace", fontSize: 12,
+                                color: isSel ? "#38bdf8" : c.hasLineage ? "#e5e7eb" : "#64748b",
+                              }}
+                            >
+                              {c.columnName}
+                              {!c.hasLineage && <span style={{ color: "#64748b" }}> (unresolved)</span>}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </dd>
+                </>
+              );
+            })()}
 
             {/* Only rendered once this node has at least one log line —
                 an idle/never-run node shows nothing here, keeping the

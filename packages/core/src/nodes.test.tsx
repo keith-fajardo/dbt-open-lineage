@@ -289,96 +289,127 @@ describe("DagNode column body (column-lineage mode)", () => {
     matched: null, spotlight: null, filtered: null, search: "",
     favorites: new Set(), onToggleFavorite: () => {}, runStatus: null, ...over,
   });
+  // Column-mode node: a full catalog (allColumns), collapsed by default. No
+  // more "picked" columns — expansion is the only way to show the full list.
   const colData = (over: Partial<DagNodeData> = {}): DagNodeData => ({
     label: "stg_orders", layer: "staging", materialized: "", testCount: 0,
-    columns: [{ name: "order_id", hasLineage: true }],
     allColumns: [
       { name: "order_id", hasLineage: true },
       { name: "raw_json", hasLineage: false },
     ],
-    width: 200, height: 44 + 22 + 18, ...over,
+    expanded: false,
+    width: 200, height: 44 + 22, ...over,
   });
 
-  it("normal path is unchanged when data.columns is absent (fixed 180×44 box)", () => {
+  it("normal path is unchanged when data.allColumns is absent (fixed 180×44 box)", () => {
     render(<DagNode id="n1" data={{ label: "n", layer: "staging", materialized: "", testCount: 0 }} />);
     const box = screen.getByText("n").parentElement!;
     expect(box).toHaveStyle({ width: "180px", height: "44px" });
   });
 
-  it("renders a row per picked column and sizes the outer box from data.width/height", () => {
-    render(
+  it("a collapsed node with no trace renders zero column rows (just header + toggle)", () => {
+    const { container } = render(
       <ViewContext.Provider value={colView()}>
         <DagNode id="model.proj.stg_orders" data={colData()} />
       </ViewContext.Provider>,
     );
-    const row = screen.getByText("order_id");
-    expect(row).toBeInTheDocument();
-    // The header still carries the model name.
+    expect(container.querySelectorAll("[data-col-row]")).toHaveLength(0);
+    // The header still carries the model name, and the toggle shows the count.
     expect(screen.getByText("stg_orders")).toBeInTheDocument();
+    expect(screen.getByText(/2 columns/)).toBeInTheDocument();
   });
 
-  it("clicking a picked column row calls onSelectColumn(node, column)", () => {
+  it("an EXPANDED node renders every column in the catalog as a row", () => {
+    render(
+      <ViewContext.Provider value={colView()}>
+        <DagNode id="model.proj.stg_orders" data={colData({ expanded: true })} />
+      </ViewContext.Provider>,
+    );
+    expect(screen.getByText("order_id")).toBeInTheDocument();
+    expect(screen.getByText("raw_json")).toBeInTheDocument();
+  });
+
+  it("the toggle flips ▸/▾ with the expanded flag and calls onToggleExpand(id) on click", () => {
+    const toggled: string[] = [];
+    const { rerender } = render(
+      <ViewContext.Provider value={colView({ onToggleExpand: (n) => toggled.push(n) })}>
+        <DagNode id="model.proj.stg_orders" data={colData()} />
+      </ViewContext.Provider>,
+    );
+    // Collapsed shows the ▸ chevron…
+    const btn = screen.getByRole("button", { name: "expand columns" });
+    expect(btn).toHaveTextContent("▸");
+    fireEvent.click(btn);
+    expect(toggled).toEqual(["model.proj.stg_orders"]);
+    // …expanded shows ▾ and the collapse label.
+    rerender(
+      <ViewContext.Provider value={colView({ onToggleExpand: (n) => toggled.push(n) })}>
+        <DagNode id="model.proj.stg_orders" data={colData({ expanded: true })} />
+      </ViewContext.Provider>,
+    );
+    expect(screen.getByRole("button", { name: "collapse columns" })).toHaveTextContent("▾");
+  });
+
+  it("the toggle is disabled for a node with no columns", () => {
+    render(
+      <ViewContext.Provider value={colView()}>
+        <DagNode id="src.proj.raw" data={colData({ allColumns: [] })} />
+      </ViewContext.Provider>,
+    );
+    expect(screen.getByRole("button", { name: "expand columns" })).toBeDisabled();
+    expect(screen.getByText(/0 columns/)).toBeInTheDocument();
+  });
+
+  it("clicking a rendered column row calls onSelectColumn(node, column)", () => {
     const picked: [string, string][] = [];
     render(
       <ViewContext.Provider value={colView({ onSelectColumn: (n, c) => picked.push([n, c]) })}>
-        <DagNode id="model.proj.stg_orders" data={colData()} />
+        <DagNode id="model.proj.stg_orders" data={colData({ expanded: true })} />
       </ViewContext.Provider>,
     );
     fireEvent.click(screen.getByText("order_id"));
     expect(picked).toEqual([["model.proj.stg_orders", "order_id"]]);
   });
 
-  it("marks a selected column row (background) via view.columnTrace membership", () => {
+  it("marks a rendered column row (background) via view.columnTrace membership", () => {
     render(
       <ViewContext.Provider
         value={colView({ columnTrace: new Set(["model.proj.stg_orders::order_id"]) })}
       >
-        <DagNode id="model.proj.stg_orders" data={colData()} />
+        <DagNode id="model.proj.stg_orders" data={colData({ expanded: true })} />
       </ViewContext.Provider>,
     );
     const row = screen.getByText("order_id").closest("[data-col-row]") as HTMLElement;
     expect(row.getAttribute("data-on-trace")).toBe("true");
   });
 
-  it("renders a column that is only ON THE TRACE (not manually picked) as a transient row — the picked∪trace union", () => {
+  it("a COLLAPSED node reveals only the columns on the live trace (auto-reveal)", () => {
     render(
       <ViewContext.Provider
         value={colView({ columnTrace: new Set(["model.proj.stg_orders::raw_json"]) })}
       >
-        <DagNode id="model.proj.stg_orders" data={colData({ columns: [] })} />
+        <DagNode id="model.proj.stg_orders" data={colData()} />
       </ViewContext.Provider>,
     );
-    // raw_json is in allColumns and on the trace, but NOT in data.columns —
-    // it still renders (auto-picked, visual-only; nothing written back to data).
+    // raw_json is on the trace → renders even though the node is collapsed;
+    // order_id is not on the trace → hidden.
     const row = screen.getByText("raw_json").closest("[data-col-row]") as HTMLElement;
     expect(row.getAttribute("data-on-trace")).toBe("true");
+    expect(screen.queryByText("order_id")).not.toBeInTheDocument();
   });
 
-  it("an auto-trace-only row disappears once the trace empties — no stray rows survive toggle-off", () => {
+  it("an auto-revealed row disappears once the trace empties — no stray rows survive deselect", () => {
     const { rerender } = render(
       <ViewContext.Provider value={colView({ columnTrace: new Set(["model.proj.stg_orders::raw_json"]) })}>
-        <DagNode id="model.proj.stg_orders" data={colData({ columns: [] })} />
+        <DagNode id="model.proj.stg_orders" data={colData()} />
       </ViewContext.Provider>,
     );
     expect(screen.getByText("raw_json")).toBeInTheDocument();
     rerender(
       <ViewContext.Provider value={colView({ columnTrace: new Set() })}>
-        <DagNode id="model.proj.stg_orders" data={colData({ columns: [] })} />
-      </ViewContext.Provider>,
-    );
-    expect(screen.queryByText("raw_json")).not.toBeInTheDocument();
-  });
-
-  it("the pick-bar dropdown lists the full catalog and picks an unpicked column", () => {
-    const added: [string, string][] = [];
-    render(
-      <ViewContext.Provider value={colView({ onPickColumn: (n, c) => added.push([n, c]) })}>
         <DagNode id="model.proj.stg_orders" data={colData()} />
       </ViewContext.Provider>,
     );
-    fireEvent.click(screen.getByRole("button", { name: /trace column/i }));
-    // raw_json is in allColumns but not picked → offered in the dropdown.
-    fireEvent.click(screen.getByRole("option", { name: /raw_json/i }));
-    expect(added).toEqual([["model.proj.stg_orders", "raw_json"]]);
+    expect(screen.queryByText("raw_json")).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   endpointKey, traceColumn, columnTraceEdges, estimateColumnNodeSize, toRfTraceEdge,
-  HEADER_H, PICKBAR_H, ROW_H,
+  HEADER_H, TOGGLE_H, ROW_H,
 } from "./columnTrace";
 import type { ColumnLineagePayload, ColumnLineageEdge } from "./columnLineage";
 
@@ -200,13 +200,13 @@ describe("toRfTraceEdge", () => {
 });
 
 describe("estimateColumnNodeSize", () => {
-  it("reports the plain-width box with a header + pick-bar strip for zero picks", () => {
-    expect(estimateColumnNodeSize([])).toEqual({ w: 180, h: HEADER_H + PICKBAR_H });
+  it("reports the plain-width box with a header + toggle strip for zero rendered rows", () => {
+    expect(estimateColumnNodeSize([])).toEqual({ w: 180, h: HEADER_H + TOGGLE_H });
   });
 
-  it("adds one row of height per picked column", () => {
+  it("adds one row of height per rendered column", () => {
     const size = estimateColumnNodeSize(["id", "amount"]);
-    expect(size.h).toBe(HEADER_H + PICKBAR_H + 2 * ROW_H);
+    expect(size.h).toBe(HEADER_H + TOGGLE_H + 2 * ROW_H);
     expect(size.w).toBeGreaterThanOrEqual(180);
   });
 
