@@ -20,22 +20,30 @@ export const endpointKey = (node: string, column: string): string => `${node}::$
  *
  * The graph is walked as a DIRECTED graph, NOT undirected. This matters at a
  * FAN-IN (merge) node — an endpoint fed by two or more DISTINCT upstream source
- * columns (a join key, a `CASE`/`COALESCE` over two different columns, etc.):
+ * columns (a join key, a `CASE`/`COALESCE` over two different columns, a
+ * `UNION ALL` branch, etc.):
  *
  *   - FORWARD exploration (source→target — where a value FLOWS OUT) is always
  *     followed. Fan-out is genuine lineage no matter how we reached the node.
  *   - BACKWARD exploration (target→source — where a value FLOWS IN) is followed
  *     only THROUGH a 1:1 node — one whose single incoming source column is a
- *     genuine pass-through/rename/staging-copy, i.e. the SAME identity. If a
- *     node has ≥2 distinct incoming sources it is a merge point, and walking
- *     back into its sibling sources would conflate two DIFFERENT values'
- *     lineages (the classic leak: trace gl_code, reach a flag that gl_code and
+ *     genuine pass-through/rename/staging-copy, i.e. the SAME identity — OR
+ *     through the START endpoint itself, merge or not. If a node has ≥2
+ *     distinct incoming sources it is a merge point, and walking back into its
+ *     sibling sources MID-WALK would conflate two DIFFERENT values' lineages
+ *     (the classic leak: trace gl_code, reach a flag that gl_code and
  *     document_number both feed, then walk back into document_number and
  *     forward into document_number's unrelated downstream). So backward
- *     exploration STOPS at a merge point — regardless of the direction we
- *     arrived from, and including the start endpoint itself. Selecting a merge
- *     column therefore shows its forward lineage but not its distinct inputs;
- *     those are a different value and are one click away by selecting them.
+ *     exploration STOPS at a merge point reached mid-walk. The START endpoint
+ *     is exempt from that block: clicking a merge column directly is an
+ *     explicit request to see everything feeding it (e.g. a `UNION ALL` of two
+ *     upstream models into one shared column — dbt-colibri's edge shape can't
+ *     tell that apart from a genuine multi-column derivation, so this is a
+ *     deliberate trade-off, not a general rule). It can still fan into a
+ *     sibling's unrelated downstream when the start truly is a COALESCE/CASE
+ *     merge rather than a union branch — acceptable because it only happens
+ *     when the user clicks that exact merge column, never as a side effect of
+ *     tracing an unrelated column through it.
  *
  * An undirected walk is exactly the special case where every node is 1:1, so
  * pure rename chains, fan-outs, and cycles all behave identically to before.
@@ -69,9 +77,10 @@ export function traceColumn(payload: ColumnLineagePayload, start: ColEndpoint): 
   while (stack.length) {
     const cur = stack.pop()!;
     const neighbors = fwd.get(cur) ?? [];
-    // Only cross backward through a genuine 1:1 pass-through node — never a
-    // merge point (≥2 distinct sources) or a pure source (0 sources).
-    const back_ = isPassThrough(cur) ? back.get(cur) : undefined;
+    // Cross backward through a genuine 1:1 pass-through node, or through the
+    // START endpoint itself (merge or not) — never through a merge point
+    // (≥2 distinct sources) reached mid-walk.
+    const back_ = (cur === startKey || isPassThrough(cur)) ? back.get(cur) : undefined;
     for (const nb of back_ ? [...neighbors, ...back_] : neighbors) {
       if (!visited.has(nb)) {
         visited.add(nb);

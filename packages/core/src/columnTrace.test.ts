@@ -131,19 +131,81 @@ describe("traceColumn", () => {
     );
   });
 
-  // Judgment call: selecting the merge node ITSELF as the start. We block
-  // backward exploration even from the start endpoint — a merge column is a new
-  // value, not the identity of either input — so its distinct inputs are hidden
-  // while its forward lineage is shown. This is the same uniform rule with no
-  // special-casing, and it cannot re-leak into a sibling's fan-out.
-  it("selecting the merge column directly shows its forward lineage but not its distinct inputs", () => {
+  // Judgment call (revised): selecting the merge node ITSELF as the start DOES
+  // cross backward into BOTH its distinct sources. Real-world driver: a
+  // `UNION ALL` model where a shared output column (e.g. transaction_line_id)
+  // has two distinct upstream sources, one per branch — each row comes from
+  // exactly ONE of them, not a combined expression, but dbt-colibri's edge
+  // shape can't tell that apart from a genuine COALESCE/CASE merge. Clicking
+  // the merge column directly is an explicit request to see everything
+  // feeding it, so this exemption is scoped to the START endpoint only —
+  // merge points reached MID-WALK (the gl_code fan-in tests above) still
+  // block, so tracing an unrelated column through a merge still can't leak
+  // into a sibling's fan-out. The accepted trade-off: if the user directly
+  // clicks a true COALESCE/CASE merge column (not a union branch), its
+  // sibling's unrelated downstream now DOES light up — that only happens on
+  // an explicit click of that exact column, never as a side effect.
+  it("selecting the merge column directly now crosses backward into both distinct sources", () => {
     const trace = traceColumn(fanIn, { node: "int", column: "flag" });
-    expect(trace).toEqual(new Set(["int::flag", "fact::revenue_earned"]));
-    // Neither input is pulled in from the start...
-    expect(trace.has("stg::gl_code")).toBe(false);
+    expect(trace).toEqual(
+      new Set([
+        "int::flag",
+        "fact::revenue_earned",
+        "stg::gl_code",
+        "stg2::document_number",
+        "fact::document_number",
+        "fact::memo",
+      ]),
+    );
+  });
+
+  it("tracing an unrelated column through the merge mid-walk still cannot leak into a sibling's fan-out", () => {
+    // Same fixture, but the trace ORIGINATES at gl_code (not the merge node) —
+    // the mid-walk block from the original fan-in fix must still hold.
+    const trace = traceColumn(fanIn, { node: "stg", column: "gl_code" });
     expect(trace.has("stg2::document_number")).toBe(false);
-    // ...so the sibling's unrelated fan-out stays out too.
+    expect(trace.has("fact::document_number")).toBe(false);
     expect(trace.has("fact::memo")).toBe(false);
+  });
+
+  // Regression for the reported bug: int_invoice_and_credit_memo_lines is a
+  // UNION ALL of an invoices branch and a credit-memo branch, both landing on
+  // the shared output column transaction_line_id. Forward from either branch
+  // already worked (fan-out is always followed); clicking transaction_line_id
+  // itself must now also reach BOTH upstream branches, not just its own
+  // downstream.
+  const unionBranch: ColumnLineagePayload = {
+    nodes: {},
+    edges: [
+      { source: "invoices", target: "merged", sourceColumn: "invoice_line_id", targetColumn: "transaction_line_id" },
+      { source: "credit_memos", target: "merged", sourceColumn: "credit_memo_line_id", targetColumn: "transaction_line_id" },
+      { source: "merged", target: "fact", sourceColumn: "transaction_line_id", targetColumn: "transaction_line_id" },
+    ],
+  };
+
+  it("clicking a union-branch merge column traces into both upstream branches and downstream", () => {
+    const trace = traceColumn(unionBranch, { node: "merged", column: "transaction_line_id" });
+    expect(trace).toEqual(
+      new Set([
+        "merged::transaction_line_id",
+        "invoices::invoice_line_id",
+        "credit_memos::credit_memo_line_id",
+        "fact::transaction_line_id",
+      ]),
+    );
+  });
+
+  it("clicking one union branch still traces forward through the merge as before (unaffected by the fix)", () => {
+    const trace = traceColumn(unionBranch, { node: "invoices", column: "invoice_line_id" });
+    expect(trace).toEqual(
+      new Set([
+        "invoices::invoice_line_id",
+        "merged::transaction_line_id",
+        "fact::transaction_line_id",
+      ]),
+    );
+    // The sibling branch must not appear — we started at one branch, not the merge node.
+    expect(trace.has("credit_memos::credit_memo_line_id")).toBe(false);
   });
 });
 
