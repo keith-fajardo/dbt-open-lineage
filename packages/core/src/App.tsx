@@ -24,7 +24,7 @@ import { AreaControl } from "./AreaControl";
 import { LabelBar } from "./LabelBar";
 import { resolveStyles } from "./styles";
 import { loadFavorites, saveFavorites } from "./favorites";
-import { computeFiltered, computeActiveIds } from "./filters";
+import { computeFiltered } from "./filters";
 import { TagChips } from "./TagChips";
 import { DrawLayer, type DrawMode } from "./DrawLayer";
 import { type Stroke } from "./drawing";
@@ -756,16 +756,25 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     [graph, favActive, favorites, areaFilter, labelFilter, tagFilter],
   );
 
-  // The run/build/test button's scope: the union of the selector-matched and
-  // category-filtered sets — but ONLY once the selector box is non-blank or
-  // the user confirms show-all. A blank selector already blanks the whole DAG
-  // (see `visibleGraph` above, which returns {nodes:[],edges:[]} whenever
-  // `!cleanedSelector.trim() && !showAll`, filters notwithstanding) — except
-  // when `showAll` is true, in which case Run sees all active nodes.
-  const activeIds = useMemo(
-    () => ((cleanedSelector.trim() || showAll) ? computeActiveIds(matched, filtered) : new Set<string>()),
-    [cleanedSelector, matched, filtered, showAll],
-  );
+  // The run/build/test button's scope: the INTERSECTION of the
+  // selector-matched and category-filtered sets, matching exactly what's
+  // visually emphasized (not dimmed) on the DAG — a favorited node outside
+  // the current selector's lineage must NOT be included just because one
+  // channel is active. `filtered === null` means no category filter is
+  // active, and — mirroring isDimmed's own "no restriction" convention —
+  // contributes no narrowing in that case (matched alone decides). Only
+  // once the selector box is non-blank (or "show all" is confirmed) does
+  // this produce anything at all; a blank selector already blanks the
+  // whole DAG (see `visibleGraph` above), so Run must have nothing to act
+  // on either.
+  const activeIds = useMemo(() => {
+    if (!cleanedSelector.trim() && !showAll) return new Set<string>();
+    const out = new Set<string>();
+    for (const id of matched) {
+      if (filtered === null || filtered.has(id)) out.add(id);
+    }
+    return out;
+  }, [cleanedSelector, matched, filtered, showAll]);
   const runSelector = useMemo(() => (graph ? buildSelector(activeIds, graph) : ""), [graph, activeIds]);
   // dbt run/test can never build a seed regardless of what's in --select —
   // dbt excludes seeds from those commands by resource type, not selection

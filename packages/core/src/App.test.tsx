@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import type { Graph } from "./graphTypes";
+import { favoritesKey } from "./favorites";
 
 // jsdom has no ResizeObserver; React Flow needs one to measure its pane.
 class ResizeObserverStub {
@@ -765,6 +766,33 @@ describe("run/build/test button", () => {
     fireEvent.click(screen.getAllByText("a")[0]);
     await waitFor(() => expect(screen.getByText("type")).toBeInTheDocument());
     expect(screen.queryByText("a line to clear")).not.toBeInTheDocument();
+  });
+
+  it("Run scope is the INTERSECTION of the committed selector and active filters, not their union", async () => {
+    localStorage.setItem(favoritesKey("/proj"), JSON.stringify({ favorites: ["b"] }));
+    render(<App projectPath="/proj" debounceMs={0} canRun />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "a+" } }); // matches a, b, c (not d)
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByText("c").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: /favorites/i })); // filtered = {b}
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "b", hasSeed: false, hasFullRefresh: false }),
+    );
+  });
+
+  it("Run is disabled when the selector and active filters have no overlap", async () => {
+    localStorage.setItem(favoritesKey("/proj"), JSON.stringify({ favorites: ["d"] }));
+    render(<App projectPath="/proj" debounceMs={0} canRun />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "a+" } }); // matches a, b, c (not d)
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByText("c").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: /favorites/i })); // filtered = {d}, no overlap
+    expect(screen.getByText("▶ Run")).toBeDisabled();
   });
 });
 
