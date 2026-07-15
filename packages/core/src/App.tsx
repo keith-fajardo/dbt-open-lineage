@@ -261,6 +261,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   useEffect(() => {
     if (raw.trim() !== "") setShowAll(false);
   }, [raw]);
+
+  // Apply Filter / Restore: a one-shot snapshot (not a live toggle) of the
+  // currently emphasized node ids, used to physically strip everything else
+  // off the DAG. `null` = no pruning (default, unaffected). Set by clicking
+  // Apply Filter; cleared by clicking Restore, or automatically whenever the
+  // committed selector/lineage changes (see the reset effect below).
+  const [pruned, setPruned] = useState<Set<string> | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   // The model whose file is OPEN in the IDE — the focus of the pushed
   // lineage. Tracked separately from `selected` (a hand-clicked node) and
@@ -426,12 +433,18 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     // Empty selector → empty DAG (no default "show every model"), unless
     // the user confirmed "show all" via the blank-Enter modal.
     if (!cleanedSelector.trim() && !showAll) return { nodes: [], edges: [] };
-    if (!focus) return graph;
+    // Fast path preserved exactly as before when nothing further narrows
+    // the view — same object identity as `graph`, so layout reuses
+    // full-graph positions instead of re-computing.
+    if (!focus && pruned === null) return graph;
+    const passesFocus = (id: string) => !focus || matched.has(id);
+    const passesPrune = (id: string) => pruned === null || pruned.has(id);
     return {
-      nodes: graph.nodes.filter((n) => matched.has(n.id)),
-      edges: graph.edges.filter((e) => matched.has(e.from) && matched.has(e.to)),
+      nodes: graph.nodes.filter((n) => passesFocus(n.id) && passesPrune(n.id)),
+      edges: graph.edges.filter((e) =>
+        passesFocus(e.from) && passesFocus(e.to) && passesPrune(e.from) && passesPrune(e.to)),
     };
-  }, [graph, focus, matched, cleanedSelector, showAll]);
+  }, [graph, focus, matched, cleanedSelector, showAll, pruned]);
   // Reserve layout space for callout bubbles: when callouts are on, a model
   // that actually has a callout gets extra height in dagre (see layout.ts), so
   // its bubble no longer overlaps the row above. Empty when callouts are off →
@@ -500,9 +513,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     // Empty selector → render nothing (the DAG starts blank; no default
     // "show every model"), unless the user confirmed "show all". Otherwise
     // focus filters to the matched set, and without focus every node
-    // renders (dimming handles emphasis).
+    // renders (dimming handles emphasis). `pruned` (Apply Filter) narrows
+    // further on top of either case.
     !graph || (!cleanedSelector.trim() && !showAll) ? [] : graph.nodes
       .filter((n) => (focus ? matched.has(n.id) : true))
+      .filter((n) => pruned === null || pruned.has(n.id))
       .map((n) => ({
         id: n.id,
         type: "dag",
@@ -816,6 +831,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setRunStatus(null);
     setRunErr(null);
     setRunLogs(null);
+    setPruned(null);
   }, [selector]);
 
   const onResetStatus = () => {
@@ -923,6 +939,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     if (!graph || (!cleanedSelector.trim() && !showAll)) return [];
     return graph.edges
       .filter((e) => (focus ? matched.has(e.from) && matched.has(e.to) : true))
+      .filter((e) => pruned === null || (pruned.has(e.from) && pruned.has(e.to)))
       .map((e) => {
         const onLineage = edgeOnLineage(selected, lineage, e);
         return {
@@ -943,7 +960,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, matched, focus, selected, lineage, view, cleanedSelector, showAll]);
+  }, [graph, matched, focus, selected, lineage, view, cleanedSelector, showAll, pruned]);
 
   const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
   // Double-click a node → open its model/source file in the IDE editor
@@ -1303,6 +1320,30 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               onColor={readOnly ? undefined : (l, c) => void onLabelColor(l, c)}
             />
             <TagChips tags={allTags} filter={tagFilter} onToggle={onToggleTag} />
+            {pruned === null ? (
+              <button
+                onClick={() => setPruned(new Set(activeIds))}
+                disabled={!favActive && areaFilter.size === 0 && labelFilter.size === 0 && tagFilter.size === 0}
+                title="Remove everything not currently emphasized from the DAG"
+                style={{
+                  padding: "6px 10px", borderRadius: 7, border: "1px solid #334155",
+                  background: "#111827",
+                  color: (favActive || areaFilter.size > 0 || labelFilter.size > 0 || tagFilter.size > 0) ? "#e5e7eb" : "#475569",
+                  cursor: (favActive || areaFilter.size > 0 || labelFilter.size > 0 || tagFilter.size > 0) ? "pointer" : "default",
+                  fontFamily: "inherit", fontSize: 12,
+                }}
+              >Apply Filter</button>
+            ) : (
+              <button
+                onClick={() => setPruned(null)}
+                title="Bring back everything removed by Apply Filter"
+                style={{
+                  padding: "6px 10px", borderRadius: 7, border: "1px solid #334155",
+                  background: "#111827", color: "#e5e7eb", cursor: "pointer",
+                  fontFamily: "inherit", fontSize: 12,
+                }}
+              >Restore</button>
+            )}
           </div>
         </div>
         {error && <div style={{ color: "#fca5a5", padding: 8 }}>{error}</div>}
@@ -1329,9 +1370,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           )}
           <ViewContext.Provider value={view}>
           <ReactFlow
-            // Remount when the committed filter changes so fitView re-frames
-            // the (re-laid-out) visible subgraph.
-            key={focus ? `focus:${selector}` : "all"}
+            // Remount when the committed filter OR the pruning state
+            // changes, so fitView re-frames the (re-laid-out) visible
+            // subgraph either way.
+            key={`${focus ? `focus:${selector}` : "all"}:${pruned ? "pruned" : "full"}`}
             nodes={rfNodes}
             edges={rfEdges}
             nodeTypes={nodeTypes}

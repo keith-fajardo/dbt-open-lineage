@@ -796,6 +796,59 @@ describe("run/build/test button", () => {
   });
 });
 
+describe("Apply Filter / Restore", () => {
+  it("is disabled when no category filter is active", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.getByRole("button", { name: "Apply Filter" })).toBeDisabled();
+  });
+
+  it("removes non-emphasized nodes from the DAG; Restore brings them back", async () => {
+    localStorage.setItem(favoritesKey("/proj"), JSON.stringify({ favorites: ["b"] }));
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: /favorites/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply Filter" }));
+    await waitFor(() => expect(screen.queryByText("a")).not.toBeInTheDocument());
+    expect(screen.queryByText("c")).not.toBeInTheDocument();
+    expect(screen.queryByText("d")).not.toBeInTheDocument();
+    expect(screen.getAllByText("b").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("c").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("d").length).toBeGreaterThan(0);
+  });
+
+  it("toggling a filter off after Apply Filter does NOT auto-restore the pruned nodes", async () => {
+    localStorage.setItem(favoritesKey("/proj"), JSON.stringify({ favorites: ["b"] }));
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: /favorites/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply Filter" }));
+    await waitFor(() => expect(screen.queryByText("a")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /favorites/i })); // favorites OFF now
+    expect(screen.queryByText("a")).not.toBeInTheDocument(); // still pruned, stale
+    expect(screen.getAllByText("b").length).toBeGreaterThan(0);
+  });
+
+  it("committing a new selector auto-clears the pruning", async () => {
+    localStorage.setItem(favoritesKey("/proj"), JSON.stringify({ favorites: ["b"] }));
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: /favorites/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply Filter" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "a" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Apply Filter" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
+  });
+});
+
 describe("run-result toast", () => {
   it("shows a success toast when a run completes with exit code 0", async () => {
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
