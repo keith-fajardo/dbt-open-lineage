@@ -1,132 +1,130 @@
-# Column-level lineage — design
+# Column-level lineage (static CLI) — design
 
 Date: 2026-07-15
-Status: deferred — superseded by decision to prototype dbt-colibri
-(Python/sqlglot) integration in a separate repo first. No implementation
-planned against this spec for now. Kept for the engine-options research.
+Status: approved (brainstorming), pending implementation plan
 
 ## Scope
 
-A toggle-able column-level lineage view layered onto the existing model-level
-DAG. When on, nodes show their output columns and edges redraw as
-column-to-column instead of model-to-model; when off, the graph is unchanged
-from today. TS-native — no Python dependency, no subprocess.
+Column-level lineage as an **opt-in** feature of `@dbt-open-lineage/cli`'s
+static site generator (`packages/cli`) only. The live VSCode/Mnemo
+interactive extension is explicitly out of scope for this pass — see
+"Deferred" below.
 
-## Why not dbt-colibri
+## Why the static CLI, not the interactive extension
 
-dbt-colibri (Python, sqlglot-based) already solves this well, but adopting it
-means shelling to a Python CLI, requiring `pip install dbt-colibri` in the
-user's environment, and consuming an upstream JSON schema we don't control.
-Rejected in favor of staying TS-native — the whole project is currently pure
-TS/npm workspaces, and the user explicitly wants to avoid a Python dependency
-(subprocess spawn latency, an extra install story on top of `dbt` itself).
+- `packages/cli`'s `generate()` runs in a controlled environment you
+  configure (CI or local machine), not distributed to end users the way the
+  VSCode extension is. A Python dependency there is a one-time CI-step cost,
+  not a per-user install burden.
+- Output is static HTML/CSS/JS deployed elsewhere (GitHub Pages, S3, any
+  static host). The Python dependency never reaches the serving box — only
+  the generation step needs it.
+- The package is already read-only (no annotation authoring, per
+  `2026-07-13-static-dag-cli-design.md`), so column lineage is purely a
+  rendering addition — no new write paths to design around.
 
-## 1. Inference engine — spike-gated
+## 1. dbt-colibri, orchestrated by the CLI
 
-The hard part is dialect-aware column resolution through CTEs, joins, and
-`SELECT *`. Two credible TS-native paths exist:
+New opt-in `--column-lineage` flag on `generate`. Base `generate()` behavior
+(flag absent) is completely unchanged — zero new dependency unless a user
+explicitly opts in.
+
+When the flag is set:
+
+1. Requires `catalog.json` in addition to `manifest.json` (dbt-colibri needs
+   both). New `catalogPath` option on `GenerateOptions`
+   (`packages/cli/src/generate.ts`).
+2. `generate()` spawns dbt-colibri via Node's `child_process` (e.g.
+   `dbt-colibri generate --manifest <path> --catalog <path> --output
+   <tempDir>` — exact flags unverified, see Open risks).
+3. Not found on PATH → throws immediately: `"dbt-colibri not found. Install
+   with: pip install dbt-colibri"`. Fails fast, no silent degrade.
+4. Non-zero exit or unparseable output → throws, wrapping dbt-colibri's
+   stderr — same error style already used for
+   `"failed to parse ${manifestPath}"` in `generate.ts`.
+5. dbt-colibri's output JSON is parsed into column-edge data and embedded
+   into the static bundle **at generate time** — same "data baked in" pattern
+   `StaticBridge` already uses for the graph/sidecar. The deployed site
+   itself never invokes Python; only the CI step that ran
+   `generate --column-lineage` did.
+
+## 2. Rendering
+
+Toggle switches node cards to show output columns and edges to
+column-to-column, reusing the interaction pattern already sketched for the
+interactive extension (see appendix) but simplified for read-only mode: no
+click-to-author, no annotation UI, same restriction the static CLI already
+applies to callouts/labels/drawing. dbt-colibri already classifies resolved
+vs. unresolved columns — no need to reinvent that classification here; edges
+render only for what it resolved.
+
+## 3. Data model
+
+New optional field on the embedded static-bundle payload:
+`columnLineage?: { columns: ColumnRef[]; edges: ColumnEdge[] }`, present
+only when `--column-lineage` was used. The column-lineage toggle in `App.tsx`
+is hidden entirely when this field is absent — older builds, or builds run
+without the flag, show no toggle for data they don't have.
+
+## 4. Testing
+
+- `generate.test.ts`: `--column-lineage` with a stubbed dbt-colibri binary on
+  PATH → embedded payload includes `columnLineage`; without the flag →
+  payload unchanged (regression).
+- Missing dbt-colibri on PATH with flag set → `generate()` throws the
+  expected install-instruction message.
+- dbt-colibri non-zero exit → `generate()` throws, message includes stderr.
+- Static-site render test: toggle appears only when `columnLineage` is
+  present in the payload; toggle on/off renders correctly.
+
+## Open risks
+
+- **dbt-colibri's actual CLI interface and output JSON schema are
+  unverified** — the flags/paths above are assumed, not confirmed against
+  its real docs/source. Must verify (read dbt-colibri's actual `--help`/
+  README/source) before writing the implementation plan — the exact spawn
+  invocation and JSON-parsing code depend on it.
+- **License**: confirm dbt-colibri's license is compatible with being
+  invoked as an external tool from this OSS npm package. Spawning (not
+  bundling) is likely fine regardless of license, but not yet explicitly
+  checked.
+- **Accuracy on Redshift-dialect SQL**: not yet verified hands-on. Lower
+  stakes than the interactive-extension case since this is opt-in/CI-only,
+  not blocking the base tool.
+
+## Deferred: interactive extension
+
+Column lineage inside the live VSCode/Mnemo interactive extension (editable,
+real-time, per-end-user) remains deferred. A Python dependency there means
+every end user needs `pip install dbt-colibri` locally — a much heavier ask
+than a single CI step. If ever revisited, the TS-native engine research below
+is preserved for reference.
+
+---
+
+## Appendix: TS-native engine research (interactive extension, deferred)
+
+Evaluated as an alternative to a Python dependency for the *interactive*
+extension specifically (not the static CLI, where Python is acceptable per
+above).
 
 - **`@polyglot-sql/sdk`** (tobilg/polyglot, MIT, Rust→WASM, 30+ dialects
   including Redshift/Snowflake/BigQuery/Postgres). Ships a purpose-built
-  `lineage(column, sql, dialect?)` API with OpenLineage-compatible output,
-  CTE/join/subquery resolution. Repo is ~6 months old (created 2026-01-15),
-  886★, single maintainer, pre-1.0 (v0.6.0), ~weekly release cadence, 45 open
-  issues. Real and actively iterating, but not production-hardened.
-- **`node-sql-parser`-based heuristic** — parser-only (no built-in lineage),
-  so we'd build resolution ourselves: parse the top-level SELECT list and CTE
-  chain, classify each output column as resolved or unknown. More scope to
-  build, but no dependency on a pre-1.0 single-maintainer package.
+  `lineage(column, sql, dialect?)` API with OpenLineage-compatible output.
+  Repo created 2026-01-15, 886★, single maintainer, pre-1.0 (v0.6.0).
+  Explicitly "inspired by sqlglot" and runs **sqlglot's own 10,220 fixture
+  test cases** as its test suite, self-reporting 100% pass rate on
+  parsing/dialect/transpilation categories — a real parity signal for the
+  underlying parser, though the `lineage()` feature itself is Polyglot's own
+  addition on top and isn't covered by that fixture parity claim.
+- **`node-sql-parser`-based heuristic** — parser-only (no built-in lineage);
+  would require building resolution ourselves (SELECT-list + CTE-chain
+  walking, `SELECT *` handled via `catalog.json`, unresolvable cases marked
+  "unknown" rather than guessed wrong).
 
-**Sequencing: spike Polyglot first.** Timeboxed (few hours) go/no-go test
-against real compiled SQL pulled from an actual Redshift dbt project — not
-synthetic examples. Pass (handles the Redshift dialect, CTEs, common join
-shapes without throwing) → Polyglot becomes the engine, skip building a
-parser. Fail → build the `node-sql-parser` heuristic instead.
-
-Either way, the engine sits behind one interface (see §4) so the choice is
-swappable without touching UI code.
-
-## 2. Data pipeline
-
-`manifest.ts` currently extracts `name`, `resource_type`, `path`,
-`description`, `tags`, `materialized`, `meta`, `tests`, `patch_path` per node
-— no SQL. Add `compiled_code` (only present in `manifest.json` after `dbt
-compile`/`dbt run` has been run against current state) to `GraphNode`. The
-host already triggers compile (`packages/vscode/src/host/compile.ts`), so
-this is one more field read, not a new host command.
-
-If `compiled_code` is absent for a node (never compiled since last manifest
-regen), that node's columns render as "unknown" — the rest of the graph is
-unaffected.
-
-## 3. New module: `columnLineage.ts`
-
-`packages/core/src/columnLineage.ts`, pure (no host imports, same
-Bridge-isolation rule as every other core module). Interface:
-
-```ts
-function computeColumnLineage(
-  compiledSql: string,
-  dialect: string,
-): { columns: ColumnRef[]; edges: ColumnEdge[]; unresolved: string[] }
-```
-
-Wraps whichever engine wins the spike. Called per-node when column-lineage
-mode is toggled on and that node is visible; results cached by node id +
-compiled-SQL hash (mirrors the existing `hashConfig.ts` pattern) so toggling
-or panning doesn't re-parse unchanged SQL.
-
-## 4. UI / toggle
-
-New `ViewState.columnLineage: boolean` (default `false`), toggle button in
-the toolbar alongside Focus/Apply-Filter, same pill-button visual treatment
-as the regex-mode toggle.
-
-- **Off** (default): today's model-level graph, unchanged.
-- **On**: each visible node's card expands to list its output columns
-  (parsed from the top-level SELECT list). Edges redraw column-to-column:
-  solid where resolved, dashed grey where unknown. Clicking a column
-  highlights its full upstream/downstream column chain, reusing the existing
-  `up`/`down` dim-channel pattern in `viewContext.ts` — no new dim-channel
-  concept, just a finer-grained id space (`nodeId::columnName` instead of
-  `nodeId`).
-
-## 5. Error handling
-
-- Parser throw or dialect mismatch on a given node's SQL → caught per-node,
-  that node's columns marked "unknown"; does not block the rest of the
-  graph.
-- No `compiled_code` at all → same "unknown" treatment, plus an inline hint
-  ("run dbt compile to enable column lineage") rather than a silent gap.
-- Column lineage is additive and non-destructive: turning it off always
-  restores the exact model-level graph state from before it was turned on.
-
-## 6. Testing
-
-- `columnLineage.ts` unit tests with fixture SQL snippets: simple
-  `SELECT`/alias, linear CTE chain, single-source `SELECT *`, multi-table
-  join `SELECT *` (expect unknown), window function (expect unknown) —
-  same fixture-driven pattern as `selector.test.ts`/`yamlEdit.test.ts`.
-- Toggle + column-edge rendering gets an `App.test.tsx`-style render test:
-  toggle on shows column cards and column edges; toggle off restores the
-  exact prior model-level render.
-- Regression: with the toggle off, every existing DAG test is unaffected
-  (new field on `GraphNode` is additive/optional).
-
-## Out of scope (v1)
-
-- Schema-aware resolution via `catalog.json` (`lineageWithSchema`) — stretch,
-  only if MVP "unknown" rate on real projects feels too high after
-  shipping.
-- Cross-project / cross-package column lineage (dbt Mesh `ref()` across
-  projects) — not requested.
-- Persisting the toggle's on/off state across sessions — defaults to off
-  every time, same as every other toolbar toggle in this codebase.
-- Column-level annotations (gist/callout/labels at the column grain) —
-  separate feature, not part of this spec.
-
-## Open risk
-
-Polyglot's real-world accuracy on Redshift-dialect compiled dbt SQL is
-unverified beyond its README — the spike in §1 exists specifically to
-resolve this before committing to it as the engine.
+If revisited: spike Polyglot's `lineage()` specifically (not just its parser
+parity) against real compiled Redshift SQL before committing; fall back to
+the `node-sql-parser` heuristic if it underdelivers. See git history of this
+file for the original full design (toggle UX, `ViewState` changes,
+`columnLineage.ts` module shape) — kept lightweight here since this track
+is not currently being built.
