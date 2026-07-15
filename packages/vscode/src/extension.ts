@@ -217,7 +217,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
       case "dbt.columnLineage": {
         projectRoot = resolveRoot();
         if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
-        const payload = runColumnLineageForProject(projectRoot);
+        const payload = await runColumnLineageForProject(projectRoot);
         reply({ ok: true, result: payload });
         break;
       }

@@ -20,25 +20,25 @@ afterEach(() => {
 });
 
 describe("runColumnLineageForProject", () => {
-  it("throws a clear error when manifest.json is missing", () => {
-    expect(() => runColumnLineageForProject(dir)).toThrow(/no manifest at .*run `dbt compile`/);
+  it("throws a clear error when manifest.json is missing", async () => {
+    await expect(runColumnLineageForProject(dir)).rejects.toThrow(/no manifest at .*run `dbt compile`/);
     expect(mockedRunColibri).not.toHaveBeenCalled();
   });
 
-  it("throws a clear error when catalog.json is missing (manifest present)", () => {
+  it("throws a clear error when catalog.json is missing (manifest present)", async () => {
     fs.mkdirSync(path.join(dir, "target"), { recursive: true });
     fs.writeFileSync(path.join(dir, "target", "manifest.json"), "{}");
-    expect(() => runColumnLineageForProject(dir)).toThrow(/no catalog at .*run `dbt docs generate`/);
+    await expect(runColumnLineageForProject(dir)).rejects.toThrow(/no catalog at .*run `dbt docs generate`/);
     expect(mockedRunColibri).not.toHaveBeenCalled();
   });
 
-  it("calls runColibri with the resolved manifest/catalog paths when both exist", () => {
+  it("calls runColibri with the resolved manifest/catalog paths when both exist", async () => {
     fs.mkdirSync(path.join(dir, "target"), { recursive: true });
     fs.writeFileSync(path.join(dir, "target", "manifest.json"), "{}");
     fs.writeFileSync(path.join(dir, "target", "catalog.json"), "{}");
-    mockedRunColibri.mockReturnValue({ nodes: {}, edges: [] });
+    mockedRunColibri.mockResolvedValue({ nodes: {}, edges: [] });
 
-    const result = runColumnLineageForProject(dir);
+    const result = await runColumnLineageForProject(dir);
 
     expect(mockedRunColibri).toHaveBeenCalledWith({
       manifestPath: path.join(dir, "target", "manifest.json"),

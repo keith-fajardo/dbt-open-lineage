@@ -9,8 +9,10 @@ import type { ColumnLineagePayload } from "@dbt-open-lineage/core/src/columnLine
  * requirement, not just this extension's — manifest comes from `dbt
  * compile` (already a one-click action in this extension), catalog comes
  * from `dbt docs generate` (not currently wired to anything here — the
- * error message tells the user the exact command to run manually). */
-export function runColumnLineageForProject(root: string): ColumnLineagePayload {
+ * error message tells the user the exact command to run manually). Async
+ * because runColibri() spawns a real subprocess non-blockingly — see
+ * packages/colibri-runner's async migration. */
+export async function runColumnLineageForProject(root: string): Promise<ColumnLineagePayload> {
   const manifestPath = path.join(root, "target", "manifest.json");
   const catalogPath = path.join(root, "target", "catalog.json");
   if (!fs.existsSync(manifestPath)) throw new Error(`no manifest at ${manifestPath} — run \`dbt compile\``);
