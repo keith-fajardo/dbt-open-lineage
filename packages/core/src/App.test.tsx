@@ -88,8 +88,13 @@ vi.mock("./layout", async (orig) => {
   };
 });
 
-import App, { lineageOf, edgeOnLineage } from "./App";
+import App, {
+  lineageOf, edgeOnLineage, computeSearchHits, hitKeysSignature, currentHitTarget,
+  type SearchHit,
+} from "./App";
 import type { ColumnLineagePayload } from "./columnLineage";
+import type { Node } from "@xyflow/react";
+import type { DagNodeData } from "./nodes";
 
 beforeEach(() => {
   layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g;
@@ -420,6 +425,89 @@ describe("search bar", () => {
     await waitFor(() => expect(screen.getByText("0 matches")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "next match" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "previous match" })).toBeDisabled();
+  });
+
+});
+
+// Regression tests for the final-review finding: `hits` is recomputed from
+// `rfNodes`, which gets a brand-new ARRAY identity on every drag — even a
+// drag of a node that ISN'T a search hit — because applyNodeChanges always
+// returns a fresh array (it only replaces the object for the node that
+// actually moved; untouched nodes keep their exact reference, per the
+// comment above `onNodesChange` in App.tsx). Before the fix, any `hits`
+// identity change reset hitIdx to 0 (`useEffect(() => setHitIdx(0), [searchQ,
+// hits])`) and re-panned the viewport to hit #1 (`[hitIdx, hits]`) — so
+// stepping to hit #2 and then dragging any unrelated node snapped the
+// counter straight back to "1 of N" and yanked the viewport, even though
+// nothing about the search results actually changed.
+//
+// A real React Flow drag doesn't reliably move a node in jsdom (no layout
+// engine backs the pane's zoom/pan transform, so d3-drag's position math
+// never produces a change worth asserting on — confirmed empirically: a
+// simulated mousedown/mousemove/mouseup sequence passed identically against
+// both the buggy and the fixed code, i.e. it was a vacuous test). These
+// tests instead exercise the actual pure functions the component composes
+// (`computeSearchHits`, `hitKeysSignature`, `currentHitTarget`, all exported
+// from App.tsx for exactly this purpose), simulating the *shape* of an
+// unrelated drag the same way applyNodeChanges really produces it: a new
+// array, with a new object only for the node that moved.
+describe("search-hit stability (final-review regression)", () => {
+  const nodeAt = (id: string, label: string, x: number, y: number): Node<DagNodeData> => ({
+    id,
+    position: { x, y },
+    data: { label, layer: "staging", materialized: "", testCount: 0 },
+  });
+
+  it("hitKeysSignature and currentHitTarget stay stable when an UNRELATED node's position changes", () => {
+    const before = [
+      nodeAt("a", "a", 0, 0),
+      nodeAt("aa", "aa", 0, 100),
+      nodeAt("other", "other", 0, 200), // never matches "a" — not a hit
+    ];
+    // Simulate applyNodeChanges after dragging "other": a brand-new array
+    // (real onNodesChange always allocates one), a brand-new "other" object
+    // (its position moved), but "a"/"aa" keep their EXACT same references —
+    // matching applyNodeChanges' real behavior.
+    const after = [before[0], before[1], { ...before[2], position: { x: 999, y: 999 } }];
+    expect(after).not.toBe(before);
+
+    const hitsBefore = computeSearchHits("a", before);
+    const hitsAfter = computeSearchHits("a", after);
+    // Root cause, made concrete: `hits` is a brand-new array/object set
+    // every time, even though nothing relevant to the search changed — this
+    // is exactly why an effect keyed directly off `hits` used to misfire.
+    expect(hitsAfter).not.toBe(hitsBefore);
+
+    // The fix: content-derived signatures ARE equal, so effects keyed off
+    // these strings (not off `hits` itself) correctly stay put.
+    expect(hitKeysSignature(hitsAfter)).toBe(hitKeysSignature(hitsBefore));
+    expect(currentHitTarget(hitsAfter, 1)).toBe(currentHitTarget(hitsBefore, 1));
+    // Sanity: there really are two hits ("a", "aa"), "other" isn't one.
+    const keys: SearchHit[] = hitsBefore;
+    expect(keys.map((h) => h.key)).toEqual(["a", "aa"]);
+  });
+
+  it("hitKeysSignature DOES change on a genuine change: the query narrows", () => {
+    const nodes = [nodeAt("a", "a", 0, 0), nodeAt("aa", "aa", 0, 100)];
+    const hitsA = computeSearchHits("a", nodes);
+    const hitsB = computeSearchHits("aa", nodes);
+    expect(hitKeysSignature(hitsA)).not.toBe(hitKeysSignature(hitsB));
+  });
+
+  it("currentHitTarget DOES change when the CURRENTLY TARGETED hit's own node moves (follows it)", () => {
+    const before = [nodeAt("a", "a", 0, 0), nodeAt("aa", "aa", 0, 100)];
+    const after = [before[0], { ...before[1], position: { x: 500, y: 500 } }];
+    const hitsBefore = computeSearchHits("a", before);
+    const hitsAfter = computeSearchHits("a", after);
+    // Membership is unchanged (still "a" then "aa") ...
+    expect(hitKeysSignature(hitsAfter)).toBe(hitKeysSignature(hitsBefore));
+    // ... but if the user is currently stepped to "aa" (index 1), the pan
+    // target correctly follows it to its new position rather than freezing
+    // on a stale spot.
+    expect(currentHitTarget(hitsAfter, 1)).not.toBe(currentHitTarget(hitsBefore, 1));
+    // An UNTARGETED hit moving (index 0, "a", didn't move here anyway) has
+    // no bearing — currentHitTarget only looks at the targeted index.
+    expect(currentHitTarget(hitsAfter, 0)).toBe(currentHitTarget(hitsBefore, 0));
   });
 });
 

@@ -248,6 +248,66 @@ export function edgeOnLineage(
      e.from === selected || lineage.down.has(e.from));
 }
 
+/** One ordered search hit: node-name hit or column hit, with its rendered
+ * on-DAG center (for panning). Key is the node id (name hit) or the endpoint
+ * key (column hit). */
+export type SearchHit = { key: string; cx: number; cy: number };
+
+/** Pure hit-computation behind the search bar's node-name/column matching —
+ * node-name hits + column hits, top-to-bottom then left-to-right, so
+ * Prev/Next stepping feels spatial. Exported (alongside the two signature
+ * helpers below) so the search-stepping stability fix can be unit tested
+ * directly: build two `rfNodes`-shaped arrays representing "before" and
+ * "after an unrelated drag" and assert the derived signatures don't change,
+ * without needing to drive a real React Flow pointer drag through jsdom. */
+export function computeSearchHits(searchQ: string, rfNodes: Node<DagNodeData>[]): SearchHit[] {
+  if (!searchQ) return [];
+  const out: SearchHit[] = [];
+  for (const n of rfNodes) {
+    const pos = n.position;
+    const w = n.data.width ?? 180;
+    const h = n.data.height ?? 44;
+    if (n.data.label.toLowerCase().includes(searchQ)) {
+      out.push({ key: n.id, cx: pos.x + w / 2, cy: pos.y + h / 2 });
+    }
+    for (const c of n.data.columns ?? []) {
+      if (c.name.toLowerCase().includes(searchQ)) {
+        out.push({ key: endpointKey(n.id, c.name), cx: pos.x + w / 2, cy: pos.y + h / 2 });
+      }
+    }
+  }
+  out.sort((a, b) => a.cy - b.cy || a.cx - b.cx);
+  return out;
+}
+
+/** Membership signature: which keys match, in list order — independent of
+ * position. `hits` gets a brand-new ARRAY identity on every rfNodes change,
+ * including an unrelated node drag or React Flow's own dimension
+ * re-measurement (both route through onNodesChange -> applyNodeChanges ->
+ * setNodeState regardless of whether the match set actually changed) — so an
+ * effect keyed directly off `hits` fires on every such drag. This returns a
+ * plain STRING instead: primitives compare by VALUE, so an effect dependency
+ * built from one only changes when the underlying content actually differs,
+ * never merely because a fresh array was allocated. Dragging any node that
+ * ISN'T currently a hit can never change this (its position isn't part of
+ * the signature); it DOES change if the query changes, or a node/column
+ * enters, leaves, or re-sorts within the results. */
+export function hitKeysSignature(hits: SearchHit[]): string {
+  return hits.map((h) => h.key).join(" ");
+}
+
+/** Position signature of ONE particular hit, selected by index: its key plus
+ * its center. Two hit lists that reference the same targeted hit at the same
+ * position produce an equal string even when the arrays/objects backing them
+ * are different instances — e.g. after an unrelated node's drag rebuilt the
+ * whole list. Changes only when stepping to a different hit, or when that
+ * specific hit's own node is dragged to a new spot. */
+export function currentHitTarget(hits: SearchHit[], hitIdx: number): string | null {
+  if (!hits.length) return null;
+  const hit = hits[Math.min(hitIdx, hits.length - 1)];
+  return `${hit.key}:${hit.cx},${hit.cy}`;
+}
+
 export default function App({ projectPath, initialSelector = "", debounceMs = 150, readOnly = false, canRun = false }: Props) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1049,40 +1109,49 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
 
   // One ordered hit list: node-name hits + column hits, top-to-bottom then
   // left-to-right, so Prev/Next stepping feels spatial. A hit's key is the node
-  // id (name hit) or the endpoint key (column hit).
-  type SearchHit = { key: string; cx: number; cy: number };
-  const hits = useMemo<SearchHit[]>(() => {
-    if (!searchQ) return [];
-    const out: SearchHit[] = [];
-    for (const n of rfNodes) {
-      const pos = n.position;
-      const w = (n.data.width as number | undefined) ?? 180;
-      const h = (n.data.height as number | undefined) ?? 44;
-      if (n.data.label.toLowerCase().includes(searchQ)) {
-        out.push({ key: n.id, cx: pos.x + w / 2, cy: pos.y + h / 2 });
-      }
-      for (const c of (n.data.columns as { name: string }[] | undefined) ?? []) {
-        if (c.name.toLowerCase().includes(searchQ)) {
-          out.push({ key: endpointKey(n.id, c.name), cx: pos.x + w / 2, cy: pos.y + h / 2 });
-        }
-      }
-    }
-    out.sort((a, b) => a.cy - b.cy || a.cx - b.cx);
-    return out;
-  }, [searchQ, rfNodes]);
+  // id (name hit) or the endpoint key (column hit). Pure computation lives in
+  // computeSearchHits (exported above) so it's directly unit-testable.
+  const hits = useMemo(() => computeSearchHits(searchQ, rfNodes), [searchQ, rfNodes]);
 
   // Live match count over the nodes/columns actually shown in the DAG.
   const searchHits = hits.length;
-  // Reset the step index whenever the query or the hit list changes.
-  useEffect(() => { setHitIdx(0); }, [searchQ, hits]);
+
+  // `hits` gets a brand-new ARRAY identity on every rfNodes change, including
+  // an unrelated node drag or React Flow's own dimension re-measurement —
+  // both route through onNodesChange -> applyNodeChanges -> setNodeState
+  // regardless of whether the match set actually changed. Effects keyed
+  // directly off `hits` (object identity) would therefore fire on every such
+  // drag. Derive plain STRINGS instead: primitives compare by value, so an
+  // effect dependency built from one only changes when the underlying content
+  // actually differs, not merely because a fresh array/object was allocated.
+  //
+  // Membership signature: which keys match, in list order — independent of
+  // position. Dragging any node that ISN'T currently a hit can never change
+  // this (its position isn't part of the signature), so it doesn't reset
+  // stepping. It DOES change if the query changes, or a node/column enters,
+  // leaves, or re-sorts within the results.
+  const hitKeysSig = useMemo(() => hitKeysSignature(hits), [hits]);
+  // Reset the step index only when the actual match set changes — not on
+  // every `hits` identity change.
+  useEffect(() => { setHitIdx(0); }, [searchQ, hitKeysSig]);
+
+  const clampedHitIdx = hits.length ? Math.min(hitIdx, hits.length - 1) : 0;
+  const currentHit = hits.length ? hits[clampedHitIdx].key : null;
+  // Position signature of the hit currently being stepped to. Changes only
+  // when stepping to a different hit, or when THAT specific hit's own node
+  // is dragged to a new spot — never when an unrelated node moves, since
+  // that entry's key/cx/cy are untouched (see currentHitTarget above).
+  const currentHitTargetSig = currentHitTarget(hits, hitIdx);
   // Pan to the current hit (keep the current zoom).
-  const currentHit = hits.length ? hits[Math.min(hitIdx, hits.length - 1)].key : null;
   useEffect(() => {
     if (!hits.length || !rfRef.current) return;
-    const hit = hits[Math.min(hitIdx, hits.length - 1)];
+    const hit = hits[clampedHitIdx];
     const z = rfRef.current.getZoom();
     rfRef.current.setCenter(hit.cx, hit.cy, { zoom: z, duration: 400 });
-  }, [hitIdx, hits]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: fire only on a
+    // genuine change to the targeted hit (see currentHitTargetSig comment above), not on
+    // every `hits`/`clampedHitIdx` identity change from an unrelated node drag.
+  }, [currentHitTargetSig]);
 
   const view: ViewState = useMemo(() => ({
     selected,
