@@ -23,8 +23,8 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
  * Seeds a fresh `version: 2` doc when the file does not exist yet. Returns
  * serialized YAML.
  *
- * Every key this extension owns (`gist`, `grain`, `callout`, `subject_areas`,
- * `labels`) is namespaced under `config.meta.dbt_open_lineage` to avoid
+ * Every key this extension owns (`gist`, `grain`, `callout`, `grain_callout`,
+ * `subject_areas`, `labels`) is namespaced under `config.meta.dbt_open_lineage` to avoid
  * colliding with other tools that also write into a model's `meta` — this
  * function ONLY ever writes to the nested shape. Models edited before this
  * namespacing existed may still have these keys flat at `config.meta.<key>`;
@@ -44,6 +44,10 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
  *   - a non-empty string → set it (e.g. "top").
  *   - `null` or `""` → remove it.
  *
+ * `grain_callout` controls `config.meta.dbt_open_lineage.grain_callout` (the
+ * placement that makes `grain` render as a second bubble on the DAG),
+ * following the exact same convention as `callout` above.
+ *
  * `subjectAreas` / `labels` control `config.meta.dbt_open_lineage.subject_areas`
  * / `...labels` (a model's membership in named zones / label stripes), and
  * `tags` controls `config.tags` (dbt's native tag list, never namespaced —
@@ -54,7 +58,8 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
  *   - an empty `[]` → remove the key (never writes `subject_areas: []`). */
 export function upsertModelDoc(
   existingText: string | null, name: string, description: string, gist: string,
-  grain: string, callout?: string | null, subjectAreas?: string[], labels?: string[], tags?: string[],
+  grain: string, callout?: string | null, grainCallout?: string | null,
+  subjectAreas?: string[], labels?: string[], tags?: string[],
 ): string {
   const base = existingText && existingText.trim() ? existingText : "version: 2\nmodels: []\n";
   const doc: Document.Parsed = parseDocument(base);
@@ -123,6 +128,13 @@ export function upsertModelDoc(
     doc.setIn(nsPath("callout"), callout);
   } else if (callout === null || callout === "") {
     clearOwnedKey("callout");
+  }
+
+  // grain_callout placement: identical treatment to callout, same reasoning.
+  if (typeof grainCallout === "string" && grainCallout) {
+    doc.setIn(nsPath("grain_callout"), grainCallout);
+  } else if (grainCallout === null || grainCallout === "") {
+    clearOwnedKey("grain_callout");
   }
 
   // subject_areas / labels membership lists: same convention as callout. A

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parse } from "yaml";
+import { parse, parseDocument } from "yaml";
 import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 
 describe("targetYamlPath", () => {
@@ -29,7 +29,7 @@ describe("upsertModelDoc", () => {
   });
 
   it("writes a fresh file in BLOCK style, not flow (no curly braces / inline arrays)", () => {
-    const out = upsertModelDoc(null, "stg_orders", "d", "g", "", undefined, ["orders"], undefined, ["nightly"]);
+    const out = upsertModelDoc(null, "stg_orders", "d", "g", "", undefined, undefined, ["orders"], undefined, ["nightly"]);
     expect(out).not.toContain("{"); // no flow maps
     expect(out).not.toContain("["); // no flow/inline sequences
     expect(out).toContain("  - name: stg_orders");
@@ -217,7 +217,7 @@ describe("upsertModelDoc", () => {
   });
 
   it("sets namespaced subject_areas and labels as YAML sequences", () => {
-    const out = upsertModelDoc(null, "stg_orders", "d", "g", "", undefined, ["billing", "orders"], ["core"]);
+    const out = upsertModelDoc(null, "stg_orders", "d", "g", "", undefined, undefined, ["billing", "orders"], ["core"]);
     const doc = parse(out);
     expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toEqual(["billing", "orders"]);
     expect(doc.models[0].config.meta.dbt_open_lineage.labels).toEqual(["core"]);
@@ -236,7 +236,7 @@ describe("upsertModelDoc", () => {
       "        subject_areas: [billing]",
       "        labels: [core]",
     ].join("\n");
-    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", "", undefined, ["orders"], ["core", "pii"]));
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", "", undefined, undefined, ["orders"], ["core", "pii"]));
     expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toEqual(["orders"]);
     expect(doc.models[0].config.meta.dbt_open_lineage.labels).toEqual(["core", "pii"]);
   });
@@ -251,7 +251,7 @@ describe("upsertModelDoc", () => {
       "        subject_areas: [billing]",
       "        labels: [core]",
     ].join("\n");
-    const out = upsertModelDoc(src, "stg_orders", "d", "g", "", undefined, [], ["core"]);
+    const out = upsertModelDoc(src, "stg_orders", "d", "g", "", undefined, undefined, [], ["core"]);
     const doc = parse(out);
     expect(doc.models[0].config.meta.subject_areas).toBeUndefined();               // legacy deleted
     expect(doc.models[0].config.meta.dbt_open_lineage?.subject_areas).toBeUndefined(); // never created
@@ -272,7 +272,7 @@ describe("upsertModelDoc", () => {
       "        dbt_open_lineage:",
       "          subject_areas: [billing]",
     ].join("\n");
-    const out = upsertModelDoc(src, "stg_orders", "d", "g", "", undefined, []);
+    const out = upsertModelDoc(src, "stg_orders", "d", "g", "", undefined, undefined, []);
     const doc = parse(out);
     expect(doc.models[0].config.meta.subject_areas).toBeUndefined();                // legacy deleted
     expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toBeUndefined(); // nested deleted
@@ -306,7 +306,7 @@ describe("upsertModelDoc", () => {
       "        gist: g",
       "        callout: top",
     ].join("\n");
-    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "new gist", "", "top", ["billing"], ["core"]));
+    const doc = parse(upsertModelDoc(src, "stg_orders", "d", "new gist", "", "top", undefined, ["billing"], ["core"]));
     expect(doc.models[0].config.meta.dbt_open_lineage.gist).toBe("new gist");
     expect(doc.models[0].config.meta.dbt_open_lineage.callout).toBe("top");
     expect(doc.models[0].config.meta.dbt_open_lineage.subject_areas).toEqual(["billing"]);
@@ -314,7 +314,7 @@ describe("upsertModelDoc", () => {
   });
 
   it("writes tags to config.tags (dbt-native, not under meta, never namespaced)", () => {
-    const out = upsertModelDoc(null, "stg_orders", "d", "g", "", undefined, undefined, undefined, ["nightly", "core"]);
+    const out = upsertModelDoc(null, "stg_orders", "d", "g", "", undefined, undefined, undefined, undefined, ["nightly", "core"]);
     const doc = parse(out);
     expect(doc.models[0].config.tags).toEqual(["nightly", "core"]);
     expect(doc.models[0].config.meta?.tags).toBeUndefined(); // NOT under meta
@@ -323,7 +323,7 @@ describe("upsertModelDoc", () => {
 
   it("does not seed an empty gist onto a model that never had one", () => {
     // Only a subject-area change; gist is "" and there was no gist before.
-    const out = upsertModelDoc(null, "stg_orders", "d", "", "", undefined, ["orders"]);
+    const out = upsertModelDoc(null, "stg_orders", "d", "", "", undefined, undefined, ["orders"]);
     const doc = parse(out);
     expect(doc.models[0].config.meta.dbt_open_lineage?.gist).toBeUndefined();
     expect(out).not.toContain("gist:");
@@ -355,7 +355,7 @@ describe("upsertModelDoc", () => {
     // omitted → untouched
     expect(parse(upsertModelDoc(src, "stg_orders", "d", "g", "")).models[0].config.tags).toEqual(["nightly"]);
     // [] → key removed
-    const out = upsertModelDoc(src, "stg_orders", "d", "g", "", undefined, undefined, undefined, []);
+    const out = upsertModelDoc(src, "stg_orders", "d", "g", "", undefined, undefined, undefined, undefined, []);
     expect(parse(out).models[0].config.tags).toBeUndefined();
     expect(out).not.toContain("tags:");
   });
@@ -373,7 +373,7 @@ describe("upsertModelDoc", () => {
 
   it("does not seed an empty grain onto a model that never had one", () => {
     // Only a subject-area change; grain is "" and there was no grain before.
-    const out = upsertModelDoc(null, "stg_orders", "d", "g", "", undefined, ["orders"]);
+    const out = upsertModelDoc(null, "stg_orders", "d", "g", "", undefined, undefined, ["orders"]);
     const doc = parse(out);
     expect(doc.models[0].config.meta.dbt_open_lineage?.grain).toBeUndefined();
     expect(out).not.toContain("grain:");
@@ -408,5 +408,42 @@ describe("upsertModelDoc", () => {
     const doc = parse(upsertModelDoc(src, "stg_orders", "d", "g", ""));
     expect(doc.models[0].config.meta.grain).toBeUndefined();                 // legacy deleted
     expect(doc.models[0].config.meta.dbt_open_lineage.grain).toBe("");       // nested emptied, not deleted (matches gist)
+  });
+});
+
+describe("upsertModelDoc — grainCallout", () => {
+  it("writes a fresh grain_callout under the namespaced key", () => {
+    const out = upsertModelDoc(null, "stg_orders", "desc", "a gist", "one row per order", null, "top");
+    const doc = parseDocument(out);
+    expect(doc.getIn(["models", 0, "config", "meta", "dbt_open_lineage", "grain_callout"])).toBe("top");
+  });
+
+  it("clears an existing nested grain_callout on null", () => {
+    const seeded = upsertModelDoc(null, "stg_orders", "desc", "a gist", "one row per order", null, "top");
+    const cleared = upsertModelDoc(seeded, "stg_orders", "desc", "a gist", "one row per order", null, null);
+    const doc = parseDocument(cleared);
+    expect(doc.hasIn(["models", 0, "config", "meta", "dbt_open_lineage", "grain_callout"])).toBe(false);
+  });
+
+  it("clears a legacy flat grain_callout on null", () => {
+    const legacySeed = `version: 2
+models:
+  - name: stg_orders
+    description: desc
+    config:
+      meta:
+        grain_callout: top
+`;
+    const cleared = upsertModelDoc(legacySeed, "stg_orders", "desc", "a gist", "one row per order", null, null);
+    const doc = parseDocument(cleared);
+    expect(doc.hasIn(["models", 0, "config", "meta", "grain_callout"])).toBe(false);
+    expect(doc.hasIn(["models", 0, "config", "meta", "dbt_open_lineage", "grain_callout"])).toBe(false);
+  });
+
+  it("omitting grainCallout (undefined) leaves an existing value untouched", () => {
+    const seeded = upsertModelDoc(null, "stg_orders", "desc", "a gist", "one row per order", null, "top");
+    const untouched = upsertModelDoc(seeded, "stg_orders", "desc", "a gist", "one row per order", null, undefined);
+    const doc = parseDocument(untouched);
+    expect(doc.getIn(["models", 0, "config", "meta", "dbt_open_lineage", "grain_callout"])).toBe("top");
   });
 });
