@@ -25,6 +25,7 @@ const LOCKED_LAYERS = COLUMN_GROUPS.flat();
 export function layoutGraph(
   graph: Graph,
   calloutHeights?: Map<string, number>,
+  sizes?: Map<string, { w: number; h: number }>,
 ): Map<string, { x: number; y: number }> {
   const isLocked = (layer: string) => LOCKED_LAYERS.includes(layer);
   const free = graph.nodes.filter((n) => !isLocked(n.layer));
@@ -35,10 +36,14 @@ export function layoutGraph(
   // at the BOTTOM of that taller box, leaving the reserved space above it for
   // the callout bubble (rendered in flow-space by CalloutOverlay).
   const extraOf = (id: string) => calloutHeights?.get(id) ?? 0;
+  // Per-node box size (column mode). Absent → NODE_W×NODE_H → byte-identical.
+  const widthOf = (id: string) => sizes?.get(id)?.w ?? NODE_W;
+  const nodeHeightOf = (id: string) => sizes?.get(id)?.h ?? NODE_H;
+  const boxHeightOf = (id: string) => nodeHeightOf(id) + extraOf(id);
   const dg = new dagre.graphlib.Graph();
   dg.setGraph({ rankdir: "LR", nodesep: ROW_GAP, ranksep: COL_GAP });
   dg.setDefaultEdgeLabel(() => ({}));
-  for (const n of free) dg.setNode(n.id, { width: NODE_W, height: NODE_H + extraOf(n.id) });
+  for (const n of free) dg.setNode(n.id, { width: widthOf(n.id), height: boxHeightOf(n.id) });
   for (const e of graph.edges) {
     if (freeIds.has(e.from) && freeIds.has(e.to)) dg.setEdge(e.from, e.to);
   }
@@ -52,7 +57,7 @@ export function layoutGraph(
   let fLeft = Infinity, fTop = Infinity, fBottom = -Infinity;
   for (const n of free) {
     const { x, y, height } = dg.node(n.id);
-    fLeft = Math.min(fLeft, x - NODE_W / 2);
+    fLeft = Math.min(fLeft, x - widthOf(n.id) / 2);
     fTop = Math.min(fTop, y - height / 2);
     fBottom = Math.max(fBottom, y + height / 2);
   }
@@ -73,8 +78,18 @@ export function layoutGraph(
     byGroup.get(gi)!.push(n);
   }
   const usedGroups = [...byGroup.keys()].sort((a, b) => a - b);
-  const lockedWidth = usedGroups.length * (NODE_W + COL_GAP);
-  const heightOf = (rows: number) => rows * NODE_H + (rows - 1) * ROW_GAP;
+  // Each locked group is as wide as its widest member; columns pack left→right
+  // by cumulative width. Uniform sizes collapse this to the old
+  // `index * (NODE_W + COL_GAP)`.
+  const groupWidth = (gi: number) =>
+    Math.max(NODE_W, ...byGroup.get(gi)!.map((n) => widthOf(n.id)));
+  const colXMap = new Map<number, number>();
+  let lockedAcc = 0;
+  for (const gi of usedGroups) {
+    colXMap.set(gi, lockedAcc);
+    lockedAcc += groupWidth(gi) + COL_GAP;
+  }
+  const lockedWidth = lockedAcc;
 
   // Free node centers, shifted right of the locked columns (placed first so
   // locked barycenters can read final neighbor positions).
@@ -87,7 +102,7 @@ export function layoutGraph(
     // `boxTop + extra = y - NODE_H/2 + extra/2`. With extra === 0 this reduces
     // to `y - NODE_H/2` — byte-identical to the pre-callout layout.
     const extra = extraOf(n.id);
-    pos.set(n.id, { x: x - NODE_W / 2 + freeShift, y: y - NODE_H / 2 + extra / 2 });
+    pos.set(n.id, { x: x - widthOf(n.id) / 2 + freeShift, y: y - nodeHeightOf(n.id) / 2 + extra / 2 });
     // Locked barycenter ordering reads the dagre box center y, unchanged.
     centerY.set(n.id, y);
   }
@@ -95,7 +110,7 @@ export function layoutGraph(
   // Place locked columns RIGHT-to-left (staging → sources+seeds): each row
   // sorts by the average center-Y of its already-placed neighbors, so e.g.
   // staging follows its int consumers and raw inputs follow their staging.
-  const colX = (gi: number) => usedGroups.indexOf(gi) * (NODE_W + COL_GAP);
+  const colX = (gi: number) => colXMap.get(gi)!;
   for (const gi of [...usedGroups].reverse()) {
     const rows = byGroup.get(gi)!;
     const keyed = rows.map((n) => {
@@ -110,12 +125,15 @@ export function layoutGraph(
     });
     // Stable, deterministic: barycenter first, unconnected rows last by name.
     keyed.sort((a, b) => (a.bary - b.bary) || a.name.localeCompare(b.name));
-    const colTop = freeMidY - heightOf(keyed.length) / 2;
-    keyed.forEach((r, i) => {
-      const yTop = colTop + i * (NODE_H + ROW_GAP);
+    const totalH =
+      keyed.reduce((s, r) => s + nodeHeightOf(r.id), 0) +
+      Math.max(0, keyed.length - 1) * ROW_GAP;
+    let yTop = freeMidY - totalH / 2;
+    for (const r of keyed) {
       pos.set(r.id, { x: colX(gi), y: yTop });
-      centerY.set(r.id, yTop + NODE_H / 2);
-    });
+      centerY.set(r.id, yTop + nodeHeightOf(r.id) / 2);
+      yTop += nodeHeightOf(r.id) + ROW_GAP;
+    }
   }
 
   return pos;

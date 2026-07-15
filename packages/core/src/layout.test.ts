@@ -120,4 +120,37 @@ describe("layoutGraph", () => {
     expect(pos.get("a")!.x).toBe(0);
     expect(pos.get("b")!.x).toBe(180 + 80);
   });
+
+  it("no sizes arg → layout byte-identical to passing an empty sizes map", () => {
+    const a = layoutGraph(g);
+    const b = layoutGraph(g, undefined, new Map());
+    for (const id of ["a", "b"]) {
+      expect(b.get(id)).toEqual(a.get(id));
+    }
+  });
+
+  it("a per-node size map grows the node and keeps stacked nodes non-overlapping", () => {
+    const stacked: Graph = {
+      nodes: [
+        node("int_a", "intermediate"),
+        node("int_b", "intermediate"),
+        node("mrt", "mart"),
+      ],
+      edges: [
+        { from: "int_a", to: "mrt" },
+        { from: "int_b", to: "mrt" },
+      ],
+    };
+    const gapOf = (pos: Map<string, { x: number; y: number }>) =>
+      Math.abs(pos.get("int_a")!.y - pos.get("int_b")!.y);
+    const base = layoutGraph(stacked);
+    // dagre anchors each same-rank box's TOP edge relative to its neighbor and
+    // extends purely DOWNWARD as its own height grows (verified directly: a
+    // grown trailing/lower node's top edge is invariant since nothing sits
+    // below it to push into). So growing the UPPER of the two stacked nodes
+    // is what forces the one below it further away.
+    const upper = base.get("int_a")!.y < base.get("int_b")!.y ? "int_a" : "int_b";
+    const grown = layoutGraph(stacked, undefined, new Map([[upper, { w: 240, h: 200 }]]));
+    expect(gapOf(grown)).toBeGreaterThan(gapOf(base));
+  });
 });
