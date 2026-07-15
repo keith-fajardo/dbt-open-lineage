@@ -1,7 +1,9 @@
 # Column-level lineage — design
 
 Date: 2026-07-15
-Status: approved (brainstorming), pending implementation plan
+Status: deferred — superseded by decision to prototype dbt-colibri
+(Python/sqlglot) integration in a separate repo first. No implementation
+planned against this spec for now. Kept for the engine-options research.
 
 ## Scope
 
