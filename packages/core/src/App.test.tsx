@@ -367,9 +367,11 @@ describe("search bar", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     expect(document.querySelector("mark")).toBeNull();
     fireEvent.change(screen.getByLabelText("Search nodes"), { target: { value: "a" } });
-    // Node "a" gets its text marked, and the toolbar reports one hit.
+    // Node "a" gets its text marked, and the toolbar reports the hit as
+    // "1 of 1" — the Prev/Next counter format (replaces the old plain
+    // "1 match" text now that stepping exists).
     await waitFor(() => expect(document.querySelectorAll("mark").length).toBeGreaterThan(0));
-    expect(screen.getByText("1 match")).toBeInTheDocument();
+    expect(screen.getByText("1 of 1")).toBeInTheDocument();
     // Clearing removes all highlights.
     fireEvent.change(screen.getByLabelText("Search nodes"), { target: { value: "" } });
     await waitFor(() => expect(document.querySelector("mark")).toBeNull());
@@ -381,6 +383,43 @@ describe("search bar", () => {
     fireEvent.change(screen.getByLabelText("Search nodes"), { target: { value: "zzz" } });
     expect(await screen.findByText("0 matches")).toBeInTheDocument();
     expect(document.querySelector("mark")).toBeNull();
+  });
+
+  // "a"/"b"/"c"/"d" share no substrings, so a 2-hit stepping test needs its
+  // own tiny graph — two node names that both contain the search query.
+  const twoAGraph: Graph = {
+    nodes: [
+      { id: "a", name: "a", resource_type: "model", layer: "staging", path: "m.sql", description: "" },
+      { id: "aa", name: "aa", resource_type: "model", layer: "staging", path: "m.sql", description: "" },
+    ],
+    edges: [],
+  };
+
+  it("shows an 'N of M' counter and Prev/Next chevrons that step through node hits", async () => {
+    manifestGraph = twoAGraph;
+    render(<App projectPath="/proj" initialSelector="a aa" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText("Search nodes"), { target: { value: "a" } });
+    await waitFor(() => expect(screen.getByText(/^1 of /)).toBeInTheDocument());
+    expect(screen.getByText("1 of 2")).toBeInTheDocument();
+    const next = screen.getByRole("button", { name: "next match" });
+    fireEvent.click(next);
+    await waitFor(() => expect(screen.getByText("2 of 2")).toBeInTheDocument());
+    // Stepping wraps around: Next from the last hit goes back to the first.
+    fireEvent.click(next);
+    await waitFor(() => expect(screen.getByText("1 of 2")).toBeInTheDocument());
+    const prev = screen.getByRole("button", { name: "previous match" });
+    fireEvent.click(prev);
+    await waitFor(() => expect(screen.getByText("2 of 2")).toBeInTheDocument());
+  });
+
+  it("Prev/Next are disabled when there are zero matches", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText("Search nodes"), { target: { value: "zzz" } });
+    await waitFor(() => expect(screen.getByText("0 matches")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "next match" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "previous match" })).toBeDisabled();
   });
 });
 

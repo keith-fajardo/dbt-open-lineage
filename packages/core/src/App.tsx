@@ -922,6 +922,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [runErr, setRunErr] = useState<string | null>(null);
 
   const runMenuRef = useRef<HTMLDivElement>(null);
+  // React Flow instance handle (captured via onInit below) — used to pan the
+  // viewport to the current search hit without touching zoom.
+  const rfRef = useRef<import("@xyflow/react").ReactFlowInstance<Node<DagNodeData>, Edge> | null>(null);
+  const [hitIdx, setHitIdx] = useState(0);
   // Click anywhere outside the Run▾ dropdown (or its own toggle button)
   // closes it. mousedown, not click, so a click ON the toggle button still
   // fires its own onClick afterward instead of racing this listener — by
@@ -1029,6 +1033,57 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     [columnLineage, selectedColumn],
   );
 
+  // Endpoint keys of PICKED columns whose name matches — only rendered rows can
+  // carry a meaningful amber hit or be a Prev/Next jump target (plan scope
+  // decision: search doesn't reach unpicked/transient auto-trace-only columns).
+  const columnSearchHits = useMemo(() => {
+    const out = new Set<string>();
+    if (!searchQ || !(columnLineageMode && columnLineage)) return out;
+    for (const [node, cols] of pickedColumns) {
+      for (const col of cols) {
+        if (col.toLowerCase().includes(searchQ)) out.add(endpointKey(node, col));
+      }
+    }
+    return out;
+  }, [searchQ, columnLineageMode, columnLineage, pickedColumns]);
+
+  // One ordered hit list: node-name hits + column hits, top-to-bottom then
+  // left-to-right, so Prev/Next stepping feels spatial. A hit's key is the node
+  // id (name hit) or the endpoint key (column hit).
+  type SearchHit = { key: string; cx: number; cy: number };
+  const hits = useMemo<SearchHit[]>(() => {
+    if (!searchQ) return [];
+    const out: SearchHit[] = [];
+    for (const n of rfNodes) {
+      const pos = n.position;
+      const w = (n.data.width as number | undefined) ?? 180;
+      const h = (n.data.height as number | undefined) ?? 44;
+      if (n.data.label.toLowerCase().includes(searchQ)) {
+        out.push({ key: n.id, cx: pos.x + w / 2, cy: pos.y + h / 2 });
+      }
+      for (const c of (n.data.columns as { name: string }[] | undefined) ?? []) {
+        if (c.name.toLowerCase().includes(searchQ)) {
+          out.push({ key: endpointKey(n.id, c.name), cx: pos.x + w / 2, cy: pos.y + h / 2 });
+        }
+      }
+    }
+    out.sort((a, b) => a.cy - b.cy || a.cx - b.cx);
+    return out;
+  }, [searchQ, rfNodes]);
+
+  // Live match count over the nodes/columns actually shown in the DAG.
+  const searchHits = hits.length;
+  // Reset the step index whenever the query or the hit list changes.
+  useEffect(() => { setHitIdx(0); }, [searchQ, hits]);
+  // Pan to the current hit (keep the current zoom).
+  const currentHit = hits.length ? hits[Math.min(hitIdx, hits.length - 1)].key : null;
+  useEffect(() => {
+    if (!hits.length || !rfRef.current) return;
+    const hit = hits[Math.min(hitIdx, hits.length - 1)];
+    const z = rfRef.current.getZoom();
+    rfRef.current.setCenter(hit.cx, hit.cy, { zoom: z, duration: 400 });
+  }, [hitIdx, hits]);
+
   const view: ViewState = useMemo(() => ({
     selected,
     active: activeId,
@@ -1049,18 +1104,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     onSelectColumn,
     onPickColumn,
     onUnpickColumn,
-  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus, selectedColumn, columnTrace, onSelectColumn, onPickColumn, onUnpickColumn]);
+    columnSearchHits,
+    currentHit,
+  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus, selectedColumn, columnTrace, onSelectColumn, onPickColumn, onUnpickColumn, columnSearchHits, currentHit]);
 
   const dimmedIds = useMemo(
     () => (graph ? new Set(graph.nodes.filter((n) => isDimmed(n.id, view)).map((n) => n.id)) : new Set<string>()),
     [graph, view],
   );
-
-  // Live match count over the nodes actually shown in the DAG.
-  const searchHits = useMemo(() => {
-    if (!searchQ) return 0;
-    return rfNodes.filter((n) => n.data.label.toLowerCase().includes(searchQ)).length;
-  }, [rfNodes, searchQ]);
 
   const rfEdges: Edge[] = useMemo(() => {
     // empty selector → blank DAG, unless "show all" is confirmed
@@ -1316,8 +1367,24 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               style={{ width: 170, padding: "6px 10px", borderRadius: 7, border: "1px solid #334155", background: "#0b1220", color: "#e5e7eb", fontFamily: "inherit", fontSize: 12 }}
             />
             {searchQ !== "" && (
-              <span style={{ color: searchHits ? "#fbbf24" : "#64748b", fontSize: 12, whiteSpace: "nowrap" }}>
-                {searchHits} match{searchHits === 1 ? "" : "es"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                <span style={{ color: searchHits ? "#fbbf24" : "#64748b", fontSize: 12 }}>
+                  {searchHits ? `${Math.min(hitIdx, searchHits - 1) + 1} of ${searchHits}` : "0 matches"}
+                </span>
+                <button
+                  aria-label="previous match" disabled={searchHits === 0}
+                  onClick={() => setHitIdx((i) => (i - 1 + searchHits) % searchHits)}
+                  style={{ padding: "2px 6px", borderRadius: 6, border: "1px solid #334155",
+                    background: "#111827", color: searchHits ? "#e5e7eb" : "#475569",
+                    cursor: searchHits ? "pointer" : "default", fontFamily: "inherit", fontSize: 12 }}
+                >▲</button>
+                <button
+                  aria-label="next match" disabled={searchHits === 0}
+                  onClick={() => setHitIdx((i) => (i + 1) % searchHits)}
+                  style={{ padding: "2px 6px", borderRadius: 6, border: "1px solid #334155",
+                    background: "#111827", color: searchHits ? "#e5e7eb" : "#475569",
+                    cursor: searchHits ? "pointer" : "default", fontFamily: "inherit", fontSize: 12 }}
+                >▼</button>
               </span>
             )}
             <div style={{ position: "relative" }}>
@@ -1568,6 +1635,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             // changes, so fitView re-frames the (re-laid-out) visible
             // subgraph either way.
             key={`${focus ? `focus:${selector}` : "all"}:${pruned ? "pruned" : "full"}`}
+            onInit={(inst) => { rfRef.current = inst; }}
             nodes={rfNodes}
             edges={rfEdges}
             nodeTypes={nodeTypes}

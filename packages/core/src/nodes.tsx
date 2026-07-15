@@ -197,6 +197,9 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   const dim = isDimmed(id, view);
   const emphasize = hasSel && !selected && inLineage;
   const searchHit = view.search !== "" && data.label.toLowerCase().includes(view.search);
+  // The Prev/Next "current" hit gets a visibly stronger ring than the other
+  // (still-amber) matches, so stepping reads as a spotlight, not just a count.
+  const isCurrentHit = view.currentHit != null && view.currentHit === id;
   // The chrome shared by both the normal fixed box and the column-mode
   // header: run-status marble, favorite star, label stripes, name, corner
   // badges, and the two node-level handles. Moved verbatim — no styling or
@@ -317,7 +320,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
               : emphasize
                 ? `0 0 0 2px ${color}`
                 : searchHit
-                  ? `0 0 0 2px #fbbf24` // amber ring: search match, visible at low zoom
+                  ? (isCurrentHit ? `0 0 0 3px #fbbf24` : `0 0 0 2px #fbbf24`) // amber ring: search match, visible at low zoom (stronger for the current Prev/Next hit)
                   : "none",
           background: active ? "#111c30" : "#0b1220", color: "#e5e7eb",
           opacity: dim ? 0.18 : 1,
@@ -361,7 +364,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           ? `0 0 0 3px #e5e7eb, 0 0 18px 3px ${color}`
           : selected ? `0 0 0 2px #e5e7eb`
           : emphasize ? `0 0 0 2px ${color}`
-          : searchHit ? `0 0 0 2px #fbbf24`
+          : searchHit ? (isCurrentHit ? `0 0 0 3px #fbbf24` : `0 0 0 2px #fbbf24`)
           : "none",
         background: active ? "#111c30" : "#0b1220", color: "#e5e7eb",
         opacity: dim ? 0.18 : 1,
