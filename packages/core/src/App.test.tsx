@@ -796,6 +796,97 @@ describe("run/build/test button", () => {
   });
 });
 
+describe("regex selector mode", () => {
+  it("regex mode OFF: dbt selector syntax works exactly as before (regression check)", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "a+" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("c").length).toBeGreaterThan(0);
+    expect(screen.queryByText("d")).not.toBeInTheDocument();
+  });
+
+  it("regex mode ON: matches model names by pattern, not dbt selector syntax", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    fireEvent.click(screen.getByRole("button", { name: ".*" }));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "[ac]" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("c").length).toBeGreaterThan(0);
+    expect(screen.queryByText("b")).not.toBeInTheDocument();
+    expect(screen.queryByText("d")).not.toBeInTheDocument();
+  });
+
+  it("regex mode ON: case-insensitive matching", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    fireEvent.click(screen.getByRole("button", { name: ".*" }));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "A" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    expect(screen.queryByText("b")).not.toBeInTheDocument();
+  });
+
+  it("regex mode ON: anchors and alternation work", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    fireEvent.click(screen.getByRole("button", { name: ".*" }));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "^b$|^c$" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("c").length).toBeGreaterThan(0);
+    expect(screen.queryByText("a")).not.toBeInTheDocument();
+    expect(screen.queryByText("d")).not.toBeInTheDocument();
+  });
+
+  it("regex mode ON: an invalid pattern matches nothing and shows an inline error, clearing once fixed", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    fireEvent.click(screen.getByRole("button", { name: ".*" }));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "a(" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getByText("invalid pattern")).toBeInTheDocument());
+    expect(screen.queryByText("a")).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "a" } });
+    await waitFor(() => expect(screen.queryByText("invalid pattern")).not.toBeInTheDocument());
+    expect(screen.getAllByText("a").length).toBeGreaterThan(0);
+  });
+
+  it("--full-refresh still strips correctly in regex mode", async () => {
+    render(<App projectPath="/proj" debounceMs={0} canRun />);
+    fireEvent.click(screen.getByRole("button", { name: ".*" }));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "[ac] --full-refresh" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a c", hasSeed: false, hasFullRefresh: true }),
+    );
+  });
+
+  it("toggling regex mode clears run status", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "status", nodeId: "a", status: "success" }));
+    await waitFor(() => expect(screen.getByLabelText("run status: success")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: ".*" }));
+    expect(screen.queryByLabelText("run status: success")).not.toBeInTheDocument();
+  });
+
+  it("an empty box in regex mode behaves like an empty box in selector mode (Show-All available)", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    fireEvent.click(screen.getByRole("button", { name: ".*" }));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("dialog", { name: /show all/i })).toBeInTheDocument();
+  });
+});
+
 describe("Apply Filter / Restore", () => {
   it("is disabled when no category filter is active", async () => {
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);

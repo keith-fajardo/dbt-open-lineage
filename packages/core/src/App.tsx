@@ -413,16 +413,38 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     return () => clearTimeout(timer.current);
   }, [raw, debounceMs]);
 
+  // Regex mode is a pure mode switch: when on, the box's text is a
+  // case-insensitive regex matched against model NAMES, and dbt selector
+  // syntax (+hops, tag:, --exclude) does not apply at all. `regexError`
+  // is derived in the SAME memo as `matched` (never a setState call inside
+  // a useMemo body — that risks "cannot update state during render") so an
+  // invalid pattern surfaces as part of one atomic derived value.
+  const [regexMode, setRegexMode] = useState(false);
+
   // An empty selector matches NOTHING (not everything) UNLESS the user has
   // explicitly confirmed "show all" via the blank-Enter modal below —
   // resolveSelector's own "empty = all" convention still holds for other
-  // callers; we gate it here.
-  const matched = useMemo(() => {
-    if (!graph) return new Set<string>();
-    if (cleanedSelector.trim()) return resolveSelector(graph, cleanedSelector);
-    if (showAll) return new Set(graph.nodes.map((n) => n.id));
-    return new Set<string>();
-  }, [graph, cleanedSelector, showAll]);
+  // callers; we gate it here. Mode-independent: an empty box behaves the
+  // same whether regex mode is on or off.
+  const { matched, regexError } = useMemo(() => {
+    if (!graph) return { matched: new Set<string>(), regexError: null as string | null };
+    if (!cleanedSelector.trim()) {
+      if (showAll) return { matched: new Set(graph.nodes.map((n) => n.id)), regexError: null };
+      return { matched: new Set<string>(), regexError: null };
+    }
+    if (regexMode) {
+      try {
+        const re = new RegExp(cleanedSelector, "i");
+        return {
+          matched: new Set(graph.nodes.filter((n) => re.test(n.name)).map((n) => n.id)),
+          regexError: null,
+        };
+      } catch {
+        return { matched: new Set<string>(), regexError: "invalid pattern" };
+      }
+    }
+    return { matched: resolveSelector(graph, cleanedSelector), regexError: null };
+  }, [graph, cleanedSelector, showAll, regexMode]);
 
   // Unfiltered view: layout runs ONCE per graph (positions keyed on graph
   // identity only — typing a selector just dims, never re-lays-out). With the
@@ -832,7 +854,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setRunErr(null);
     setRunLogs(null);
     setPruned(null);
-  }, [selector]);
+  }, [selector, regexMode]);
 
   const onResetStatus = () => {
     setRunStatus(null);
@@ -1111,6 +1133,20 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               spellCheck={false}
               style={{ flex: 1, minWidth: 200, maxWidth: 380, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontVariantLigatures: "none" }}
             />
+            <button
+              onClick={() => setRegexMode((v) => !v)}
+              aria-pressed={regexMode}
+              title="Regex mode: match model names by pattern instead of dbt selector syntax"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+                borderRadius: 20, border: `1px solid ${regexMode ? "#3b82f6" : "#334155"}`,
+                background: regexMode ? "#16233d" : "#111827",
+                color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+              }}
+            >.*</button>
+            {regexMode && regexError && (
+              <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{regexError}</span>
+            )}
             <button
               onClick={() => setFocus((v) => !v)}
               aria-pressed={focus}
