@@ -278,7 +278,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [panelW, setPanelW] = useState(280); // details panel width, drag to resize
   const [descH, setDescH] = useState(72); // description box height, drag handle below
   const [gistH, setGistH] = useState(72); // gist box height, drag handle below
-const [grainH, setGrainH] = useState(72); // grain box height, drag handle below
+  const [grainH, setGrainH] = useState(72); // grain box height, drag handle below
 
   // Drag a textarea's bottom handle to resize its height. The native CSS resize
   // grip is unreliable in the WKWebView iframe, so drive height from state via
