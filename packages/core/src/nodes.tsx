@@ -382,8 +382,11 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {highlightLabel(col.name, view.search)}
             </span>
-            <Handle type="target" position={Position.Left} id={col.name} style={{ background: "#38bdf8" }} />
-            <Handle type="source" position={Position.Right} id={col.name} style={{ background: "#38bdf8" }} />
+            {/* Invisible anchor points for trace edges — the row's own dot
+                (above) is the visible on-trace indicator, so these must not
+                also render as a second dot at the node's edge. */}
+            <Handle type="target" position={Position.Left} id={col.name} style={{ opacity: 0, pointerEvents: "none" }} />
+            <Handle type="source" position={Position.Right} id={col.name} style={{ opacity: 0, pointerEvents: "none" }} />
           </div>
         );
       })}
