@@ -34,19 +34,34 @@ When the flag is set:
 1. Requires `catalog.json` in addition to `manifest.json` (dbt-colibri needs
    both). New `catalogPath` option on `GenerateOptions`
    (`packages/cli/src/generate.ts`).
-2. `generate()` spawns dbt-colibri via Node's `child_process` (e.g.
-   `dbt-colibri generate --manifest <path> --catalog <path> --output
-   <tempDir>` — exact flags unverified, see Open risks).
-3. Not found on PATH → throws immediately: `"dbt-colibri not found. Install
-   with: pip install dbt-colibri"`. Fails fast, no silent degrade.
-4. Non-zero exit or unparseable output → throws, wrapping dbt-colibri's
-   stderr — same error style already used for
-   `"failed to parse ${manifestPath}"` in `generate.ts`.
-5. dbt-colibri's output JSON is parsed into column-edge data and embedded
-   into the static bundle **at generate time** — same "data baked in" pattern
-   `StaticBridge` already uses for the graph/sidecar. The deployed site
-   itself never invokes Python; only the CI step that ran
-   `generate --column-lineage` did.
+2. `generate()` spawns the real installed CLI (package `dbt-colibri`,
+   binary name **`colibri`**) via Node's `child_process`:
+   `colibri generate --manifest <manifestPath> --catalog <catalogPath>
+   --output-dir <tempDir> --light --disable-telemetry`. `--light` drops
+   `compiledCode` from every node in the output (we don't need raw/compiled
+   SQL text — dbt-colibri already resolved lineage — and it meaningfully
+   shrinks what gets embedded in the static bundle). `--disable-telemetry`
+   avoids a network call during a CI build. Verified against the installed
+   `dbt-colibri==0.3.0` source (`dbt_colibri/cli/cli.py`).
+3. Not found on PATH (`ENOENT` spawning `colibri`) → throws immediately:
+   `"dbt-colibri (colibri) not found. Install with: pip install
+   dbt-colibri"`. Fails fast, no silent degrade.
+4. Non-zero exit (dbt-colibri exits 1 on missing manifest/catalog or any
+   internal error, per its `cli.py`) → throws, wrapping its stderr — same
+   error style already used for `"failed to parse ${manifestPath}"` in
+   `generate.ts`. Missing `compiled_code` on some models does **not** cause
+   a non-zero exit — dbt-colibri logs a warning and continues, treating
+   those columns as unresolved (`hasLineage: false`) — so partial coverage
+   never blocks the whole build.
+5. On success, dbt-colibri writes `<tempDir>/colibri-manifest.json` (and
+   `<tempDir>/colibri-parsing-errors.json` if it hit SQL it couldn't parse).
+   `generate()` reads `colibri-manifest.json`, extracts the column-edge data
+   (see §3 below), and embeds it into the static bundle **at generate
+   time** — same "data baked in" pattern `StaticBridge` already uses for the
+   graph/sidecar. The deployed site itself never invokes Python; only the CI
+   step that ran `generate --column-lineage` did. dbt-colibri's own
+   `index.html`/dashboard output is discarded — only its JSON is consumed;
+   our React Flow toggle is the UI, not colibri's bundled one.
 
 ## 2. Rendering
 
@@ -60,11 +75,52 @@ render only for what it resolved.
 
 ## 3. Data model
 
+`colibri-manifest.json`'s real shape (verified against `dbt-colibri==0.3.0`
+source, `dbt_colibri/report/generator.py`):
+
+```jsonc
+{
+  "metadata": { "adapter_type": "redshift", /* ... */ },
+  "nodes": {
+    "<dbt_node_id>": {
+      "id": "...", "name": "...", "nodeType": "model",
+      "columns": {
+        "<column_name>": {
+          "columnName": "...",
+          "hasLineage": true,           // false = unresolved, no edges reference it
+          "lineageType": "transformation" // "unknown" | "transformation" | passthrough-ish per-source type
+        }
+      }
+    }
+  },
+  "lineage": {
+    "edges": [
+      // real column-to-column data edge:
+      { "id": 1, "source": "<node_id>", "target": "<node_id>", "sourceColumn": "order_id", "targetColumn": "order_id" },
+      // model-level dependency edge (no column resolved), and structural
+      // join/filter edges (edgeType set) both use empty string columns —
+      // filter these OUT when building the column-lineage view:
+      { "id": 2, "source": "<node_id>", "target": "<node_id>", "sourceColumn": "", "targetColumn": "" },
+      { "id": 3, "source": "<node_id>", "target": "<node_id>", "sourceColumn": "id", "targetColumn": "", "edgeType": "join" }
+    ]
+  }
+}
+```
+
+Only edges where **both** `sourceColumn` and `targetColumn` are non-empty
+(no `edgeType`) are real column lineage — these become the toggle's edges.
+A column with `hasLineage: false` renders as present-but-unconnected (not a
+dashed "unknown" edge — dbt-colibri simply has no edge for it, there's
+nothing to render as dashed).
+
 New optional field on the embedded static-bundle payload:
-`columnLineage?: { columns: ColumnRef[]; edges: ColumnEdge[] }`, present
-only when `--column-lineage` was used. The column-lineage toggle in `App.tsx`
-is hidden entirely when this field is absent — older builds, or builds run
-without the flag, show no toggle for data they don't have.
+`columnLineage?: { nodes: Record<string, ColibriNodeColumns>; edges:
+ColibriColumnEdge[] }` — a filtered/trimmed subset of the above (only the
+`columns` map per node and the real column-to-column edges; metadata/tree
+are dropped, not needed for rendering). Present only when `--column-lineage`
+was used. The column-lineage toggle in `App.tsx` is hidden entirely when
+this field is absent — older builds, or builds run without the flag, show no
+toggle for data they don't have.
 
 ## 4. Testing
 
@@ -77,20 +133,25 @@ without the flag, show no toggle for data they don't have.
 - Static-site render test: toggle appears only when `columnLineage` is
   present in the payload; toggle on/off renders correctly.
 
-## Open risks
+## Open risks (resolved / remaining)
 
-- **dbt-colibri's actual CLI interface and output JSON schema are
-  unverified** — the flags/paths above are assumed, not confirmed against
-  its real docs/source. Must verify (read dbt-colibri's actual `--help`/
-  README/source) before writing the implementation plan — the exact spawn
-  invocation and JSON-parsing code depend on it.
-- **License**: confirm dbt-colibri's license is compatible with being
-  invoked as an external tool from this OSS npm package. Spawning (not
-  bundling) is likely fine regardless of license, but not yet explicitly
-  checked.
-- **Accuracy on Redshift-dialect SQL**: not yet verified hands-on. Lower
-  stakes than the interactive-extension case since this is opt-in/CI-only,
-  not blocking the base tool.
+- ~~dbt-colibri's actual CLI interface and output JSON schema are
+  unverified~~ — **resolved**: verified directly against installed
+  `dbt-colibri==0.3.0` source (`dbt_colibri/cli/cli.py`,
+  `dbt_colibri/report/generator.py`). Real binary name `colibri`, real flags
+  and JSON shape now reflected in §1/§3 above.
+- ~~License~~ — **resolved**: MIT (`pip show dbt-colibri` → `License: MIT`).
+  Spawning (not bundling) an MIT tool from this OSS npm package is fine.
+- **Accuracy on Redshift-dialect SQL**: `redshift` is in dbt-colibri's
+  explicit `SUPPORTED_ADAPTERS` list (`extractor.py`) — it detects the
+  dialect from `manifest.json`'s `metadata.adapter_type` and raises if
+  unsupported, so at minimum it won't silently misparse an unrecognized
+  dialect. Actual accuracy on real, messy Redshift SQL is still unverified
+  hands-on. Lower stakes than the interactive-extension case would have been
+  since this is opt-in/CI-only, not blocking the base tool — bad/missing
+  lineage for a given column shows as that column having no edges, not a
+  wrong edge (dbt-colibri's own `hasLineage`/`lineageType` fields make
+  partial coverage visible rather than silently wrong).
 
 ## Deferred: interactive extension
 
