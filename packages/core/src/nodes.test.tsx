@@ -186,6 +186,17 @@ describe("isDimmed", () => {
   it("spotlight and filter compose", () => {
     expect(isDimmed("m", { ...base, spotlight: new Set(["m"]), filtered: new Set(["x"]) })).toBe(true);
   });
+  it("no trace active (nodesOnTrace unset or empty) dims nothing by trace", () => {
+    expect(isDimmed("m", { ...base })).toBe(false);
+    expect(isDimmed("m", { ...base, nodesOnTrace: new Set() })).toBe(false);
+  });
+  it("an active trace dims nodes with no endpoint on it", () => {
+    expect(isDimmed("m", { ...base, nodesOnTrace: new Set(["a", "b"]) })).toBe(true);
+    expect(isDimmed("a", { ...base, nodesOnTrace: new Set(["a", "b"]) })).toBe(false);
+  });
+  it("the open model is exempt from trace-dimming too", () => {
+    expect(isDimmed("m", { ...base, active: "m", nodesOnTrace: new Set(["a"]) })).toBe(false);
+  });
 });
 
 describe("DagNode favorites", () => {

@@ -4,7 +4,7 @@ import { ViewContext, type ViewState } from "./viewContext";
 import { endpointKey } from "./columnTrace";
 import type { RunDisplayStatus } from "./runStatus";
 
-export type DimView = Pick<ViewState, "selected" | "active" | "up" | "down" | "matched" | "spotlight" | "filtered">;
+export type DimView = Pick<ViewState, "selected" | "active" | "up" | "down" | "matched" | "spotlight" | "filtered" | "nodesOnTrace">;
 
 /** Shared empty set so optional ViewState column fields default without allocating. */
 const EMPTY_KEYS: ReadonlySet<string> = new Set<string>();
@@ -12,7 +12,8 @@ const EMPTY_KEYS: ReadonlySet<string> = new Set<string>();
 /** The single source of truth for whether a node is dimmed. The open model is
  * never dimmed; a selection dims everything off its lineage; otherwise the
  * selector (matched), area spotlight, and label/personal filter each dim
- * non-members. */
+ * non-members; and — independently — an active column trace dims every node
+ * with no column on that trace, so the traced path stands out. */
 export function isDimmed(id: string, v: DimView): boolean {
   if (id === v.active) return false;
   // Compose every dim reason so they stack: a spotlight/filter narrows even
@@ -23,7 +24,8 @@ export function isDimmed(id: string, v: DimView): boolean {
   const inFilter = v.filtered == null || v.filtered.has(id);
   const bySelector = v.matched != null && !v.matched.has(id);
   const offLineage = v.selected != null && !(id === v.selected || v.up.has(id) || v.down.has(id));
-  return !spotlit || !inFilter || bySelector || offLineage;
+  const offTrace = v.nodesOnTrace != null && v.nodesOnTrace.size > 0 && !v.nodesOnTrace.has(id);
+  return !spotlit || !inFilter || bySelector || offLineage || offTrace;
 }
 
 const LAYER_COLOR: Record<string, string> = {

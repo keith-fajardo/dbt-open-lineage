@@ -44,6 +44,12 @@ export interface ViewState {
    * ReadonlySet (not Set) so the shared EMPTY_KEYS constant and traceColumn's
    * Set both assign cleanly. */
   columnTrace?: ReadonlySet<string>;
+  /** Node ids with at least one endpoint on `columnTrace`. Empty/absent
+   * whenever nothing is traced — nodes with NO endpoint here render dimmed
+   * while a trace is active, so the traced path stands out from the rest of
+   * the DAG. Derived straight from `columnTrace`'s own keys, so it's never
+   * out of sync with it. */
+  nodesOnTrace?: ReadonlySet<string>;
   /** Endpoint keys of an EXPANDED node's columns whose name matches the search
    * query (a collapsed node's transient trace rows are not search targets). */
   columnSearchHits?: ReadonlySet<string>;

@@ -535,6 +535,16 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     () => (columnLineage && selectedColumn ? traceColumn(columnLineage, selectedColumn) : EMPTY_KEYS),
     [columnLineage, selectedColumn],
   );
+  // Which nodes have at least one endpoint on the current trace — derived
+  // straight from the trace's own keys (`${node}::${column}`), so it needs no
+  // separate lookup into columnLineage.nodes. Empty whenever nothing is
+  // traced, which is exactly when node-dimming-by-trace should be a no-op
+  // (see isDimmed's `nodesOnTrace.size > 0` gate).
+  const nodesOnTrace = useMemo(() => {
+    const s = new Set<string>();
+    for (const key of columnTrace) s.add(key.slice(0, key.indexOf("::")));
+    return s;
+  }, [columnTrace]);
 
   // An empty selector matches NOTHING (not everything) UNLESS the user has
   // explicitly confirmed "show all" via the blank-Enter modal below —
@@ -1212,11 +1222,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     runStatus,
     selectedColumn,
     columnTrace,
+    nodesOnTrace,
     onSelectColumn,
     onToggleExpand,
     columnSearchHits,
     currentHit,
-  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus, selectedColumn, columnTrace, onSelectColumn, onToggleExpand, columnSearchHits, currentHit]);
+  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus, selectedColumn, columnTrace, nodesOnTrace, onSelectColumn, onToggleExpand, columnSearchHits, currentHit]);
 
   const dimmedIds = useMemo(
     () => (graph ? new Set(graph.nodes.filter((n) => isDimmed(n.id, view)).map((n) => n.id)) : new Set<string>()),
