@@ -1,8 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { generate } from "./generate";
+import { runColibri } from "./colibri";
+
+vi.mock("./colibri", () => ({ runColibri: vi.fn() }));
+const mockedRunColibri = vi.mocked(runColibri);
 
 let workDir: string;
 let assetsDir: string;
@@ -17,7 +21,10 @@ beforeEach(() => {
   manifestPath = resolve(__dirname, "../test/fixtures/manifest.min.json");
 });
 
-afterEach(() => { rmSync(workDir, { recursive: true, force: true }); });
+afterEach(() => {
+  rmSync(workDir, { recursive: true, force: true });
+  vi.resetAllMocks();
+});
 
 describe("generate", () => {
   it("writes index.html with the parsed graph embedded, plus the copied assets", () => {
@@ -63,5 +70,32 @@ describe("generate", () => {
     expect(() => generate({ manifestPath, outDir, assetsDir, sidecarPath: join(workDir, "missing.yml") })).not.toThrow();
     const html = readFileSync(join(outDir, "index.html"), "utf8");
     expect(html).toContain('"sidecarText":null');
+  });
+});
+
+describe("generate with --column-lineage", () => {
+  it("calls runColibri and embeds its payload when columnLineage is true", () => {
+    mockedRunColibri.mockReturnValue({
+      nodes: { "model.proj.stg_orders": { columns: { id: { columnName: "id", hasLineage: true } } } },
+      edges: [],
+    });
+    const outDir = join(workDir, "out");
+    generate({ manifestPath, outDir, assetsDir, columnLineage: true, catalogPath: "catalog.json" });
+
+    expect(mockedRunColibri).toHaveBeenCalledWith({ manifestPath, catalogPath: "catalog.json" });
+    const html = readFileSync(join(outDir, "index.html"), "utf8");
+    expect(html).toContain('"hasLineage":true');
+  });
+
+  it("throws when columnLineage is true but catalogPath is missing", () => {
+    const outDir = join(workDir, "out");
+    expect(() => generate({ manifestPath, outDir, assetsDir, columnLineage: true }))
+      .toThrow(/--catalog is required/);
+  });
+
+  it("does not call runColibri when columnLineage is not set (default off)", () => {
+    const outDir = join(workDir, "out");
+    generate({ manifestPath, outDir, assetsDir });
+    expect(mockedRunColibri).not.toHaveBeenCalled();
   });
 });
