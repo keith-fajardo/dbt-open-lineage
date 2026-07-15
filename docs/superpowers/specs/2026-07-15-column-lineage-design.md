@@ -153,13 +153,16 @@ toggle for data they don't have.
   wrong edge (dbt-colibri's own `hasLineage`/`lineageType` fields make
   partial coverage visible rather than silently wrong).
 
-## Deferred: interactive extension
+## Interactive extension: no longer deferred
 
-Column lineage inside the live VSCode/Mnemo interactive extension (editable,
-real-time, per-end-user) remains deferred. A Python dependency there means
-every end user needs `pip install dbt-colibri` locally — a much heavier ask
-than a single CI step. If ever revisited, the TS-native engine research below
-is preserved for reference.
+Column lineage inside the live VSCode/Mnemo interactive extension was
+deferred here on the grounds that a per-user Python dependency was too
+heavy. That decision was revisited and reversed the same day — see
+`2026-07-15-column-lineage-interactive-design.md` for the approved design
+(same dbt-colibri integration, reused via a new shared
+`packages/colibri-runner` package). The TS-native engine research below is
+kept for historical reference (it's what was evaluated before the reversal)
+but is not part of any active plan.
 
 ---
 
