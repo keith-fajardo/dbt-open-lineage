@@ -25,7 +25,7 @@ function usage(): string {
   return "Usage: dbt-open-lineage generate --manifest <path> --out <dir> [--sidecar <path>] [--title <name>] [--catalog <path>] [--column-lineage]";
 }
 
-export function main(argv: string[]): void {
+export async function main(argv: string[]): Promise<void> {
   const [cmd, ...rest] = argv;
   if (cmd !== "generate") {
     console.error(usage());
@@ -37,7 +37,7 @@ export function main(argv: string[]): void {
     process.exit(1);
   }
   try {
-    generate({
+    await generate({
       manifestPath: args.manifest,
       outDir: args.out,
       sidecarPath: args.sidecar,
@@ -72,5 +72,5 @@ export function isMainModule(argv1: string, metaUrl: string): boolean {
 }
 
 if (isMainModule(process.argv[1], import.meta.url)) {
-  main(process.argv.slice(2));
+  void main(process.argv.slice(2));
 }

@@ -27,9 +27,9 @@ afterEach(() => {
 });
 
 describe("generate", () => {
-  it("writes index.html with the parsed graph embedded, plus the copied assets", () => {
+  it("writes index.html with the parsed graph embedded, plus the copied assets", async () => {
     const outDir = join(workDir, "out");
-    generate({ manifestPath, outDir, assetsDir });
+    await generate({ manifestPath, outDir, assetsDir });
 
     const html = readFileSync(join(outDir, "index.html"), "utf8");
     expect(html).toContain("window.__DOL_STATIC_DATA__=");
@@ -38,64 +38,65 @@ describe("generate", () => {
     expect(existsSync(join(outDir, "assets", "main.css"))).toBe(true);
   });
 
-  it("creates outDir if it doesn't exist", () => {
+  it("creates outDir if it doesn't exist", async () => {
     const outDir = join(workDir, "nested", "does", "not", "exist");
-    generate({ manifestPath, outDir, assetsDir });
+    await generate({ manifestPath, outDir, assetsDir });
     expect(existsSync(join(outDir, "index.html"))).toBe(true);
   });
 
-  it("throws a clear error when the manifest doesn't exist", () => {
-    expect(() => generate({ manifestPath: join(workDir, "nope.json"), outDir: join(workDir, "out"), assetsDir }))
-      .toThrow(/manifest not found/i);
+  it("throws a clear error when the manifest doesn't exist", async () => {
+    await expect(generate({ manifestPath: join(workDir, "nope.json"), outDir: join(workDir, "out"), assetsDir }))
+      .rejects.toThrow(/manifest not found/i);
   });
 
-  it("throws a clear, path-prefixed error on malformed manifest JSON", () => {
+  it("throws a clear, path-prefixed error on malformed manifest JSON", async () => {
     const badManifest = join(workDir, "bad.json");
     writeFileSync(badManifest, "{not json");
-    expect(() => generate({ manifestPath: badManifest, outDir: join(workDir, "out"), assetsDir }))
-      .toThrow(new RegExp(badManifest.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    await expect(generate({ manifestPath: badManifest, outDir: join(workDir, "out"), assetsDir }))
+      .rejects.toThrow(new RegExp(badManifest.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   });
 
-  it("embeds sidecar text when --sidecar is given and the file exists", () => {
+  it("embeds sidecar text when --sidecar is given and the file exists", async () => {
     const sidecarPath = join(workDir, "lineage.yml");
     writeFileSync(sidecarPath, "subject_areas:\n  core: {}\n");
     const outDir = join(workDir, "out");
-    generate({ manifestPath, outDir, assetsDir, sidecarPath });
+    await generate({ manifestPath, outDir, assetsDir, sidecarPath });
     const html = readFileSync(join(outDir, "index.html"), "utf8");
     expect(html).toContain("subject_areas");
   });
 
-  it("does not error when --sidecar is given but the file is missing (optional)", () => {
+  it("does not error when --sidecar is given but the file is missing (optional)", async () => {
     const outDir = join(workDir, "out");
-    expect(() => generate({ manifestPath, outDir, assetsDir, sidecarPath: join(workDir, "missing.yml") })).not.toThrow();
+    await expect(generate({ manifestPath, outDir, assetsDir, sidecarPath: join(workDir, "missing.yml") }))
+      .resolves.toBeUndefined();
     const html = readFileSync(join(outDir, "index.html"), "utf8");
     expect(html).toContain('"sidecarText":null');
   });
 });
 
 describe("generate with --column-lineage", () => {
-  it("calls runColibri and embeds its payload when columnLineage is true", () => {
-    mockedRunColibri.mockReturnValue({
+  it("calls runColibri and embeds its payload when columnLineage is true", async () => {
+    mockedRunColibri.mockResolvedValue({
       nodes: { "model.proj.stg_orders": { columns: { id: { columnName: "id", hasLineage: true } } } },
       edges: [],
     });
     const outDir = join(workDir, "out");
-    generate({ manifestPath, outDir, assetsDir, columnLineage: true, catalogPath: "catalog.json" });
+    await generate({ manifestPath, outDir, assetsDir, columnLineage: true, catalogPath: "catalog.json" });
 
     expect(mockedRunColibri).toHaveBeenCalledWith({ manifestPath, catalogPath: "catalog.json" });
     const html = readFileSync(join(outDir, "index.html"), "utf8");
     expect(html).toContain('"hasLineage":true');
   });
 
-  it("throws when columnLineage is true but catalogPath is missing", () => {
+  it("throws when columnLineage is true but catalogPath is missing", async () => {
     const outDir = join(workDir, "out");
-    expect(() => generate({ manifestPath, outDir, assetsDir, columnLineage: true }))
-      .toThrow(/--catalog is required/);
+    await expect(generate({ manifestPath, outDir, assetsDir, columnLineage: true }))
+      .rejects.toThrow(/--catalog is required/);
   });
 
-  it("does not call runColibri when columnLineage is not set (default off)", () => {
+  it("does not call runColibri when columnLineage is not set (default off)", async () => {
     const outDir = join(workDir, "out");
-    generate({ manifestPath, outDir, assetsDir });
+    await generate({ manifestPath, outDir, assetsDir });
     expect(mockedRunColibri).not.toHaveBeenCalled();
   });
 });

@@ -15,7 +15,7 @@ export interface GenerateOptions {
   columnLineage?: boolean;
 }
 
-export function generate(opts: GenerateOptions): void {
+export async function generate(opts: GenerateOptions): Promise<void> {
   if (!existsSync(opts.manifestPath)) {
     throw new Error(`manifest not found: ${opts.manifestPath}`);
   }
@@ -31,14 +31,13 @@ export function generate(opts: GenerateOptions): void {
     ? readFileSync(opts.sidecarPath, "utf8")
     : null;
 
-  const columnLineage = opts.columnLineage
-    ? (() => {
-        if (!opts.catalogPath) {
-          throw new Error("--catalog is required when --column-lineage is set");
-        }
-        return runColibri({ manifestPath: opts.manifestPath, catalogPath: opts.catalogPath });
-      })()
-    : undefined;
+  let columnLineage;
+  if (opts.columnLineage) {
+    if (!opts.catalogPath) {
+      throw new Error("--catalog is required when --column-lineage is set");
+    }
+    columnLineage = await runColibri({ manifestPath: opts.manifestPath, catalogPath: opts.catalogPath });
+  }
 
   mkdirSync(opts.outDir, { recursive: true });
   const html = buildHtml({ graph, sidecarText, title: opts.title, columnLineage });
