@@ -768,7 +768,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [areasDraft, setAreasDraft] = useState<string[]>([]);
   const [labelsDraft, setLabelsDraft] = useState<string[]>([]);
   const [tagsDraft, setTagsDraft] = useState<string[]>([]);
-  const [editingCallout, setEditingCallout] = useState(false); // inline-editing a callout bubble
+  const [editingField, setEditingField] = useState<"gist" | "grain" | null>(null); // inline-editing a callout bubble ("gist"/"grain") or none
   const [gistBusy, setGistBusy] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null); // transient success pill
@@ -798,7 +798,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setAreasDraft(selectedNode ? nodeAreas(selectedNode) : []);
     setLabelsDraft(selectedNode ? nodeLabels(selectedNode) : []);
     setTagsDraft(selectedNode?.tags ?? []);
-    setEditingCallout(false);
+    setEditingField(null);
     setGistBusy(false);
     setSaveErr(null);
     setToast(null);
@@ -1802,12 +1802,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 dimmedIds={dimmedIds}
                 onSelect={setSelected}
                 selectedId={selected}
-                editing={editingCallout}
+                editingField={editingField}
                 gistDraft={gistDraft}
                 onGistChange={setGistDraft}
-                onCommit={async () => { await onSave(); setEditingCallout(false); }}
-                onCancelEdit={() => setEditingCallout(false)}
-                onBeginEdit={readOnly ? () => {} : (id) => { setSelected(id); setEditingCallout(true); }}
+                grainDraft={grainDraft}
+                onGrainChange={setGrainDraft}
+                onCommit={async () => { await onSave(); setEditingField(null); }}
+                onCancelEdit={() => setEditingField(null)}
+                onBeginEdit={readOnly ? () => {} : (id, field) => { setSelected(id); setEditingField(field); }}
               />
             )}
             <DrawLayer

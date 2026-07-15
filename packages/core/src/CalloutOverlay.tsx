@@ -8,24 +8,30 @@ interface CalloutOverlayProps {
   nodes: { id: string; meta?: Record<string, unknown> }[];
   positions: Map<string, Pt>;
   dimmedIds: Set<string>;
-  /** Single click a bubble → select its model (opens the details panel to edit the gist). */
+  /** Single click a bubble → select its model (opens the details panel to edit the gist/grain). */
   onSelect: (id: string) => void;
   /** The currently selected node id (drives which bubble may enter inline edit). */
   selectedId: string | null;
-  /** True while the selected callout is being edited inline. */
-  editing: boolean;
+  /** Which field of the CURRENTLY SELECTED node's bubbles is being edited
+   * inline, if any. Only one bubble across the whole overlay is ever in
+   * edit mode at once. */
+  editingField: "gist" | "grain" | null;
   /** The shared gist edit buffer — bound to the panel's gist textarea too, so the
    * two stay in sync automatically (both read/write the same App state). */
   gistDraft: string;
   /** Update the shared gist buffer (= App's setGistDraft). */
   onGistChange: (v: string) => void;
-  /** Commit the edit (= save gist+callout to yaml, then leave edit mode). */
+  /** The shared grain edit buffer, mirroring gistDraft. */
+  grainDraft: string;
+  /** Update the shared grain buffer (= App's setGrainDraft). */
+  onGrainChange: (v: string) => void;
+  /** Commit the edit (= save gist+grain+callouts to yaml, then leave edit mode). */
   onCommit: () => void;
   /** Leave edit mode WITHOUT saving (Escape). Persistence still governed by the
    * panel's Save/Revert; this just stops the inline edit. */
   onCancelEdit: () => void;
-  /** Double click a bubble → select the node AND enter inline edit. */
-  onBeginEdit: (id: string) => void;
+  /** Double click a bubble → select the node AND enter inline edit for that field. */
+  onBeginEdit: (id: string, field: "gist" | "grain") => void;
 }
 
 /** Pure text→height geometry for ONE bubble — no gap or margin included. The
@@ -86,73 +92,148 @@ export function grainOf(node: { meta?: Record<string, unknown> }): string | null
   return g.trim();
 }
 
+interface CalloutBubbleProps {
+  text: string;
+  bottom: number;   // flow-space y of the bubble's BOTTOM edge
+  left: number;     // flow-space x of the bubble's LEFT edge
+  width: number;
+  zIndex: number;
+  background: string;
+  textColor: string;
+  isEditing: boolean;
+  draft: string;
+  onDraftChange: (v: string) => void;
+  onCommit: () => void;
+  onCancelEdit: () => void;
+  cancelledRef: React.MutableRefObject<boolean>;
+  onSelect: () => void;
+  onBeginEdit: () => void;
+}
+
+/** One callout bubble — used twice per node (gist, grain) so the click/edit
+ * mechanics never drift between the two. */
+function CalloutBubble({
+  text, bottom, left, width, zIndex, background, textColor,
+  isEditing, draft, onDraftChange, onCommit, onCancelEdit, cancelledRef,
+  onSelect, onBeginEdit,
+}: CalloutBubbleProps) {
+  return (
+    <div
+      title={isEditing ? undefined : "Double-click to edit this note"}
+      onClick={(e) => { e.stopPropagation(); if (!isEditing) onSelect(); }}
+      onDoubleClick={(e) => { e.stopPropagation(); onBeginEdit(); }}
+      style={{
+        position: "absolute", left, top: bottom, transform: "translateY(-100%)",
+        width, boxSizing: "border-box", pointerEvents: "auto", cursor: isEditing ? "text" : "pointer",
+        background, color: textColor, borderRadius: 0, padding: "6px 9px", zIndex,
+        fontSize: 11, fontWeight: 500, lineHeight: 1.35, boxShadow: "0 8px 22px rgba(0,0,0,0.5)",
+      }}
+    >
+      {isEditing ? (
+        <textarea
+          aria-label="Edit callout note"
+          value={draft}
+          autoFocus
+          rows={2}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onBlur={() => { if (cancelledRef.current) { cancelledRef.current = false; return; } onCommit(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onCommit(); }
+            else if (e.key === "Escape") { e.preventDefault(); cancelledRef.current = true; onCancelEdit(); }
+          }}
+          style={{
+            display: "block", width: "100%", boxSizing: "border-box", margin: 0, padding: 0,
+            background: "transparent", color: "#0a0f1a", border: "none", outline: "none",
+            fontFamily: "inherit", fontSize: 11, fontWeight: 500, lineHeight: 1.35,
+            resize: "none", pointerEvents: "auto",
+          }}
+        />
+      ) : text}
+    </div>
+  );
+}
+
 /** Callout bubbles pinned above their node, rendered in flow-space so they
  * pan/zoom with the graph and track the node when it is dragged (the caller
- * passes live node positions). Text is the model's meta.gist; a node without a
- * gist or without a meta.callout placement gets none.
+ * passes live node positions). A node can show a gist bubble, a grain
+ * bubble, both (stacked, grain above gist), or neither.
  *
- * Single click selects the node (opens the details panel). Double click edits
- * the note in place: a <textarea> replaces the static text, bound to the same
- * gistDraft buffer as the panel's gist field, so typing in either mirrors live. */
+ * Each bubble anchors INDEPENDENTLY all the way to the node with its own
+ * leader line — when both are on, grain's leader is drawn 20px left of
+ * gist's and behind gist's bubble (lower z-index), so it reads as passing
+ * through rather than stopping at gist's edge. Gist's own bubble position
+ * never moves whether or not grain also shows.
+ *
+ * Single click selects the node (opens the details panel). Double click
+ * edits that SPECIFIC bubble's note in place: a <textarea> replaces the
+ * static text, bound to the matching draft buffer (gistDraft or
+ * grainDraft), so typing in either the bubble or the panel field mirrors
+ * live. Only one bubble across the whole overlay is ever in edit mode at
+ * once (`editingField`, paired with `selectedId`). */
 export function CalloutOverlay({
-  nodes, positions, dimmedIds, onSelect,
-  selectedId, editing, gistDraft, onGistChange, onCommit, onCancelEdit, onBeginEdit,
+  nodes, positions, dimmedIds, onSelect, selectedId, editingField,
+  gistDraft, onGistChange, grainDraft, onGrainChange, onCommit, onCancelEdit, onBeginEdit,
 }: CalloutOverlayProps) {
   // Guards commit-on-blur: Escape sets this so the blur that fires when the
-  // textarea unmounts (edit mode ends) does not also save.
+  // textarea unmounts (edit mode ends) does not also save. Shared across
+  // both bubbles: only one is ever mid-edit at a time (editingField is a
+  // single value), so there's no cross-talk between them.
   const cancelledRef = useRef(false);
   return (
     <ViewportPortal>
       {nodes.map((n) => {
-        const text = gistOf(n);
-        const p = text ? positions.get(n.id) : undefined;
-        if (!text || !p) return null;
-        const isEditing = editing && n.id === selectedId;
+        const gText = gistOf(n);
+        const grText = grainOf(n);
+        if (!gText && !grText) return null;
+        const p = positions.get(n.id);
+        if (!p) return null;
+        const isEditingGist = editingField === "gist" && n.id === selectedId;
+        const isEditingGrain = editingField === "grain" && n.id === selectedId;
         const anchorX = p.x + NODE_W / 2;
         const bubbleW = 184;
         const bubbleLeft = anchorX - bubbleW / 2;
-        const bubbleBottom = p.y - 14; // gap above node top
+        const gistBottom = p.y - 14;
+        const gistHeight = gText ? bubbleHeightOnly(gText) : 0;
+        // Grain stacks directly above gist's TOP edge (same 14px gap
+        // reused for bubble-to-bubble as for bubble-to-node) when both
+        // show; otherwise it uses the same solo position gist uses alone.
+        const grainBottom = grText ? (gText ? gistBottom - gistHeight - 14 : p.y - 14) : 0;
+        const grainLeaderX = anchorX - 20;
         return (
           <div key={n.id} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", opacity: dimmedIds.has(n.id) ? 0.25 : 1 }}>
-            <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", width: 1, height: 1 }}>
-              <line x1={anchorX} y1={bubbleBottom} x2={anchorX} y2={p.y - 1} stroke="#facc15" strokeWidth={2} />
-              <circle cx={anchorX} cy={p.y - 1} r={3.5} fill="#facc15" />
-            </svg>
-            <div
-              title={isEditing ? undefined : "Double-click to edit this note"}
-              onClick={(e) => { e.stopPropagation(); if (!isEditing) onSelect(n.id); }}
-              onDoubleClick={(e) => { e.stopPropagation(); onBeginEdit(n.id); }}
-              style={{
-                position: "absolute", left: bubbleLeft, top: bubbleBottom, transform: "translateY(-100%)",
-                width: bubbleW, boxSizing: "border-box", pointerEvents: "auto", cursor: isEditing ? "text" : "pointer",
-                background: "#fde047", color: "#1c1917", borderRadius: 8, padding: "6px 9px",
-                fontSize: 11, fontWeight: 500, lineHeight: 1.35, boxShadow: "0 8px 22px rgba(0,0,0,0.5)",
-              }}
-            >
-              {isEditing ? (
-                <textarea
-                  aria-label="Edit callout note"
-                  value={gistDraft}
-                  autoFocus
-                  rows={2}
-                  onChange={(e) => onGistChange(e.target.value)}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => e.stopPropagation()}
-                  onBlur={() => { if (cancelledRef.current) { cancelledRef.current = false; return; } onCommit(); }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onCommit(); }
-                    else if (e.key === "Escape") { e.preventDefault(); cancelledRef.current = true; onCancelEdit(); }
-                  }}
-                  style={{
-                    display: "block", width: "100%", boxSizing: "border-box", margin: 0, padding: 0,
-                    background: "transparent", color: "#0a0f1a", border: "none", outline: "none",
-                    fontFamily: "inherit", fontSize: 11, fontWeight: 500, lineHeight: 1.35,
-                    resize: "none", pointerEvents: "auto",
-                  }}
-                />
-              ) : text}
-            </div>
+            {grText && (
+              <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", width: 1, height: 1 }}>
+                <line x1={grainLeaderX} y1={grainBottom} x2={grainLeaderX} y2={p.y - 1} stroke="#38bdf8" strokeWidth={2} />
+                <circle cx={grainLeaderX} cy={p.y - 1} r={3.5} fill="#38bdf8" />
+              </svg>
+            )}
+            {gText && (
+              <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", width: 1, height: 1 }}>
+                <line x1={anchorX} y1={gistBottom} x2={anchorX} y2={p.y - 1} stroke="#facc15" strokeWidth={2} />
+                <circle cx={anchorX} cy={p.y - 1} r={3.5} fill="#facc15" />
+              </svg>
+            )}
+            {grText && (
+              <CalloutBubble
+                text={grText} bottom={grainBottom} left={bubbleLeft} width={bubbleW} zIndex={1}
+                background="#7dd3fc" textColor="#0c2f3f"
+                isEditing={isEditingGrain} draft={grainDraft} onDraftChange={onGrainChange}
+                onCommit={onCommit} onCancelEdit={onCancelEdit} cancelledRef={cancelledRef}
+                onSelect={() => onSelect(n.id)} onBeginEdit={() => onBeginEdit(n.id, "grain")}
+              />
+            )}
+            {gText && (
+              <CalloutBubble
+                text={gText} bottom={gistBottom} left={bubbleLeft} width={bubbleW} zIndex={2}
+                background="#fde047" textColor="#1c1917"
+                isEditing={isEditingGist} draft={gistDraft} onDraftChange={onGistChange}
+                onCommit={onCommit} onCancelEdit={onCancelEdit} cancelledRef={cancelledRef}
+                onSelect={() => onSelect(n.id)} onBeginEdit={() => onBeginEdit(n.id, "gist")}
+              />
+            )}
           </div>
         );
       })}
