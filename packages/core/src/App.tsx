@@ -19,6 +19,7 @@ import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, typ
 import { nodeAreas, nodeLabels } from "./zones";
 import { readMeta } from "./meta";
 import type { ColumnLineagePayload } from "./columnLineage";
+import { estimateColumnNodeSize, traceColumn, endpointKey, type ColEndpoint } from "./columnTrace";
 import { ZonesOverlay } from "./ZonesOverlay";
 import { CalloutOverlay, estimateCalloutHeight } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
@@ -61,6 +62,9 @@ const sameList = (a: string[], b: string[]) =>
 /** Stable empty style map — tags carry no custom name/colour, so their
  * ChipEditor renders keys verbatim with the fallback grey dot. */
 const EMPTY_STYLES: Map<string, { name: string; color: string }> = new Map();
+
+/** Shared empty endpoint-key set — stable identity for the no-selection case. */
+const EMPTY_KEYS: ReadonlySet<string> = new Set<string>();
 
 /** A quiet ⓘ affordance next to an editor header. Focusable and labelled;
  * reveals a short explanation on hover, focus, or click. No native `title`
@@ -340,6 +344,8 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     catch (e) { setError(String((e as Error).message ?? e)); }
   };
   useEffect(() => { void load("dbt.manifest"); /* eslint-disable-next-line */ }, []);
+  // A fresh compile / manifest reload invalidates any picked-column selection.
+  useEffect(() => { setSelectedColumn(null); }, [graph]);
 
   const [annotations, setAnnotations] = useState<Annotations>(EMPTY_ANNOTATIONS);
   useEffect(() => {
@@ -449,6 +455,35 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [columnLineageBusy, setColumnLineageBusy] = useState(false);
   const [columnLineageErr, setColumnLineageErr] = useState<string | null>(null);
 
+  // Which columns are rendered as rows on each node (user-controlled). Picking
+  // changes node data → one rebuild + relayout (accepted, like toggling
+  // callouts). Empty in normal mode → nodeSizes empty → identical layout.
+  const [pickedColumns, setPickedColumns] = useState<Map<string, Set<string>>>(new Map());
+  const onPickColumn = useCallback((node: string, column: string) => {
+    setPickedColumns((prev) => {
+      const next = new Map(prev);
+      const set = new Set(next.get(node) ?? []);
+      set.add(column);
+      next.set(node, set);
+      return next;
+    });
+  }, []);
+  const onUnpickColumn = useCallback((node: string, column: string) => {
+    setPickedColumns((prev) => {
+      const next = new Map(prev);
+      const set = new Set(next.get(node) ?? []);
+      set.delete(column);
+      if (set.size) next.set(node, set); else next.delete(node);
+      return next;
+    });
+  }, []);
+  // The clicked column whose trace animates (interaction → ViewContext, no relayout).
+  const [selectedColumn, setSelectedColumn] = useState<ColEndpoint | null>(null);
+  const onSelectColumn = useCallback((node: string, column: string) => {
+    setSelectedColumn((prev) =>
+      prev && prev.node === node && prev.column === column ? null : { node, column });
+  }, []);
+
   // An empty selector matches NOTHING (not everything) UNLESS the user has
   // explicitly confirmed "show all" via the blank-Enter modal below —
   // resolveSelector's own "empty = all" convention still holds for other
@@ -511,9 +546,25 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     }
     return m;
   }, [graph, showCallouts]);
+  // Per-node box size in column mode: header + pick bar + one row per
+  // MANUALLY picked column. Intentionally excludes the live columnTrace (an
+  // auto-revealed row from selecting a column) — selecting must trigger ZERO
+  // relayout (Invariant 3), so an auto-row is not reserved height here; the
+  // node can render slightly taller than its slot (accepted v1 visual
+  // crowding — see scope-decision 1). Empty unless column mode is on with
+  // data loaded → layoutGraph falls back to NODE_W×NODE_H and produces
+  // byte-identical output to today.
+  const nodeSizes = useMemo(() => {
+    const m = new Map<string, { w: number; h: number }>();
+    if (!(columnLineageMode && columnLineage) || !graph) return m;
+    for (const n of graph.nodes) {
+      m.set(n.id, estimateColumnNodeSize([...(pickedColumns.get(n.id) ?? [])]));
+    }
+    return m;
+  }, [columnLineageMode, columnLineage, pickedColumns, graph]);
   const positioned = useMemo(
-    () => (visibleGraph ? layoutGraph(visibleGraph, calloutHeights) : new Map()),
-    [visibleGraph, calloutHeights],
+    () => (visibleGraph ? layoutGraph(visibleGraph, calloutHeights, nodeSizes) : new Map()),
+    [visibleGraph, calloutHeights, nodeSizes],
   );
 
   const [drawMode, setDrawMode] = useState<DrawMode>("off");
@@ -580,12 +631,30 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           labelColors: nodeLabels(n)
             .map((l) => labelStyles.get(l)?.color)
             .filter((c): c is string => !!c),
+          // Column mode: PRESENT (even if []) ⇒ DagNode renders the column body.
+          ...(columnLineageMode && columnLineage
+            ? {
+                columns: [...(pickedColumns.get(n.id) ?? [])].map((name) => ({
+                  name,
+                  hasLineage: columnLineage.nodes[n.id]?.columns[name]?.hasLineage ?? false,
+                })),
+                allColumns: Object.values(columnLineage.nodes[n.id]?.columns ?? {}).map((c) => ({
+                  name: c.columnName,
+                  hasLineage: c.hasLineage,
+                })),
+                width: nodeSizes.get(n.id)?.w,
+                height: nodeSizes.get(n.id)?.h,
+              }
+            : {}),
         },
       }));
   // Rebuild the node array when the layout OR the resolved label styles change
   // (label colors live in node data). A drag never changes either, so this
   // never rebuilds mid-drag — preserving node identity for React Flow.
-  const nodeBuildKey = useMemo(() => ({ positioned, labelStyles }), [positioned, labelStyles]);
+  const nodeBuildKey = useMemo(
+    () => ({ positioned, labelStyles, pickedColumns, columnLineageMode, columnLineage }),
+    [positioned, labelStyles, pickedColumns, columnLineageMode, columnLineage],
+  );
   const [nodeState, setNodeState] = useState<{ base: unknown; nodes: Node<DagNodeData>[] }>(
     { base: null, nodes: [] },
   );
@@ -755,6 +824,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const onToggleColumnLineage = async () => {
     const next = !columnLineageMode;
     setColumnLineageMode(next);
+    if (!next) { setSelectedColumn(null); } // turning off clears the trace
     if (!next || columnLineage) return; // turning off, or data already cached
     setColumnLineageBusy(true); setColumnLineageErr(null);
     try {
@@ -974,6 +1044,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     catch (e) { setRunErr(String((e as Error).message ?? e)); }
   };
 
+  // Endpoint keys on the selected column's trace — passed to every node so each
+  // highlights its participating picked rows (the multi-hop path reads as one).
+  const columnTrace = useMemo(
+    () => (columnLineage && selectedColumn ? traceColumn(columnLineage, selectedColumn) : EMPTY_KEYS),
+    [columnLineage, selectedColumn],
+  );
+
   const view: ViewState = useMemo(() => ({
     selected,
     active: activeId,
@@ -989,7 +1066,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     favorites,
     onToggleFavorite,
     runStatus,
-  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus]);
+    selectedColumn,
+    columnTrace,
+    onSelectColumn,
+    onPickColumn,
+    onUnpickColumn,
+  }), [selected, activeId, lineage, focus, matched, filtered, searchQ, favorites, onToggleFavorite, runStatus, selectedColumn, columnTrace, onSelectColumn, onPickColumn, onUnpickColumn]);
 
   const dimmedIds = useMemo(
     () => (graph ? new Set(graph.nodes.filter((n) => isDimmed(n.id, view)).map((n) => n.id)) : new Set<string>()),
@@ -1507,7 +1589,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             onNodeDoubleClick={onNodeDoubleClick}
             /* Double-click means "open in editor" here, not zoom. */
             zoomOnDoubleClick={false}
-            onPaneClick={() => setSelected(null)}
+            onPaneClick={() => { setSelected(null); setSelectedColumn(null); }}
             fitView
             proOptions={{ hideAttribution: true }}
           >

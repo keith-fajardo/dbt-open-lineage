@@ -76,10 +76,14 @@ vi.mock("./layout", async (orig) => {
   // (full graph vs filtered subgraph).
   return {
     ...real, // keep NODE_W etc. real — CalloutOverlay imports them from here too
-    layoutGraph: (graph: Graph, calloutHeights?: Map<string, number>) => {
+    layoutGraph: (
+      graph: Graph,
+      calloutHeights?: Map<string, number>,
+      sizes?: Map<string, { w: number; h: number }>,
+    ) => {
       layoutSpy(graph.nodes.length);
       lastCalloutHeights = calloutHeights;
-      return real.layoutGraph(graph, calloutHeights);
+      return real.layoutGraph(graph, calloutHeights, sizes);
     },
   };
 });
@@ -1296,5 +1300,50 @@ describe("columnEdgesFor", () => {
     };
     const result = columnEdgesFor(dup, new Set(["a", "b"]), false, null);
     expect(result[0].id).not.toBe(result[1].id);
+  });
+});
+
+describe("in-node column picking + selection", () => {
+  const withCols: ColumnLineagePayload = {
+    nodes: {
+      a: { columns: { id: { columnName: "id", hasLineage: true } } },
+      b: { columns: { id: { columnName: "id", hasLineage: true } } },
+    },
+    edges: [{ source: "a", target: "b", sourceColumn: "id", targetColumn: "id" }],
+  };
+
+  it("picking a column from a node's dropdown renders it as a row and re-lays-out once; selecting it relays out zero times", async () => {
+    columnLineageResult = withCols;
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Columns" })).toHaveAttribute("aria-pressed", "true"));
+    // The Columns toggle flips aria-pressed synchronously, before the async
+    // dbt.columnLineage fetch resolves — wait for the fetch to actually land
+    // (the node's pick-bar only renders once columnLineage data has arrived)
+    // before measuring the layout count, so the assertion below isolates the
+    // relayout caused by PICKING, not the one caused by column mode turning on.
+    // Text queries (not *ByRole): React Flow node wrappers stay
+    // visibility:hidden in jsdom (no real ResizeObserver ever marks them
+    // "measured"), and RTL's role queries exclude hidden-ancestor
+    // descendants — the same reason every other in-node interaction in this
+    // suite (e.g. clicking a node to select it) uses getByText, not getByRole.
+    await waitFor(() => expect(screen.getAllByText(/trace column/i).length).toBeGreaterThan(0));
+    const layoutsBefore = layoutSpy.mock.calls.length;
+    // Open node a's pick bar and pick "id".
+    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
+    fireEvent.click(await screen.findByText(/^id/));
+    // The row now renders on the node, and picking (a data change) triggered a
+    // relayout — never mid-drag (Invariant 1), the accepted callout-style tradeoff.
+    await waitFor(() => expect(screen.getAllByText("id").length).toBeGreaterThan(0));
+    expect(layoutSpy.mock.calls.length).toBe(layoutsBefore + 1);
+    const layoutsAfterPick = layoutSpy.mock.calls.length;
+    // Close the still-open pick-bar dropdown first (its "id" option and the
+    // newly rendered row both now match /id/ text) so the click below hits
+    // the actual row, not the dropdown option (which would unpick, not select).
+    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
+    fireEvent.click(screen.getAllByText("id")[0]);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(layoutSpy.mock.calls.length).toBe(layoutsAfterPick); // Invariant 3: selecting never relays out
   });
 });
