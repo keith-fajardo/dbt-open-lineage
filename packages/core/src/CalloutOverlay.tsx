@@ -28,17 +28,40 @@ interface CalloutOverlayProps {
   onBeginEdit: (id: string) => void;
 }
 
-/** Estimate the rendered height (px, flow-space) of a callout bubble for a
- * given note, so the layout can RESERVE that much vertical space above the
- * node (see layout.ts). Single source of truth: the constants below MUST match
- * the bubble actually rendered further down this file — fontSize 11,
- * lineHeight 1.35, padding "6px 9px", bubbleW 184, leader gap 14. */
-export function estimateCalloutHeight(text: string, bubbleWidth = 184): number {
+/** Pure text→height geometry for ONE bubble — no gap or margin included. The
+ * single source of truth both `estimateCalloutHeight` (one bubble) and
+ * `estimateStackedCalloutHeight` (one or two, stacked) build on, so they can
+ * never drift apart. */
+function bubbleHeightOnly(text: string, bubbleWidth = 184): number {
   const innerW = bubbleWidth - 18;          // padding 9*2
   const charsPerLine = Math.max(1, Math.floor(innerW / 5.4)); // ~11px avg char width
   const lines = Math.max(1, Math.ceil(text.trim().length / charsPerLine));
-  const bubbleH = lines * 11 * 1.35 + 12;   // line-height 1.35, padding 6*2
-  return Math.round(bubbleH + 14 + 20);     // + leader gap (14) + margin (20)
+  return lines * 11 * 1.35 + 12;            // line-height 1.35, padding 6*2
+}
+
+/** Estimate the rendered height (px, flow-space) of a SINGLE callout bubble
+ * for a given note, so the layout can RESERVE that much vertical space above
+ * the node (see layout.ts). Single source of truth: the constants here MUST
+ * match the bubble actually rendered further down this file — fontSize 11,
+ * lineHeight 1.35, padding "6px 9px", bubbleW 184, leader gap 14. */
+export function estimateCalloutHeight(text: string, bubbleWidth = 184): number {
+  return Math.round(bubbleHeightOnly(text, bubbleWidth) + 14 + 20); // + leader gap (14) + margin (20)
+}
+
+/** Reserved height for whichever bubble(s) actually show on a node — `null`
+ * for either argument means that bubble isn't showing. One 14px gap per
+ * bubble-to-something boundary (bubble→node, or bubble→bubble when both
+ * stack): `estimateStackedCalloutHeight(gistText, null)` is arithmetically
+ * IDENTICAL to `estimateCalloutHeight(gistText)`, so existing single-gist
+ * installs get byte-identical layout. */
+export function estimateStackedCalloutHeight(
+  gistText: string | null, grainText: string | null, bubbleWidth = 184,
+): number {
+  if (!gistText && !grainText) return 0;
+  const gistH = gistText != null ? bubbleHeightOnly(gistText, bubbleWidth) : 0;
+  const grainH = grainText != null ? bubbleHeightOnly(grainText, bubbleWidth) : 0;
+  const gaps = (gistText ? 1 : 0) + (grainText ? 1 : 0);
+  return Math.round(gistH + grainH + gaps * 14 + 20);
 }
 
 /** The model's gist text, or null if there is no gist or no callout
@@ -48,6 +71,17 @@ export function estimateCalloutHeight(text: string, bubbleWidth = 184): number {
 export function gistOf(node: { meta?: Record<string, unknown> }): string | null {
   const g = readMeta(node.meta, "gist");
   const c = readMeta(node.meta, "callout");
+  if (typeof g !== "string" || !g.trim() || !c) return null;
+  return g.trim();
+}
+
+/** The model's grain text, or null if there is no grain or no grain_callout
+ * placement to anchor it to. Mirrors `gistOf` exactly, reading
+ * `grain`/`grain_callout` instead of `gist`/`callout`. Exported for direct
+ * testing. */
+export function grainOf(node: { meta?: Record<string, unknown> }): string | null {
+  const g = readMeta(node.meta, "grain");
+  const c = readMeta(node.meta, "grain_callout");
   if (typeof g !== "string" || !g.trim() || !c) return null;
   return g.trim();
 }
