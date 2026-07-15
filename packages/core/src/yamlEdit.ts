@@ -16,14 +16,14 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
   return dir ? `${dir}/${node.name}.yml` : `${node.name}.yml`;
 }
 
-/** Upsert `description` + `config.meta.dbt_open_lineage.gist` for `name`,
- * preserving comments and formatting of `existingText`. An existing `config:`
- * block is kept intact (only the relevant leaves are set inside it); a
- * newly-created `config:` is positioned right under `description`. Seeds a
- * fresh `version: 2` doc when the file does not exist yet. Returns serialized
- * YAML.
+/** Upsert `description` + `config.meta.dbt_open_lineage.gist`/`grain` for
+ * `name`, preserving comments and formatting of `existingText`. An existing
+ * `config:` block is kept intact (only the relevant leaves are set inside
+ * it); a newly-created `config:` is positioned right under `description`.
+ * Seeds a fresh `version: 2` doc when the file does not exist yet. Returns
+ * serialized YAML.
  *
- * Every key this extension owns (`gist`, `callout`, `subject_areas`,
+ * Every key this extension owns (`gist`, `grain`, `callout`, `subject_areas`,
  * `labels`) is namespaced under `config.meta.dbt_open_lineage` to avoid
  * colliding with other tools that also write into a model's `meta` — this
  * function ONLY ever writes to the nested shape. Models edited before this
@@ -34,6 +34,9 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
  * location — then the legacy key is deleted too, so clearing something
  * actually clears it instead of leaving a stale value for readMeta's
  * fallback to keep surfacing.
+ *
+ * `grain` follows the exact same convention as `gist` (see below) — a
+ * required free-text scalar describing the model's grain.
  *
  * `callout` controls `config.meta.dbt_open_lineage.callout` (the placement
  * that makes a gist render as a bubble on the DAG):
@@ -51,7 +54,7 @@ export function targetYamlPath(node: { name: string; path: string; patch_path?: 
  *   - an empty `[]` → remove the key (never writes `subject_areas: []`). */
 export function upsertModelDoc(
   existingText: string | null, name: string, description: string, gist: string,
-  callout?: string | null, subjectAreas?: string[], labels?: string[], tags?: string[],
+  grain: string, callout?: string | null, subjectAreas?: string[], labels?: string[], tags?: string[],
 ): string {
   const base = existingText && existingText.trim() ? existingText : "version: 2\nmodels: []\n";
   const doc: Document.Parsed = parseDocument(base);
@@ -106,10 +109,16 @@ export function upsertModelDoc(
   if (gist !== "" || doc.hasIn(gistPath) || doc.hasIn(legacyGistPath)) doc.setIn(gistPath, gist);
   if (gist === "" && doc.hasIn(legacyGistPath)) doc.deleteIn(legacyGistPath);
 
+  // grain: identical treatment to gist, same reasoning.
+  const grainPath = nsPath("grain");
+  const legacyGrainPath = legacyPath("grain");
+  if (grain !== "" || doc.hasIn(grainPath) || doc.hasIn(legacyGrainPath)) doc.setIn(grainPath, grain);
+  if (grain === "" && doc.hasIn(legacyGrainPath)) doc.deleteIn(legacyGrainPath);
+
   // callout placement: set when a non-empty string, delete on null/"", and
-  // leave untouched when omitted (undefined) so 4-arg callers don't disturb
-  // it. On explicit removal, delete from wherever the value currently is:
-  // the nested key if present, else the legacy flat key.
+  // leave untouched when omitted (undefined) so callers that don't pass it
+  // don't disturb it. On explicit removal, delete from wherever the value
+  // currently is: the nested key if present, else the legacy flat key.
   if (typeof callout === "string" && callout) {
     doc.setIn(nsPath("callout"), callout);
   } else if (callout === null || callout === "") {
