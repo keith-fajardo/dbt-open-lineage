@@ -66,6 +66,17 @@ describe("CalloutOverlay — dual bubbles", () => {
     expect(getByText("gl_account_id per period")).toBeTruthy();
   });
 
+  it("a solo grain leader is centered (no 20px offset) — the offset only applies when both bubbles stack", () => {
+    const grainOnly = { id: "m", meta: { dbt_open_lineage: { grain: "gl_account_id per period", grain_callout: "top" } } };
+    const { container: soloContainer } = render(<CalloutOverlay {...baseProps} nodes={[grainOnly]} />);
+    const soloLine = soloContainer.querySelector("line")!;
+    expect(soloLine.getAttribute("x1")).toBe(String(baseProps.positions.get("m")!.x + 90)); // anchorX = x + NODE_W/2 (90)
+
+    const { container: bothContainer } = render(<CalloutOverlay {...baseProps} nodes={[nodeWithBoth]} />);
+    const grainLine = bothContainer.querySelectorAll("line")[0]; // grain leader is drawn first
+    expect(grainLine.getAttribute("x1")).toBe(String(baseProps.positions.get("m")!.x + 90 - 20));
+  });
+
   it("double-clicking the grain bubble calls onBeginEdit with the grain field", () => {
     const calls: [string, "gist" | "grain"][] = [];
     const { getByText } = render(

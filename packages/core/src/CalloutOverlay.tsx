@@ -201,7 +201,10 @@ export function CalloutOverlay({
         // reused for bubble-to-bubble as for bubble-to-node) when both
         // show; otherwise it uses the same solo position gist uses alone.
         const grainBottom = grText ? (gText ? gistBottom - gistHeight - 14 : p.y - 14) : 0;
-        const grainLeaderX = anchorX - 20;
+        // Only offset left when BOTH bubbles actually stack — a solo grain
+        // bubble (no gist) has nothing to avoid overlapping, so its leader
+        // stays centered like a solo gist bubble's does.
+        const grainLeaderX = gText ? anchorX - 20 : anchorX;
         return (
           <div key={n.id} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", opacity: dimmedIds.has(n.id) ? 0.25 : 1 }}>
             {grText && (
