@@ -45,6 +45,7 @@ const oneModelGraph: Graph = {
 let contextCb: ((v: string) => void) | null = null;
 let runEventCb: ((e: import("./runStatus").RunEvent) => void) | null = null;
 let manifestGraph: Graph = g;
+let columnLineageResult: unknown = { nodes: {}, edges: [] };
 const saveExport = vi.fn(async () => true);
 const openInIde = vi.fn(async () => true);
 const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) => {
@@ -52,6 +53,10 @@ const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) =>
   if (cmd === "fs.readText") return null;
   if (cmd === "fs.writeText") return true;
   if (cmd === "dbt.gist") return "AI gist";
+  if (cmd === "dbt.columnLineage") {
+    if (columnLineageResult instanceof Error) throw columnLineageResult;
+    return columnLineageResult;
+  }
   return null;
 });
 vi.mock("./bridge", () => ({
@@ -81,7 +86,11 @@ vi.mock("./layout", async (orig) => {
 
 import App, { lineageOf, edgeOnLineage } from "./App";
 
-beforeEach(() => { layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g; lastCalloutHeights = undefined; runEventCb = null; });
+beforeEach(() => {
+  layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g;
+  lastCalloutHeights = undefined; runEventCb = null;
+  columnLineageResult = { nodes: {}, edges: [] };
+});
 afterEach(cleanup);
 
 describe("dbt DAG App", () => {
@@ -164,6 +173,43 @@ describe("dbt DAG App", () => {
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     expect(screen.queryByText(/refresh/i)).not.toBeInTheDocument();
+  });
+
+  it("clicking the Columns toggle fetches column lineage and marks the button pressed", async () => {
+    columnLineageResult = {
+      nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } },
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(invokeMock).toHaveBeenCalledWith("dbt.columnLineage", {});
+  });
+
+  it("does not re-fetch column lineage on a second toggle-on (cached)", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+    fireEvent.click(toggle); // on: fetches
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    const fetchesAfterFirstToggle = invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length;
+    fireEvent.click(toggle); // off
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
+    fireEvent.click(toggle); // on again: cached, no re-fetch
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(fetchesAfterFirstToggle);
+  });
+
+  it("shows an error banner and reverts the toggle to off when the fetch fails", async () => {
+    columnLineageResult = new Error("dbt-colibri (colibri) not found. Install with: pip install dbt-colibri");
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByText(/pip install dbt-colibri/)).toBeInTheDocument());
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 });
 

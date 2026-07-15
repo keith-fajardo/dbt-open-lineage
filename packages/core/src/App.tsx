@@ -18,6 +18,7 @@ import { targetYamlPath, upsertModelDoc } from "./yamlEdit";
 import { parseAnnotations, setSidecarColor, SIDECAR_PATH, EMPTY_ANNOTATIONS, type Annotations } from "./annotations";
 import { nodeAreas, nodeLabels } from "./zones";
 import { readMeta } from "./meta";
+import type { ColumnLineagePayload } from "./columnLineage";
 import { ZonesOverlay } from "./ZonesOverlay";
 import { CalloutOverlay, estimateCalloutHeight } from "./CalloutOverlay";
 import { AreaControl } from "./AreaControl";
@@ -421,6 +422,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // a useMemo body — that risks "cannot update state during render") so an
   // invalid pattern surfaces as part of one atomic derived value.
   const [regexMode, setRegexMode] = useState(false);
+  const [columnLineageMode, setColumnLineageMode] = useState(false);
+  const [columnLineage, setColumnLineage] = useState<ColumnLineagePayload | null>(null);
+  const [columnLineageBusy, setColumnLineageBusy] = useState(false);
+  const [columnLineageErr, setColumnLineageErr] = useState<string | null>(null);
 
   // An empty selector matches NOTHING (not everything) UNLESS the user has
   // explicitly confirmed "show all" via the blank-Enter modal below —
@@ -723,6 +728,21 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       flashToast("✨ Gist generated");
     } catch (e) { setSaveErr(String((e as Error).message ?? e)); }
     finally { setGistBusy(false); }
+  };
+
+  const onToggleColumnLineage = async () => {
+    const next = !columnLineageMode;
+    setColumnLineageMode(next);
+    if (!next || columnLineage) return; // turning off, or data already cached
+    setColumnLineageBusy(true); setColumnLineageErr(null);
+    try {
+      setColumnLineage(await invoke<ColumnLineagePayload>("dbt.columnLineage", {}));
+    } catch (e) {
+      setColumnLineageErr(String((e as Error).message ?? e));
+      setColumnLineageMode(false); // revert — nothing to show
+    } finally {
+      setColumnLineageBusy(false);
+    }
   };
 
   const onToggleLabel = (label: string) =>
@@ -1162,6 +1182,24 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
               }}
             >Focus</button>
+            <button
+              onClick={() => void onToggleColumnLineage()}
+              aria-pressed={columnLineageMode}
+              aria-label="Columns"
+              disabled={columnLineageBusy}
+              title="Show column-level lineage"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+                borderRadius: 20, border: `1px solid ${columnLineageMode ? "#3b82f6" : "#334155"}`,
+                background: columnLineageMode ? "#16233d" : "#111827",
+                color: columnLineageBusy ? "#64748b" : "#e5e7eb",
+                cursor: columnLineageBusy ? "default" : "pointer",
+                fontFamily: "inherit", fontSize: 12,
+              }}
+            >{columnLineageBusy ? "loading…" : "Columns"}</button>
+            {columnLineageErr && (
+              <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{columnLineageErr}</span>
+            )}
             <input
               aria-label="Search nodes"
               placeholder="search…"
