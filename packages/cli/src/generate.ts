@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } from "fs";
 import { resolve } from "path";
 import { parseManifest } from "@dbt-open-lineage/core/src/manifest";
 import type { Graph } from "@dbt-open-lineage/core";
-import { runColibri } from "./colibri";
+import { runColibri } from "@dbt-open-lineage/colibri-runner";
 import { buildHtml } from "./template";
 
 export interface GenerateOptions {

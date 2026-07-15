@@ -3,9 +3,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { generate } from "./generate";
-import { runColibri } from "./colibri";
+import { runColibri } from "@dbt-open-lineage/colibri-runner";
 
-vi.mock("./colibri", () => ({ runColibri: vi.fn() }));
+vi.mock("@dbt-open-lineage/colibri-runner", () => ({ runColibri: vi.fn() }));
 const mockedRunColibri = vi.mocked(runColibri);
 
 let workDir: string;

@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@dbt-open-lineage/colibri-runner": "*",
     "@dbt-open-lineage/core": "*",
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.17",
