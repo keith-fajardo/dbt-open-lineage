@@ -142,23 +142,39 @@ function PickBar({
         }}
       >+ trace column…</button>
       {open && (
-        <div role="listbox" onClick={(e) => e.stopPropagation()} style={{
-          position: "absolute", left: 6, right: 6, top: "100%", zIndex: 40,
-          maxHeight: 180, overflowY: "auto",
-          background: "#111827", border: "1px solid #334155", borderRadius: 6, padding: 4,
-          boxShadow: "0 12px 28px rgba(0,0,0,0.5)",
-        }}>
+        <div
+          role="listbox"
+          className="dol-thin-scroll"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            // Bubbles up from whichever child has focus (input or an option
+            // button after a pick) — Escape closes regardless of which one.
+            if (e.key === "Escape") { e.stopPropagation(); setOpen(false); }
+          }}
+          style={{
+            position: "absolute", left: 6, right: 6, top: "100%", zIndex: 40,
+            maxHeight: 180, overflowY: "auto",
+            background: "#111827", border: "1px solid #334155", borderRadius: 6, padding: 4,
+            scrollbarWidth: "thin", scrollbarColor: "#334155 transparent",
+            boxShadow: "0 12px 28px rgba(0,0,0,0.5)",
+          }}>
+          {/* Chromium (VSCode/Mnemo webviews) ignores scrollbar-width/-color;
+              this pseudo-element rule is the only way to thin its scrollbar. */}
+          <style>{"\
+            .dol-thin-scroll::-webkit-scrollbar{width:6px;height:6px}\
+            .dol-thin-scroll::-webkit-scrollbar-track{background:transparent}\
+            .dol-thin-scroll::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}\
+          "}</style>
           <input
             autoFocus value={q} placeholder="filter columns…"
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && shown[0]) { e.preventDefault();
                 picked.has(shown[0].name) ? onUnpick?.(id, shown[0].name) : onPick?.(id, shown[0].name); }
-              if (e.key === "Escape") setOpen(false);
             }}
             style={{ width: "100%", boxSizing: "border-box", marginBottom: 4, padding: "3px 6px",
               background: "#0b1220", border: "1px solid #334155", borderRadius: 4,
-              color: "#e5e7eb", fontSize: 11, fontFamily: "inherit" }}
+              color: "#e5e7eb", fontSize: 10, fontFamily: "inherit" }}
           />
           {shown.map((c) => {
             const on = picked.has(c.name);
@@ -170,7 +186,7 @@ function PickBar({
                   display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left",
                   background: "none", border: "none", cursor: "pointer", borderRadius: 4,
                   color: c.hasLineage ? "#e5e7eb" : "#64748b",
-                  fontFamily: "ui-monospace, monospace", fontSize: 11, padding: "4px 6px",
+                  fontFamily: "ui-monospace, monospace", fontSize: 9.5, padding: "3px 6px",
                 }}
               >
                 <span aria-hidden style={{ width: 12 }}>{on ? "✓" : ""}</span>
@@ -396,7 +412,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
             style={{
               display: "flex", alignItems: "center", gap: 6,
               height: 18, padding: "0 8px", cursor: "pointer",
-              fontFamily: "ui-monospace, monospace", fontSize: 11,
+              fontFamily: "ui-monospace, monospace", fontSize: 9.5,
               color: col.hasLineage ? "#cbd5e1" : "#64748b",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               background: onTrace ? "rgba(56,189,248,0.18)" : isHit ? "rgba(251,191,36,0.15)" : "transparent",

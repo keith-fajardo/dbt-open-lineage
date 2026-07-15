@@ -340,7 +340,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // what the user clicks or types. Seeded from the initial `+model+` push.
   const [activeName, setActiveName] = useState(() => focalName(initialSelector));
   const [search, setSearch] = useState(""); // live node-name search (highlight only)
-  const [panelW, setPanelW] = useState(280); // details panel width, drag to resize
+  const [panelW, setPanelW] = useState(560); // details panel width, drag to resize
   const [descH, setDescH] = useState(72); // description box height, drag handle below
   const [gistH, setGistH] = useState(72); // gist box height, drag handle below
   const [grainH, setGrainH] = useState(72); // grain box height, drag handle below
@@ -367,7 +367,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     const startX = e.clientX;
     const startW = panelW;
     const move = (ev: PointerEvent) =>
-      setPanelW(Math.max(200, Math.min(600, startW + (startX - ev.clientX))));
+      setPanelW(Math.max(200, Math.min(1000, startW + (startX - ev.clientX))));
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -862,8 +862,23 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const onToggleColumnLineage = async () => {
     const next = !columnLineageMode;
     setColumnLineageMode(next);
-    if (!next) { setSelectedColumn(null); } // turning off clears the trace
-    if (!next || columnLineage) return; // turning off, or data already cached
+    if (!next) {
+      // Turning off clears the trace AND drops the cached payload, so the next
+      // enable re-runs colibri against the CURRENT target/manifest.json +
+      // catalog.json. Those files change on every `dbt compile`, but the
+      // payload is otherwise fetched exactly once per webview lifetime (there's
+      // no in-app manifest-refresh that reaches this state) — so without this
+      // clear, column edges added by a later recompile never appear, and
+      // toggling Columns off/on (the natural "refresh" gesture) was a silent
+      // no-op. Concretely: a payload cached before a model started passing a
+      // column through to a downstream node shows the trace one hop short (the
+      // stg→int hop present, the new int→dim hop missing) with no way to
+      // recover short of a full window reload.
+      setSelectedColumn(null);
+      setColumnLineage(null);
+      return;
+    }
+    if (columnLineage) return; // already loaded for this enable
     setColumnLineageBusy(true); setColumnLineageErr(null);
     try {
       setColumnLineage(await invoke<ColumnLineagePayload>("dbt.columnLineage", {}));

@@ -198,18 +198,78 @@ describe("dbt DAG App", () => {
     expect(invokeMock).toHaveBeenCalledWith("dbt.columnLineage", {});
   });
 
-  it("does not re-fetch column lineage on a second toggle-on (cached)", async () => {
+  it("keeps the cached lineage for a single on→off→on without re-fetching redundantly (fetch is once per enable)", async () => {
+    columnLineageResult = {
+      nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } },
+      edges: [],
+    };
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     const toggle = screen.getByRole("button", { name: "Columns" });
-    fireEvent.click(toggle); // on: fetches
+    fireEvent.click(toggle); // on: fetch #1
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
-    const fetchesAfterFirstToggle = invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length;
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(1);
+    // Toggling on again WITHOUT an intervening off does not double-fetch.
     fireEvent.click(toggle); // off
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
-    fireEvent.click(toggle); // on again: cached, no re-fetch
+  });
+
+  // Regression: the column-lineage payload is derived from target/manifest.json
+  // + catalog.json, which change on every `dbt compile`. Previously it was
+  // cached on the first enable and NEVER re-fetched (the toggle guard was
+  // `if (!next || columnLineage) return`), so a stale payload — e.g. one
+  // captured before a model began passing a column through to a downstream
+  // node — showed the trace a hop short forever, and toggling Columns off/on
+  // (the user's natural refresh gesture) was a silent no-op. Turning the
+  // feature off now drops the cache so re-enabling re-runs colibri.
+  it("re-enabling column mode re-fetches, so a recompile's new column edge appears (stale-hop recovery)", async () => {
+    // STALE payload: a→b→c graph, but only the a→b column edge is known.
+    // Selecting a.id traces to b but NOT c (the second hop is missing).
+    columnLineageResult = {
+      nodes: {
+        a: { columns: { id: { columnName: "id", hasLineage: true } } },
+        b: { columns: { id: { columnName: "id", hasLineage: true } } },
+        c: { columns: { id: { columnName: "id", hasLineage: true } } },
+      },
+      edges: [{ source: "a", target: "b", sourceColumn: "id", targetColumn: "id" }],
+    };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+    fireEvent.click(toggle); // on: fetches STALE
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
-    expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(fetchesAfterFirstToggle);
+    await waitFor(() => expect(screen.getAllByText(/trace column/i).length).toBeGreaterThan(0));
+    // Pick id on a, then select it → with the stale payload only a+b reveal.
+    fireEvent.click(screen.getAllByText(/trace column/i)[0]);
+    fireEvent.click(await screen.findByText(/^id/));
+    fireEvent.click(screen.getAllByText(/trace column/i)[0]); // close dropdown
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(1)); // only a's picked row
+    fireEvent.click(screen.getAllByText("id")[0]); // select a.id
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(2)); // a + b (stale: c missing)
+
+    // The user recompiles dbt (adding the b→c column edge) and toggles off/on.
+    columnLineageResult = {
+      nodes: {
+        a: { columns: { id: { columnName: "id", hasLineage: true } } },
+        b: { columns: { id: { columnName: "id", hasLineage: true } } },
+        c: { columns: { id: { columnName: "id", hasLineage: true } } },
+      },
+      edges: [
+        { source: "a", target: "b", sourceColumn: "id", targetColumn: "id" },
+        { source: "b", target: "c", sourceColumn: "id", targetColumn: "id" },
+      ],
+    };
+    fireEvent.click(toggle); // off — drops the stale cache
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
+    fireEvent.click(toggle); // on — MUST re-fetch the fresh payload
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(2);
+    // Re-select a.id against the fresh payload → now the second hop reveals c.
+    await waitFor(() => expect(screen.getAllByText(/trace column/i).length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText("id")[0]); // a's picked row still present; select it
+    await waitFor(() => expect(screen.getAllByText("id").length).toBe(3)); // a + b + c
+    const cRow = screen.getAllByText("id")[2].closest("[data-col-row]") as HTMLElement;
+    expect(cRow.getAttribute("data-on-trace")).toBe("true");
   });
 
   it("shows an error banner and reverts the toggle to off when the fetch fails", async () => {
@@ -305,7 +365,7 @@ describe("node click side panel", () => {
     await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
     fireEvent.click((await screen.findAllByText("a"))[0]);
     const panel = await screen.findByRole("complementary");
-    expect(panel).toHaveStyle({ width: "280px" });
+    expect(panel).toHaveStyle({ width: "560px" });
     const handle = screen.getByRole("separator", { name: "Resize details" });
     // Dispatch MouseEvents with pointer event TYPES: jsdom builds without a
     // PointerEvent constructor drop clientX from fireEvent.pointerDown, which
@@ -315,7 +375,7 @@ describe("node click side panel", () => {
       window.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 300 })); // left = wider
       window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
     });
-    expect(panel).toHaveStyle({ width: "380px" });
+    expect(panel).toHaveStyle({ width: "660px" });
   });
 });
 
