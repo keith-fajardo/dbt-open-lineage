@@ -712,7 +712,7 @@ describe("editable description + gist panel", () => {
       expect((screen.getByLabelText("gist") as HTMLTextAreaElement).value).toBe("nested gist"));
     // The callout checkbox reflects nested data too — this is where fixes 1/3/4
     // all touch, and the original plan's gist-only tests never asserted it.
-    const calloutCheckbox = screen.getByLabelText(/show as callout on the dag/i) as HTMLInputElement;
+    const calloutCheckbox = screen.getAllByLabelText(/show as callout on the dag/i)[0] as HTMLInputElement;
     expect(calloutCheckbox.checked).toBe(true);
   });
 
@@ -911,6 +911,57 @@ describe("editable grain field", () => {
     fireEvent.click(screen.getByText("stg_orders"));
     await waitFor(() =>
       expect((screen.getByLabelText("grain") as HTMLTextAreaElement).value).toBe("freshly saved grain"));
+  });
+
+  it("grain callout checkbox is disabled until grain has content, and enables once it does", async () => {
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await screen.findByLabelText("grain");
+    const grainCalloutCheckbox = screen.getAllByLabelText(/show as callout on the dag/i)[1] as HTMLInputElement;
+    expect(grainCalloutCheckbox).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("grain"), { target: { value: "one row per order_id" } });
+    expect(grainCalloutCheckbox).not.toBeDisabled();
+  });
+
+  it("toggling the grain callout checkbox marks the panel dirty", async () => {
+    // Uses a fixture with grain ALREADY saved (rather than typing fresh grain
+    // text on oneModelGraph's empty baseline) so the panel starts clean —
+    // the grain checkbox is disabled until grain is non-empty (see the
+    // preceding test), and on an empty-grain baseline, typing any non-empty
+    // grain text is itself already a dirtying edit (per the pre-existing
+    // `dirty` check on grainDraft), which would confound this test's intent
+    // of isolating the checkbox's own contribution to dirty.
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { grain: "one row per order_id" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("grain") as HTMLTextAreaElement).value).toBe("one row per order_id"));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    const grainCalloutCheckbox = screen.getAllByLabelText(/show as callout on the dag/i)[1] as HTMLInputElement;
+    fireEvent.click(grainCalloutCheckbox);
+    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+  });
+
+  it("Save writes grain_callout to YAML and optimistically reflects it in the in-memory graph", async () => {
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    fireEvent.change(screen.getByLabelText("grain"), { target: { value: "one row per order_id" } });
+    const grainCalloutCheckbox = screen.getAllByLabelText(/show as callout on the dag/i)[1] as HTMLInputElement;
+    fireEvent.click(grainCalloutCheckbox);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("fs.writeText", expect.objectContaining({
+        path: "models/staging/stg_orders.yml",
+      })));
+    const writtenText = invokeMock.mock.calls.find((c) => c[0] === "fs.writeText")![1]!.text as string;
+    expect(writtenText).toContain("grain_callout: top");
   });
 });
 

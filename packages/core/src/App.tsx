@@ -763,6 +763,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [gistDraft, setGistDraft] = useState("");
   const [grainDraft, setGrainDraft] = useState("");
   const [calloutDraft, setCalloutDraft] = useState(false); // show gist as a DAG callout
+  const [grainCalloutDraft, setGrainCalloutDraft] = useState(false); // show grain as a DAG callout
   // Membership drafts: which subject areas / labels / tags this model belongs to.
   const [areasDraft, setAreasDraft] = useState<string[]>([]);
   const [labelsDraft, setLabelsDraft] = useState<string[]>([]);
@@ -793,6 +794,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     setGistDraft(typeof readMeta(selectedNode?.meta, "gist") === "string" ? (readMeta(selectedNode?.meta, "gist") as string) : "");
     setGrainDraft(typeof readMeta(selectedNode?.meta, "grain") === "string" ? (readMeta(selectedNode?.meta, "grain") as string) : "");
     setCalloutDraft(!!readMeta(selectedNode?.meta, "callout"));
+    setGrainCalloutDraft(!!readMeta(selectedNode?.meta, "grain_callout"));
     setAreasDraft(selectedNode ? nodeAreas(selectedNode) : []);
     setLabelsDraft(selectedNode ? nodeLabels(selectedNode) : []);
     setTagsDraft(selectedNode?.tags ?? []);
@@ -828,6 +830,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
      gistDraft !== (typeof readMeta(selectedNode!.meta, "gist") === "string" ? (readMeta(selectedNode!.meta, "gist") as string) : "") ||
      grainDraft !== (typeof readMeta(selectedNode!.meta, "grain") === "string" ? (readMeta(selectedNode!.meta, "grain") as string) : "") ||
      calloutDraft !== !!readMeta(selectedNode!.meta, "callout") ||
+     grainCalloutDraft !== !!readMeta(selectedNode!.meta, "grain_callout") ||
      !sameList(areasDraft, nodeAreas(selectedNode!)) ||
      !sameList(labelsDraft, nodeLabels(selectedNode!)) ||
      !sameList(tagsDraft, selectedNode!.tags ?? []));
@@ -839,6 +842,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       const path = targetYamlPath(selectedNode);
       const existing = await invoke<string | null>("fs.readText", { path });
       const nextCallout = calloutDraft ? "top" : null;
+      const nextGrainCallout = grainCalloutDraft ? "top" : null;
       // Only persist lists the user actually changed — passing `undefined`
       // leaves the key untouched. Critical for tags: a model's resolved tag
       // list often includes tags INHERITED from dbt_project.yml folder config,
@@ -848,7 +852,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       const areasArg = sameList(areasDraft, nodeAreas(selectedNode)) ? undefined : areasDraft;
       const labelsArg = sameList(labelsDraft, nodeLabels(selectedNode)) ? undefined : labelsDraft;
       const tagsArg = sameList(tagsDraft, selectedNode.tags ?? []) ? undefined : tagsDraft;
-      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, grainDraft, nextCallout, areasArg, labelsArg, tagsArg);
+      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, grainDraft, nextCallout, nextGrainCallout, areasArg, labelsArg, tagsArg);
       await invoke<boolean>("fs.writeText", { path, text });
       // Optimistic in-memory update: the manifest on disk is stale until the
       // next `dbt compile`, but the panel should reflect the save immediately.
@@ -872,6 +876,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 dbt_open_lineage: {
                   ...((n.meta?.dbt_open_lineage as Record<string, unknown> | undefined) ?? {}),
                   gist: gistDraft, grain: grainDraft, callout: nextCallout ?? undefined,
+                  grain_callout: nextGrainCallout ?? undefined,
                   subject_areas: areasDraft, labels: labelsDraft,
                 },
               },
@@ -1986,6 +1991,32 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   >
                     <div style={{ width: 28, height: 3, borderRadius: 2, background: "#334155" }} />
                   </div>
+                  {/* Same rule as gist's toggle: a grain callout with no
+                      grain text renders nothing, so disable until grain
+                      has content. */}
+                  {(() => {
+                    const hasGrain = grainDraft.trim() !== "";
+                    return (
+                      <label
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8, marginTop: 8,
+                          fontSize: 12, color: hasGrain ? "#e5e7eb" : "#64748b",
+                          cursor: hasGrain ? "pointer" : "default",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={grainCalloutDraft && hasGrain}
+                          disabled={!hasGrain}
+                          onChange={(e) => setGrainCalloutDraft(e.target.checked)}
+                        />
+                        Show as callout on the DAG
+                        {!hasGrain && (
+                          <span style={{ color: "#64748b", fontSize: 11 }}>· add a grain first</span>
+                        )}
+                      </label>
+                    );
+                  })()}
                 </dd>
 
                 <ChipEditor
@@ -2055,6 +2086,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                       setGistDraft(typeof readMeta(selectedNode.meta, "gist") === "string" ? (readMeta(selectedNode.meta, "gist") as string) : "");
                       setGrainDraft(typeof readMeta(selectedNode.meta, "grain") === "string" ? (readMeta(selectedNode.meta, "grain") as string) : "");
                       setCalloutDraft(!!readMeta(selectedNode.meta, "callout"));
+                      setGrainCalloutDraft(!!readMeta(selectedNode.meta, "grain_callout"));
                       setAreasDraft(nodeAreas(selectedNode));
                       setLabelsDraft(nodeLabels(selectedNode));
                       setTagsDraft(selectedNode.tags ?? []); }}
