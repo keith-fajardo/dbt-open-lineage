@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { layoutGraph } from "./layout";
+import { layoutGraph, computeExportBounds, NODE_W, NODE_H } from "./layout";
 import type { Graph } from "./graphTypes";
 
 const node = (id: string, layer: string) => ({
@@ -152,5 +152,64 @@ describe("layoutGraph", () => {
     const upper = base.get("int_a")!.y < base.get("int_b")!.y ? "int_a" : "int_b";
     const grown = layoutGraph(stacked, undefined, new Map([[upper, { w: 240, h: 200 }]]));
     expect(gapOf(grown)).toBeGreaterThan(gapOf(base));
+  });
+});
+
+// App.tsx's PNG/SVG export handler frames the viewport on computeExportBounds
+// (extracted from the export handler itself — see layout.ts — since exercising
+// that path end-to-end needs html-to-image + a rendered react-flow viewport,
+// neither of which this pure geometry touches). Task 8 replaced the export
+// handler's hardcoded 180x44 per-node box with real sizes read from nodeSizes;
+// these tests prove BOTH halves of that change: (1) the no-sizes-map fallback
+// is byte-identical to the old hardcoded math, and (2) a grown node's size
+// actually widens the computed bounds beyond what 180x44 would have produced.
+describe("computeExportBounds", () => {
+  const shown = [
+    { id: "a", position: { x: 0, y: 0 } },
+    { id: "b", position: { x: 300, y: 100 } },
+  ];
+
+  it("without a sizes map, falls back to NODE_W x NODE_H per node — byte-identical to the pre-Task-8 hardcoded 180x44 math", () => {
+    expect(computeExportBounds(shown)).toEqual({
+      x: 0,
+      y: 0,
+      w: 300 + NODE_W, // rightmost node's x + its (fallback) width, minus min x (0)
+      h: 100 + NODE_H, // rightmost-in-y node's y + its (fallback) height, minus min y (0)
+    });
+    // Pin the actual numbers so a future NODE_W/NODE_H edit can't silently
+    // change what "byte-identical to 180x44" means without failing here.
+    expect(NODE_W).toBe(180);
+    expect(NODE_H).toBe(44);
+    expect(computeExportBounds(shown)).toEqual({ x: 0, y: 0, w: 480, h: 144 });
+  });
+
+  it("a grown node's real size (nodeSizes, Task 4) widens the bounds beyond the 180x44 fallback", () => {
+    const fallback = computeExportBounds(shown);
+    const nodeSizes = new Map([["b", { w: 500, h: 300 }]]);
+    const grown = computeExportBounds(shown, nodeSizes);
+    expect(grown.w).toBeGreaterThan(fallback.w);
+    expect(grown.h).toBeGreaterThan(fallback.h);
+    expect(grown).toEqual({ x: 0, y: 0, w: 800, h: 400 });
+  });
+
+  it("a sizes map that only covers SOME nodes falls back to NODE_W x NODE_H for the rest", () => {
+    const nodeSizes = new Map([["a", { w: 240, h: 200 }]]); // b is absent → fallback
+    const bounds = computeExportBounds(shown, nodeSizes);
+    // b (no entry) still uses the 180x44 fallback for width, so the
+    // width-defining corner (b's right edge) is unchanged from the
+    // no-sizes-map case; a's grown height now dominates the height bound.
+    expect(bounds.w).toBe(300 + NODE_W);
+    expect(bounds.h).toBe(0 + 200); // a's own (grown) bottom edge, not b's fallback 144
+  });
+
+  it("x/y are the min position across all shown nodes, not just the first", () => {
+    const scattered = [
+      { id: "a", position: { x: 50, y: 200 } },
+      { id: "b", position: { x: -20, y: 10 } },
+      { id: "c", position: { x: 400, y: 90 } },
+    ];
+    const bounds = computeExportBounds(scattered);
+    expect(bounds.x).toBe(-20);
+    expect(bounds.y).toBe(10);
   });
 });

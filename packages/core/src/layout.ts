@@ -138,3 +138,30 @@ export function layoutGraph(
 
   return pos;
 }
+
+/** Top-left rect (in flow coords) that tightly bounds `nodes`, used to frame
+ * the PNG/SVG export viewport. Per-node width/height come from `sizes`
+ * (column mode's grown boxes — see App.tsx's nodeSizes) with a fallback to
+ * NODE_W×NODE_H, mirroring layoutGraph's own widthOf/nodeHeightOf fallback
+ * above. Absent `sizes` (or a node missing from it) → byte-identical to the
+ * pre-Task-8 hardcoded 180×44 math. Pulled out of the App.tsx export handler
+ * specifically to be unit-tested directly (see layout.test.ts): the export
+ * path itself needs html-to-image + a real react-flow viewport to exercise,
+ * neither of which this pure geometry depends on. */
+export function computeExportBounds(
+  nodes: { id: string; position: { x: number; y: number } }[],
+  sizes?: Map<string, { w: number; h: number }>,
+): { x: number; y: number; w: number; h: number } {
+  const xs = nodes.map((n) => n.position.x);
+  const ys = nodes.map((n) => n.position.y);
+  const wOf = (id: string) => sizes?.get(id)?.w ?? NODE_W;
+  const hOf = (id: string) => sizes?.get(id)?.h ?? NODE_H;
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return {
+    x,
+    y,
+    w: Math.max(...nodes.map((n) => n.position.x + wOf(n.id))) - x,
+    h: Math.max(...nodes.map((n) => n.position.y + hOf(n.id))) - y,
+  };
+}

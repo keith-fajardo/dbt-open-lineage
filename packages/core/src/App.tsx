@@ -7,7 +7,7 @@ import "@xyflow/react/dist/style.css";
 import { toPng, toSvg } from "html-to-image";
 import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde } from "./bridge";
-import { layoutGraph } from "./layout";
+import { layoutGraph, computeExportBounds } from "./layout";
 import { resolveSelector, focalName, buildSelector } from "./selector";
 import { hasFullRefreshFlag, stripFullRefreshFlag } from "./runFlags";
 import type { RunDisplayStatus, RunEvent } from "./runStatus";
@@ -1200,15 +1200,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       const ids = new Set(scope.nodes.map((n) => n.id));
       const shown = rfNodes.filter((n) => ids.has(n.id));
       if (!shown.length) throw new Error("selection matches no visible nodes");
-      const xs = shown.map((n) => n.position.x);
-      const ys = shown.map((n) => n.position.y);
-      const wOf = (id: string) => nodeSizes.get(id)?.w ?? 180;
-      const hOf = (id: string) => nodeSizes.get(id)?.h ?? 44;
-      const bounds = {
-        x: Math.min(...xs), y: Math.min(...ys),
-        w: Math.max(...shown.map((n) => n.position.x + wOf(n.id))) - Math.min(...xs),
-        h: Math.max(...shown.map((n) => n.position.y + hOf(n.id))) - Math.min(...ys),
-      };
+      const bounds = computeExportBounds(shown, nodeSizes);
       const PAD = 40;
       const width = Math.min(4096, Math.ceil(bounds.w + PAD * 2));
       const height = Math.min(4096, Math.ceil(bounds.h + PAD * 2));
