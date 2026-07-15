@@ -1895,13 +1895,38 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               <>
                 <dt style={{ color: "#94a3b8", marginTop: 8 }}>columns</dt>
                 <dd style={{ margin: 0 }}>
-                  <ul style={{ margin: 0, paddingLeft: 18 }}>
-                    {Object.values(columnLineage.nodes[selectedNode.id].columns).map((c) => (
-                      <li key={c.columnName}>
-                        {c.columnName}
-                        {!c.hasLineage && <span style={{ color: "#64748b" }}> (unresolved)</span>}
-                      </li>
-                    ))}
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                    {Object.values(columnLineage.nodes[selectedNode.id].columns).map((c) => {
+                      const isPicked = !!pickedColumns.get(selectedNode.id)?.has(c.columnName);
+                      const isSel = selectedColumn?.node === selectedNode.id && selectedColumn?.column === c.columnName;
+                      return (
+                        <li key={c.columnName} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0" }}>
+                          <button
+                            aria-label={isPicked ? `unpick column ${c.columnName}` : `pick column ${c.columnName}`}
+                            title={isPicked ? "Remove row from node" : "Add row to node"}
+                            onClick={() => (isPicked ? onUnpickColumn : onPickColumn)(selectedNode.id, c.columnName)}
+                            style={{
+                              width: 18, height: 18, flexShrink: 0, borderRadius: 4,
+                              border: `1px solid ${isPicked ? "#38bdf8" : "#334155"}`,
+                              background: isPicked ? "#16233d" : "#0b1220",
+                              color: isPicked ? "#38bdf8" : "#64748b", cursor: "pointer",
+                              fontSize: 12, lineHeight: 1, padding: 0,
+                            }}
+                          >{isPicked ? "✓" : "+"}</button>
+                          <button
+                            onClick={() => onSelectColumn(selectedNode.id, c.columnName)}
+                            style={{
+                              flex: 1, textAlign: "left", background: "none", border: "none", cursor: "pointer",
+                              padding: 0, fontFamily: "ui-monospace, monospace", fontSize: 12,
+                              color: isSel ? "#38bdf8" : c.hasLineage ? "#e5e7eb" : "#64748b",
+                            }}
+                          >
+                            {c.columnName}
+                            {!c.hasLineage && <span style={{ color: "#64748b" }}> (unresolved)</span>}
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </dd>
               </>

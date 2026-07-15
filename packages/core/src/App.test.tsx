@@ -250,6 +250,24 @@ describe("dbt DAG App", () => {
     expect(panel).not.toHaveTextContent("(unresolved)");
     expect(screen.queryByText("columns")).not.toBeInTheDocument();
   });
+
+  it("picking a column from the details panel adds it as a row on the node", async () => {
+    columnLineageResult = {
+      nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } },
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Columns" })).toHaveAttribute("aria-pressed", "true"));
+    fireEvent.click(screen.getAllByText("a")[0]);
+    const panel = await screen.findByRole("complementary");
+    await waitFor(() => expect(panel).toHaveTextContent("columns"));
+    // The panel lists every column with a pick control; pick "id".
+    fireEvent.click(screen.getByRole("button", { name: "pick column id" }));
+    // The row now renders on node a (a monospace row appears on the canvas).
+    await waitFor(() => expect(screen.getAllByText("id").length).toBeGreaterThan(1));
+  });
 });
 
 describe("node click side panel", () => {
