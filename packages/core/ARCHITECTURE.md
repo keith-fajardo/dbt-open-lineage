@@ -52,7 +52,12 @@ through as `GraphNode.meta`. Core reads it; it does **not** write model `.yml` e
    (Known limitation: overlays read layout positions, not live hand-dragged positions — a dragged node's
    zone/callout lags until the next relayout.)
 4. **Flow-space overlays use `ViewportPortal`** so they pan/zoom with the graph. Positions are top-left,
-   node 180×44; anchor to node positions, never to screen coordinates.
+   node 180×44; anchor to node positions, never to screen coordinates. **RELAXED in Column Lineage mode:**
+   node width/height vary per node via a `nodeSizes` map fed to `layoutGraph`; `layout.ts` and the image
+   export read per-node sizes (falling back to 180×44 when the map is empty, so normal mode is byte-identical).
+   Known v1 limitation: `zones.ts` `memberCorners` hulls and `CalloutOverlay` anchors still assume 180×44,
+   so a subject-area zone or callout drawn over a grown column-mode node is slightly misplaced — this mirrors
+   the existing "overlays read layout positions, not live drags" caveat and is accepted for v1.
 5. **YAML writes use `doc.toString({ lineWidth: 0 })`** (comment/format-preserving, no spurious re-wrap).
 6. **All host I/O goes through the Bridge.** No host imports in core. Paths are project-relative.
 

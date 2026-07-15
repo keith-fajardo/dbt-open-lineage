@@ -1202,10 +1202,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       if (!shown.length) throw new Error("selection matches no visible nodes");
       const xs = shown.map((n) => n.position.x);
       const ys = shown.map((n) => n.position.y);
+      const wOf = (id: string) => nodeSizes.get(id)?.w ?? 180;
+      const hOf = (id: string) => nodeSizes.get(id)?.h ?? 44;
       const bounds = {
         x: Math.min(...xs), y: Math.min(...ys),
-        w: Math.max(...xs.map((x) => x + 180)) - Math.min(...xs),
-        h: Math.max(...ys.map((y) => y + 44)) - Math.min(...ys),
+        w: Math.max(...shown.map((n) => n.position.x + wOf(n.id))) - Math.min(...xs),
+        h: Math.max(...shown.map((n) => n.position.y + hOf(n.id))) - Math.min(...ys),
       };
       const PAD = 40;
       const width = Math.min(4096, Math.ceil(bounds.w + PAD * 2));
