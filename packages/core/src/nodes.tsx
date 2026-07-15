@@ -361,10 +361,16 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
             onClick={(e) => { e.stopPropagation(); view.onSelectColumn?.(id, col.name); }}
             style={{
               display: "flex", alignItems: "center", gap: 6,
+              // `relative` is load-bearing: React Flow's Handle positions
+              // itself absolutely against the nearest positioned ancestor.
+              // Without this, every row's Handle falls through to the outer
+              // node's box instead of its own row, so all rows' trace edges
+              // collapse onto roughly the same point near the node's middle
+              // instead of anchoring to the row that's actually traced.
+              position: "relative",
               height: 18, padding: "0 8px", cursor: "pointer",
               fontFamily: "ui-monospace, monospace", fontSize: 9.5,
               color: col.hasLineage ? "#cbd5e1" : "#64748b",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               background: onTrace ? "rgba(56,189,248,0.18)" : isHit ? "rgba(251,191,36,0.15)" : "transparent",
               boxShadow: isCurrent ? "inset 0 0 0 2px #fbbf24" : "none",
             }}

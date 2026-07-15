@@ -329,6 +329,26 @@ describe("DagNode column body (column-lineage mode)", () => {
     expect(screen.getByText("raw_json")).toBeInTheDocument();
   });
 
+  // Regression: a column row without `position: relative` isn't a positioning
+  // context, so React Flow's per-row Handle falls through to the outer node's
+  // box instead of anchoring to its own row — every row's trace edge then
+  // collapses onto roughly the same point near the node's middle rather than
+  // the actual traced row (reported live against a real project). jsdom can't
+  // run React Flow's real layout math, but the row's inline `position` style
+  // is the one property that fix depends on, and it's directly assertable.
+  it("every column row establishes its own positioning context for its Handle", () => {
+    const { container } = render(
+      <ViewContext.Provider value={colView()}>
+        <DagNode id="model.proj.stg_orders" data={colData({ expanded: true })} />
+      </ViewContext.Provider>,
+    );
+    const rows = container.querySelectorAll("[data-col-row]");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row).toHaveStyle({ position: "relative" });
+    }
+  });
+
   it("the toggle flips ▸/▾ with the expanded flag and calls onToggleExpand(id) on click", () => {
     const toggled: string[] = [];
     const { rerender } = render(
