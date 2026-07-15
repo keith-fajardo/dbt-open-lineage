@@ -125,7 +125,8 @@
     "package": "vsce package --no-dependencies"
   },
   "dependencies": {
-    "@dbt-open-lineage/core": "*"
+    "@dbt-open-lineage/core": "*",
+    "@dbt-open-lineage/colibri-runner": "*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

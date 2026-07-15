@@ -11,6 +11,7 @@ import { startDbtRunWithSeed, type RunController } from "./host/run";
 import { readCompiledSql, compiledDocUri, parseCompiledDocQuery } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
+import { runColumnLineageForProject } from "./host/columnLineage";
 import type { Graph, GraphNode } from "@dbt-open-lineage/core";
 
 const VIEW_ID = "dbtOpenLineage.graph";
@@ -211,6 +212,13 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const prompt = buildGistPrompt(node.name, String(msg.args.description ?? node.description), sql);
         const gist = await runGist(tokenizeCommand(command, prompt));
         reply({ ok: true, result: gist });
+        break;
+      }
+      case "dbt.columnLineage": {
+        projectRoot = resolveRoot();
+        if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
+        const payload = runColumnLineageForProject(projectRoot);
+        reply({ ok: true, result: payload });
         break;
       }
       default:

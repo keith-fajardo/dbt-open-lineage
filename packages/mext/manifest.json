@@ -11,6 +11,7 @@
     "ide.open",
     "fs.readText",
     "fs.writeText",
-    "dbt.gist"
+    "dbt.gist",
+    "dbt.columnLineage"
   ]
 }
