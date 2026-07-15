@@ -757,11 +757,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   );
 
   // The run/build/test button's scope: the union of the selector-matched and
-  // category-filtered sets — but ONLY once the selector box is non-blank.
-  // A blank selector already blanks the whole DAG (see `visibleGraph` above,
-  // which returns {nodes:[],edges:[]} whenever `!cleanedSelector.trim()`, filters
-  // notwithstanding) — so Run must see nothing active in that state too,
-  // rather than falling back to "the whole project."
+  // category-filtered sets — but ONLY once the selector box is non-blank or
+  // the user confirms show-all. A blank selector already blanks the whole DAG
+  // (see `visibleGraph` above, which returns {nodes:[],edges:[]} whenever
+  // `!cleanedSelector.trim() && !showAll`, filters notwithstanding) — except
+  // when `showAll` is true, in which case Run sees all active nodes.
   const activeIds = useMemo(
     () => ((cleanedSelector.trim() || showAll) ? computeActiveIds(matched, filtered) : new Set<string>()),
     [cleanedSelector, matched, filtered, showAll],
