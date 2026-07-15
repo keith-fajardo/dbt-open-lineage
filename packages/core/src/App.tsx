@@ -881,7 +881,18 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     if (columnLineage) return; // already loaded for this enable
     setColumnLineageBusy(true); setColumnLineageErr(null);
     try {
-      setColumnLineage(await invoke<ColumnLineagePayload>("dbt.columnLineage", {}));
+      const payload = await invoke<ColumnLineagePayload>("dbt.columnLineage", {});
+      setColumnLineage(payload);
+      // dbt-colibri resolves column-level lineage by parsing COMPILED SQL out
+      // of manifest.json — if that's stale (e.g. only a selective/partial
+      // `dbt compile` ran, or another tool's background parse invalidated
+      // it), colibri silently falls back to model-level-only edges, which
+      // extractColumnLineage correctly filters out. The result looks
+      // identical to "nothing traces," with no indication why. Surface it
+      // explicitly rather than leaving the toggle looking broken.
+      if (payload.edges.length === 0) {
+        setColumnLineageErr("No column-level lineage found — run a full `dbt compile` and try again.");
+      }
     } catch (e) {
       setColumnLineageErr(String((e as Error).message ?? e));
       setColumnLineageMode(false); // revert — nothing to show

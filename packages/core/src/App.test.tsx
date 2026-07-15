@@ -282,6 +282,41 @@ describe("dbt DAG App", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 
+  // Regression: dbt-colibri resolves column lineage by parsing COMPILED SQL
+  // in manifest.json. A selective/partial `dbt compile`, or another tool's
+  // background parse, can silently leave it stale — colibri then falls back
+  // to model-level-only edges, which extractColumnLineage correctly filters
+  // out. Without a warning this looks identical to a broken toggle (the
+  // fetch succeeds, mode stays on, but nothing ever traces) with no hint why.
+  it("warns when the fetch succeeds but has zero real column edges (stale/uncompiled manifest)", async () => {
+    columnLineageResult = {
+      nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } },
+      edges: [], // colibri ran, but every edge was model-level-only and got filtered
+    };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(screen.getByText(/run a full `dbt compile`/)).toBeInTheDocument());
+  });
+
+  it("does not warn when the fetch succeeds with real column edges present", async () => {
+    columnLineageResult = {
+      nodes: {
+        a: { columns: { id: { columnName: "id", hasLineage: true } } },
+        b: { columns: { id: { columnName: "id", hasLineage: true } } },
+      },
+      edges: [{ source: "a", target: "b", sourceColumn: "id", targetColumn: "id" }],
+    };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.queryByText(/run a full `dbt compile`/)).not.toBeInTheDocument();
+  });
+
   it("shows the selected node's columns in the details panel once column lineage is loaded", async () => {
     columnLineageResult = {
       nodes: {
