@@ -18,41 +18,39 @@ export const endpointKey = (node: string, column: string): string => `${node}::$
  * the shared (node,column) endpoint — never on the column NAME — so a mid-chain
  * rename (sourceColumn≠targetColumn) is followed for free.
  *
- * The graph is walked as a DIRECTED graph, NOT undirected. This matters at a
- * FAN-IN (merge) node — an endpoint fed by two or more DISTINCT upstream source
- * columns (a join key, a `CASE`/`COALESCE` over two different columns, a
- * `UNION ALL` branch, etc.):
+ * The walk runs in two separate phases, deliberately kept apart so neither can
+ * leak a value's UNRELATED siblings into the trace:
  *
- *   - FORWARD exploration (source→target — where a value FLOWS OUT) is always
- *     followed. Fan-out is genuine lineage no matter how we reached the node.
- *   - BACKWARD exploration (target→source — where a value FLOWS IN) is followed
- *     only THROUGH a 1:1 node — one whose single incoming source column is a
- *     genuine pass-through/rename/staging-copy, i.e. the SAME identity — OR
- *     through the START endpoint itself, merge or not. If a node has ≥2
- *     distinct incoming sources it is a merge point, and walking back into its
- *     sibling sources MID-WALK would conflate two DIFFERENT values' lineages
- *     (the classic leak: trace gl_code, reach a flag that gl_code and
- *     document_number both feed, then walk back into document_number and
- *     forward into document_number's unrelated downstream). So backward
- *     exploration STOPS at a merge point reached mid-walk. The START endpoint
- *     is exempt from that block: clicking a merge column directly is an
- *     explicit request to see everything feeding it (e.g. a `UNION ALL` of two
- *     upstream models into one shared column — dbt-colibri's edge shape can't
- *     tell that apart from a genuine multi-column derivation, so this is a
- *     deliberate trade-off, not a general rule). It can still fan into a
- *     sibling's unrelated downstream when the start truly is a COALESCE/CASE
- *     merge rather than a union branch — acceptable because it only happens
- *     when the user clicks that exact merge column, never as a side effect of
- *     tracing an unrelated column through it.
+ *   PHASE 1 — forward closure. Follow source→target edges from the start,
+ *   completely unrestricted, however many hops. Fan-out is always genuine
+ *   lineage of the value we started from.
  *
- * An undirected walk is exactly the special case where every node is 1:1, so
- * pure rename chains, fan-outs, and cycles all behave identically to before.
- * The visited set terminates any cycle. Returns the set of endpoint keys on the
- * trace, including the start. */
+ *   PHASE 2 — backward climb. Follow target→source edges from the start
+ *   (merge or not — clicking a merge column directly is an explicit request
+ *   to see everything feeding it, e.g. a `UNION ALL` branch where dbt-colibri's
+ *   edge shape can't tell a union from a genuine multi-column derivation), and
+ *   continue climbing through any node with exactly ONE distinct source (a
+ *   genuine 1:1 pass-through/rename). It stops at a node with ≥2 distinct
+ *   sources reached mid-climb (a merge point) — walking into its OTHER
+ *   sibling source would conflate a different value's lineage with ours.
+ *
+ *   Critically, phase 2 NEVER re-enters the forward map. An ancestor
+ *   discovered only by climbing backward does not get to project its own
+ *   unrelated forward fan-out into the trace — it was reached to explain
+ *   where OUR value came from, not to introduce everything else it also
+ *   feeds. (Real case: `memo` has exactly one source, `document_number` — a
+ *   genuine 1:1 backward hop — but `document_number` ALSO independently feeds
+ *   `flag` and its own downstream. Tracing `memo` must stop at
+ *   `document_number`, not continue forward into `flag` and beyond.)
+ *
+ * An undirected single-phase walk is exactly the special case where every
+ * node is 1:1 and has no independent forward fan-out of its own, so pure
+ * rename chains, plain fan-outs, and cycles all behave identically to before.
+ * The visited set terminates any cycle. Returns the set of endpoint keys on
+ * the trace, including the start. */
 export function traceColumn(payload: ColumnLineagePayload, start: ColEndpoint): Set<string> {
-  // fwd:  source endpoint → target endpoints (value flows OUT) — always walked.
-  // back: target endpoint → source endpoints (value flows IN)  — walked only
-  //       through a 1:1 node (see below).
+  // fwd:  source endpoint → target endpoints (value flows OUT).
+  // back: target endpoint → source endpoints (value flows IN).
   const fwd = new Map<string, string[]>();
   const back = new Map<string, string[]>();
   // Distinct source endpoints feeding each target endpoint. size ≥ 2 ⇒ merge
@@ -72,19 +70,30 @@ export function traceColumn(payload: ColumnLineagePayload, start: ColEndpoint): 
   const isPassThrough = (n: string) => sources.get(n)?.size === 1;
 
   const startKey = endpointKey(start.node, start.column);
+
+  // Phase 1: forward closure, always unrestricted.
   const visited = new Set<string>([startKey]);
-  const stack = [startKey];
-  while (stack.length) {
-    const cur = stack.pop()!;
-    const neighbors = fwd.get(cur) ?? [];
-    // Cross backward through a genuine 1:1 pass-through node, or through the
-    // START endpoint itself (merge or not) — never through a merge point
-    // (≥2 distinct sources) reached mid-walk.
-    const back_ = (cur === startKey || isPassThrough(cur)) ? back.get(cur) : undefined;
-    for (const nb of back_ ? [...neighbors, ...back_] : neighbors) {
+  const fStack = [startKey];
+  while (fStack.length) {
+    const cur = fStack.pop()!;
+    for (const nb of fwd.get(cur) ?? []) {
       if (!visited.has(nb)) {
         visited.add(nb);
-        stack.push(nb);
+        fStack.push(nb);
+      }
+    }
+  }
+
+  // Phase 2: backward-only climb — never touches `fwd`, so a node reached
+  // here can't fan its own unrelated targets into the trace.
+  const bStack = [startKey];
+  while (bStack.length) {
+    const cur = bStack.pop()!;
+    if (cur !== startKey && !isPassThrough(cur)) continue;
+    for (const nb of back.get(cur) ?? []) {
+      if (!visited.has(nb)) {
+        visited.add(nb);
+        bStack.push(nb);
       }
     }
   }

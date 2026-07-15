@@ -141,11 +141,12 @@ describe("traceColumn", () => {
   // feeding it, so this exemption is scoped to the START endpoint only —
   // merge points reached MID-WALK (the gl_code fan-in tests above) still
   // block, so tracing an unrelated column through a merge still can't leak
-  // into a sibling's fan-out. The accepted trade-off: if the user directly
-  // clicks a true COALESCE/CASE merge column (not a union branch), its
-  // sibling's unrelated downstream now DOES light up — that only happens on
-  // an explicit click of that exact column, never as a side effect.
-  it("selecting the merge column directly now crosses backward into both distinct sources", () => {
+  // into a sibling's fan-out. Because phase 2 never re-enters `fwd`, the two
+  // discovered sources (gl_code, document_number) do NOT get to project
+  // their OWN unrelated forward fan-out either — document_number's other
+  // outputs (fact.document_number, fact.memo) stay out even on this direct
+  // click, which removes what used to be an accepted trade-off.
+  it("selecting the merge column directly crosses backward into both distinct sources, without their unrelated siblings", () => {
     const trace = traceColumn(fanIn, { node: "int", column: "flag" });
     expect(trace).toEqual(
       new Set([
@@ -153,10 +154,10 @@ describe("traceColumn", () => {
         "fact::revenue_earned",
         "stg::gl_code",
         "stg2::document_number",
-        "fact::document_number",
-        "fact::memo",
       ]),
     );
+    expect(trace.has("fact::document_number")).toBe(false);
+    expect(trace.has("fact::memo")).toBe(false);
   });
 
   it("tracing an unrelated column through the merge mid-walk still cannot leak into a sibling's fan-out", () => {
@@ -166,6 +167,20 @@ describe("traceColumn", () => {
     expect(trace.has("stg2::document_number")).toBe(false);
     expect(trace.has("fact::document_number")).toBe(false);
     expect(trace.has("fact::memo")).toBe(false);
+  });
+
+  // Regression: memo has exactly ONE distinct source (document_number) — a
+  // genuine 1:1 backward hop, no different from a rename. But document_number
+  // ALSO independently feeds flag (a merge) and its own downstream
+  // revenue_earned. Because phase 2 never touches `fwd`, climbing back to
+  // document_number must NOT also pull in flag/revenue_earned — those are
+  // document_number's unrelated other outputs, not memo's lineage.
+  it("tracing a 1:1-sourced column stops at its source, without the source's other unrelated fan-out", () => {
+    const trace = traceColumn(fanIn, { node: "fact", column: "memo" });
+    expect(trace).toEqual(new Set(["fact::memo", "stg2::document_number"]));
+    expect(trace.has("int::flag")).toBe(false);
+    expect(trace.has("fact::revenue_earned")).toBe(false);
+    expect(trace.has("fact::document_number")).toBe(false);
   });
 
   // Regression for the reported bug: int_invoice_and_credit_memo_lines is a
