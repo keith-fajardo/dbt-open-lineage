@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -5,13 +6,7 @@ import { join } from "path";
 import { spawnSync } from "child_process";
 import { runColibri } from "./colibri";
 
-vi.mock("child_process", async (importOriginal) => {
-  const actual = await importOriginal() as typeof import("child_process");
-  return {
-    ...actual,
-    spawnSync: vi.fn(),
-  };
-});
+vi.mock("child_process", () => ({ spawnSync: vi.fn() }));
 
 const mockedSpawnSync = vi.mocked(spawnSync);
 
