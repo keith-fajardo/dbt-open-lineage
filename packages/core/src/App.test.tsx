@@ -756,6 +756,22 @@ describe("editable description + gist panel", () => {
       expect(lastCalloutHeights?.get("model.proj.stg_orders")).toBeGreaterThan(0));
   });
 
+  it("reserves DAG layout space for a grain-only callout (no gist)", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { grain: "one row per order_id", grain_callout: "top" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    await screen.findByText("stg_orders");
+    fireEvent.click(screen.getByLabelText(/callouts/i));
+    await waitFor(() =>
+      expect(lastCalloutHeights?.get("model.proj.stg_orders")).toBeGreaterThan(0));
+  });
+
   it("optimistic in-memory update after Save writes the NESTED shape (a re-select doesn't revert to stale nested data)", async () => {
     manifestGraph = {
       nodes: [{
