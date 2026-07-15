@@ -36,6 +36,24 @@ export interface ViewState {
    * state seeded at run start for every node the run's selector includes,
    * before dbt's own START event for that node arrives. Drives the marble. */
   runStatus: Map<string, RunDisplayStatus> | null;
+  // ── Column-lineage interaction state (all optional; only set in column mode).
+  /** The picked column the user clicked; only its trace animates. */
+  selectedColumn?: import("./columnTrace").ColEndpoint | null;
+  /** Endpoint keys on the selected column's trace — every node highlights its
+   * participating picked rows so the multi-hop path reads as one line.
+   * ReadonlySet (not Set) so the shared EMPTY_KEYS constant and traceColumn's
+   * Set both assign cleanly. */
+  columnTrace?: ReadonlySet<string>;
+  /** Endpoint keys of picked columns whose name matches the search query. */
+  columnSearchHits?: ReadonlySet<string>;
+  /** Node id OR endpoint key of the current Prev/Next target (stronger ring). */
+  currentHit?: string | null;
+  /** Click a picked column row → select it (toggles). */
+  onSelectColumn?: (node: string, column: string) => void;
+  /** Add a column as a row on its node (from the in-node dropdown or the panel). */
+  onPickColumn?: (node: string, column: string) => void;
+  /** Remove a picked column row. */
+  onUnpickColumn?: (node: string, column: string) => void;
 }
 
 export const ViewContext = createContext<ViewState>({

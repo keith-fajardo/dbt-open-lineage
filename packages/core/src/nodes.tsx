@@ -1,9 +1,13 @@
-import { useContext } from "react";
+import { useContext, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ViewContext, type ViewState } from "./viewContext";
+import { endpointKey } from "./columnTrace";
 import type { RunDisplayStatus } from "./runStatus";
 
 export type DimView = Pick<ViewState, "selected" | "active" | "up" | "down" | "matched" | "spotlight" | "filtered">;
+
+/** Shared empty set so optional ViewState column fields default without allocating. */
+const EMPTY_KEYS: ReadonlySet<string> = new Set<string>();
 
 /** The single source of truth for whether a node is dimmed. The open model is
  * never dimmed; a selection dims everything off its lineage; otherwise the
@@ -73,6 +77,18 @@ export interface DagNodeData {
   testCount: number;
   /** Resolved colors of this node's labels (meta.labels), left-edge stripes. */
   labelColors?: string[];
+  /** Column-lineage mode only. PRESENT (even if []) ⇒ render the column body.
+   * These are the user's MANUALLY PICKED columns. Static per build key
+   * (Invariant 2's allowed exception, like labelColors). DagNode renders the
+   * UNION of these with any column on the live trace (via allColumns) — see
+   * the `rendered` derivation in DagNode below; this array alone is not the
+   * full set of rows shown. */
+  columns?: { name: string; hasLineage: boolean }[];
+  /** The node's full column catalog, for the in-node pick dropdown. */
+  allColumns?: { name: string; hasLineage: boolean }[];
+  /** Box size from estimateColumnNodeSize (column mode). */
+  width?: number;
+  height?: number;
   [key: string]: unknown;
 }
 
@@ -98,6 +114,76 @@ function highlightLabel(label: string, q: string) {
     ));
 }
 
+/** The `+ trace column…` strip under a node's header. Opens a text-filtered
+ * dropdown of the node's full column catalog; picking adds a row (stays open
+ * for picking several). Already-picked columns show a check and unpick. */
+function PickBar({
+  id, data, picked, onPick, onUnpick,
+}: {
+  id: string;
+  data: DagNodeData;
+  picked: Set<string>;
+  onPick?: (node: string, column: string) => void;
+  onUnpick?: (node: string, column: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const all = data.allColumns ?? [];
+  const ql = q.trim().toLowerCase();
+  const shown = all.filter((c) => ql === "" || c.name.toLowerCase().includes(ql));
+  return (
+    <div style={{ position: "relative", flex: "0 0 auto", padding: "2px 6px", height: 22, boxSizing: "border-box" }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        style={{
+          width: "100%", height: 18, textAlign: "left", cursor: "pointer",
+          background: "#0b1220", border: "1px dashed #334155", borderRadius: 4,
+          color: "#94a3b8", fontSize: 10, padding: "0 6px", fontFamily: "inherit",
+        }}
+      >+ trace column…</button>
+      {open && (
+        <div role="listbox" onClick={(e) => e.stopPropagation()} style={{
+          position: "absolute", left: 6, right: 6, top: "100%", zIndex: 40,
+          maxHeight: 180, overflowY: "auto",
+          background: "#111827", border: "1px solid #334155", borderRadius: 6, padding: 4,
+          boxShadow: "0 12px 28px rgba(0,0,0,0.5)",
+        }}>
+          <input
+            autoFocus value={q} placeholder="filter columns…"
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && shown[0]) { e.preventDefault();
+                picked.has(shown[0].name) ? onUnpick?.(id, shown[0].name) : onPick?.(id, shown[0].name); }
+              if (e.key === "Escape") setOpen(false);
+            }}
+            style={{ width: "100%", boxSizing: "border-box", marginBottom: 4, padding: "3px 6px",
+              background: "#0b1220", border: "1px solid #334155", borderRadius: 4,
+              color: "#e5e7eb", fontSize: 11, fontFamily: "inherit" }}
+          />
+          {shown.map((c) => {
+            const on = picked.has(c.name);
+            return (
+              <button
+                key={c.name} role="option" aria-selected={on}
+                onClick={() => (on ? onUnpick?.(id, c.name) : onPick?.(id, c.name))}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left",
+                  background: "none", border: "none", cursor: "pointer", borderRadius: 4,
+                  color: c.hasLineage ? "#e5e7eb" : "#64748b",
+                  fontFamily: "ui-monospace, monospace", fontSize: 11, padding: "4px 6px",
+                }}
+              >
+                <span aria-hidden style={{ width: 12 }}>{on ? "✓" : ""}</span>
+                {c.name}{!c.hasLineage && <span style={{ color: "#475569" }}> (unresolved)</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   const color = LAYER_COLOR[data.layer] ?? LAYER_COLOR.model;
   // Selection/emphasis comes from context so drags never rebuild node objects.
@@ -111,30 +197,12 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   const dim = isDimmed(id, view);
   const emphasize = hasSel && !selected && inLineage;
   const searchHit = view.search !== "" && data.label.toLowerCase().includes(view.search);
-  return (
-    <div
-      title={active ? `${data.label} (open)` : data.label}
-      style={{
-        width: 180, height: 44, borderRadius: 8,
-        border: active ? `2px solid #e5e7eb` : `2px solid ${color}`,
-        boxShadow: active
-          ? `0 0 0 3px #e5e7eb, 0 0 18px 3px ${color}` // open model: white ring + colored glow
-          : selected
-            ? `0 0 0 2px #e5e7eb`
-            : emphasize
-              ? `0 0 0 2px ${color}`
-              : searchHit
-                ? `0 0 0 2px #fbbf24` // amber ring: search match, visible at low zoom
-                : "none",
-        background: active ? "#111c30" : "#0b1220", color: "#e5e7eb",
-        opacity: dim ? 0.18 : 1,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 12, lineHeight: 1.25, textAlign: "center",
-        padding: "2px 10px", boxSizing: "border-box",
-        transition: "opacity 120ms",
-        position: "relative",
-      }}
-    >
+  // The chrome shared by both the normal fixed box and the column-mode
+  // header: run-status marble, favorite star, label stripes, name, corner
+  // badges, and the two node-level handles. Moved verbatim — no styling or
+  // behavior change from what used to be the outer <div>'s only children.
+  const header = (
+    <>
       <Handle type="target" position={Position.Left} />
       {(() => {
         const fav = view.favorites.has(id);
@@ -232,6 +300,118 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
         </span>
       )}
       <Handle type="source" position={Position.Right} />
+    </>
+  );
+  // Normal path: today's exact fixed box, byte-identical (column branch unreachable).
+  if (data.columns == null) {
+    return (
+      <div
+        title={active ? `${data.label} (open)` : data.label}
+        style={{
+          width: 180, height: 44, borderRadius: 8,
+          border: active ? `2px solid #e5e7eb` : `2px solid ${color}`,
+          boxShadow: active
+            ? `0 0 0 3px #e5e7eb, 0 0 18px 3px ${color}` // open model: white ring + colored glow
+            : selected
+              ? `0 0 0 2px #e5e7eb`
+              : emphasize
+                ? `0 0 0 2px ${color}`
+                : searchHit
+                  ? `0 0 0 2px #fbbf24` // amber ring: search match, visible at low zoom
+                  : "none",
+          background: active ? "#111c30" : "#0b1220", color: "#e5e7eb",
+          opacity: dim ? 0.18 : 1,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 12, lineHeight: 1.25, textAlign: "center",
+          padding: "2px 10px", boxSizing: "border-box",
+          transition: "opacity 120ms",
+          position: "relative",
+        }}
+      >
+        {header}
+      </div>
+    );
+  }
+  // Column path: header chrome on top, a `+ trace column…` pick bar, then one
+  // row per RENDERED column. Outer box is content-sized; the header stays 44px.
+  const picked = new Set((data.columns ?? []).map((c) => c.name));
+  const selKey = view.selectedColumn ? endpointKey(view.selectedColumn.node, view.selectedColumn.column) : null;
+  const trace = view.columnTrace ?? EMPTY_KEYS;
+  const searchHits = view.columnSearchHits ?? EMPTY_KEYS;
+  const current = view.currentHit ?? null;
+  // RENDERED rows = manually PICKED columns ∪ any column on the live trace
+  // passing through this node (transient, visual-only — never written back to
+  // pickedColumns/data.columns). Computed here, at render time, from
+  // data.allColumns + view.columnTrace — both already exist (Task 4). When the
+  // trace clears (columnTrace empty), the union collapses back to just the
+  // picked set on the very next render — no cleanup code needed, no stray rows
+  // survive a toggle-off. A column that is both picked AND on the trace is
+  // still only in the union once (the `!picked.has` guard below skips it).
+  const onTraceOnly = (data.allColumns ?? []).filter(
+    (c) => !picked.has(c.name) && trace.has(endpointKey(id, c.name)),
+  );
+  const rendered = [...(data.columns ?? []), ...onTraceOnly];
+  return (
+    <div
+      title={active ? `${data.label} (open)` : data.label}
+      style={{
+        width: data.width ?? 180, minHeight: data.height ?? 44, borderRadius: 8,
+        border: active ? `2px solid #e5e7eb` : `2px solid ${color}`,
+        boxShadow: active
+          ? `0 0 0 3px #e5e7eb, 0 0 18px 3px ${color}`
+          : selected ? `0 0 0 2px #e5e7eb`
+          : emphasize ? `0 0 0 2px ${color}`
+          : searchHit ? `0 0 0 2px #fbbf24`
+          : "none",
+        background: active ? "#111c30" : "#0b1220", color: "#e5e7eb",
+        opacity: dim ? 0.18 : 1,
+        display: "flex", flexDirection: "column",
+        boxSizing: "border-box", transition: "opacity 120ms", position: "relative",
+      }}
+    >
+      {/* 44px header — same chrome as normal mode, same relative positioning. */}
+      <div style={{
+        height: 44, position: "relative", flex: "0 0 auto",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 12, lineHeight: 1.25, textAlign: "center", padding: "2px 10px",
+      }}>
+        {header}
+      </div>
+      <PickBar id={id} data={data} picked={picked} onPick={view.onPickColumn} onUnpick={view.onUnpickColumn} />
+      {rendered.map((col) => {
+        const key = endpointKey(id, col.name);
+        const onTrace = key === selKey || trace.has(key);
+        const isHit = searchHits.has(key);
+        const isCurrent = current === key;
+        return (
+          <div
+            key={col.name}
+            data-col-row
+            data-on-trace={onTrace ? "true" : "false"}
+            title={col.name}
+            onClick={(e) => { e.stopPropagation(); view.onSelectColumn?.(id, col.name); }}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              height: 18, padding: "0 8px", cursor: "pointer",
+              fontFamily: "ui-monospace, monospace", fontSize: 11,
+              color: col.hasLineage ? "#cbd5e1" : "#64748b",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              background: onTrace ? "rgba(56,189,248,0.18)" : isHit ? "rgba(251,191,36,0.15)" : "transparent",
+              boxShadow: isCurrent ? "inset 0 0 0 2px #fbbf24" : "none",
+            }}
+          >
+            <span aria-hidden style={{
+              width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+              background: onTrace ? "#38bdf8" : isHit ? "#fbbf24" : "#334155",
+            }} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {highlightLabel(col.name, view.search)}
+            </span>
+            <Handle type="target" position={Position.Left} id={col.name} style={{ background: "#38bdf8" }} />
+            <Handle type="source" position={Position.Right} id={col.name} style={{ background: "#38bdf8" }} />
+          </div>
+        );
+      })}
     </div>
   );
 }
