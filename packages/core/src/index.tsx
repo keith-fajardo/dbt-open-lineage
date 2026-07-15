@@ -7,6 +7,8 @@ export { default as App } from "./App";
 export { setBridge, type Bridge } from "./bridge";
 export type { Graph, GraphNode, GraphEdge } from "./graphTypes";
 export { parseManifest } from "./manifest";
+export { extractColumnLineage } from "./columnLineage";
+export type { ColumnLineagePayload, ColumnLineageNode, ColumnLineageEdge, ColumnEntry } from "./columnLineage";
 
 class Boundary extends Component<{ children: ReactNode }, { err: Error | null }> {
   state = { err: null as Error | null };
