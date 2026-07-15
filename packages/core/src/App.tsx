@@ -259,6 +259,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [panelW, setPanelW] = useState(280); // details panel width, drag to resize
   const [descH, setDescH] = useState(72); // description box height, drag handle below
   const [gistH, setGistH] = useState(72); // gist box height, drag handle below
+const [grainH, setGrainH] = useState(72); // grain box height, drag handle below
 
   // Drag a textarea's bottom handle to resize its height. The native CSS resize
   // grip is unreliable in the WKWebView iframe, so drive height from state via
@@ -531,6 +532,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // selected node changes; nothing hits disk until Save.
   const [descDraft, setDescDraft] = useState("");
   const [gistDraft, setGistDraft] = useState("");
+  const [grainDraft, setGrainDraft] = useState("");
   const [calloutDraft, setCalloutDraft] = useState(false); // show gist as a DAG callout
   // Membership drafts: which subject areas / labels / tags this model belongs to.
   const [areasDraft, setAreasDraft] = useState<string[]>([]);
@@ -549,6 +551,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   useEffect(() => {
     setDescDraft(selectedNode?.description ?? "");
     setGistDraft(typeof readMeta(selectedNode?.meta, "gist") === "string" ? (readMeta(selectedNode?.meta, "gist") as string) : "");
+    setGrainDraft(typeof readMeta(selectedNode?.meta, "grain") === "string" ? (readMeta(selectedNode?.meta, "grain") as string) : "");
     setCalloutDraft(!!readMeta(selectedNode?.meta, "callout"));
     setAreasDraft(selectedNode ? nodeAreas(selectedNode) : []);
     setLabelsDraft(selectedNode ? nodeLabels(selectedNode) : []);
@@ -566,6 +569,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const dirty = editable &&
     (descDraft !== (selectedNode!.description ?? "") ||
      gistDraft !== (typeof readMeta(selectedNode!.meta, "gist") === "string" ? (readMeta(selectedNode!.meta, "gist") as string) : "") ||
+     grainDraft !== (typeof readMeta(selectedNode!.meta, "grain") === "string" ? (readMeta(selectedNode!.meta, "grain") as string) : "") ||
      calloutDraft !== !!readMeta(selectedNode!.meta, "callout") ||
      !sameList(areasDraft, nodeAreas(selectedNode!)) ||
      !sameList(labelsDraft, nodeLabels(selectedNode!)) ||
@@ -587,7 +591,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       const areasArg = sameList(areasDraft, nodeAreas(selectedNode)) ? undefined : areasDraft;
       const labelsArg = sameList(labelsDraft, nodeLabels(selectedNode)) ? undefined : labelsDraft;
       const tagsArg = sameList(tagsDraft, selectedNode.tags ?? []) ? undefined : tagsDraft;
-      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, nextCallout, areasArg, labelsArg, tagsArg);
+      const text = upsertModelDoc(existing, selectedNode.name, descDraft, gistDraft, grainDraft, nextCallout, areasArg, labelsArg, tagsArg);
       await invoke<boolean>("fs.writeText", { path, text });
       // Optimistic in-memory update: the manifest on disk is stale until the
       // next `dbt compile`, but the panel should reflect the save immediately.
@@ -610,7 +614,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 ...(n.meta ?? {}),
                 dbt_open_lineage: {
                   ...((n.meta?.dbt_open_lineage as Record<string, unknown> | undefined) ?? {}),
-                  gist: gistDraft, callout: nextCallout ?? undefined,
+                  gist: gistDraft, grain: grainDraft, callout: nextCallout ?? undefined,
                   subject_areas: areasDraft, labels: labelsDraft,
                 },
               },
@@ -1218,6 +1222,25 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   })()}
                 </dd>
 
+                <dt style={{ color: "#94a3b8", marginTop: 8 }}>grain</dt>
+                <dd style={{ margin: 0 }}>
+                  <textarea
+                    aria-label="grain" value={grainDraft}
+                    onChange={(e) => setGrainDraft(e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box", height: grainH, background: "#0b1220",
+                      color: "#e5e7eb", border: "1px solid #334155", borderRadius: 6, padding: 6,
+                      fontFamily: "inherit", fontSize: 13, resize: "none", display: "block" }}
+                  />
+                  <div
+                    role="separator" aria-label="Resize grain" aria-orientation="horizontal"
+                    onPointerDown={startBoxResize(setGrainH, grainH)}
+                    style={{ height: 10, cursor: "ns-resize", display: "flex",
+                      alignItems: "center", justifyContent: "center" }}
+                  >
+                    <div style={{ width: 28, height: 3, borderRadius: 2, background: "#334155" }} />
+                  </div>
+                </dd>
+
                 <ChipEditor
                   title="subject areas"
                   info={
@@ -1283,6 +1306,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                   <button
                     onClick={() => { setDescDraft(selectedNode.description ?? "");
                       setGistDraft(typeof readMeta(selectedNode.meta, "gist") === "string" ? (readMeta(selectedNode.meta, "gist") as string) : "");
+                      setGrainDraft(typeof readMeta(selectedNode.meta, "grain") === "string" ? (readMeta(selectedNode.meta, "grain") as string) : "");
                       setCalloutDraft(!!readMeta(selectedNode.meta, "callout"));
                       setAreasDraft(nodeAreas(selectedNode));
                       setLabelsDraft(nodeLabels(selectedNode));

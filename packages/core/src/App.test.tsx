@@ -452,6 +452,120 @@ describe("editable description + gist panel", () => {
   });
 });
 
+describe("editable grain field", () => {
+  beforeEach(() => { manifestGraph = oneModelGraph; });
+
+  it("edits grain and writes YAML on Save", async () => {
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    const grain = await screen.findByLabelText("grain");
+    fireEvent.change(grain, { target: { value: "one row per order_id per day" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("fs.writeText", expect.objectContaining({
+        path: "models/staging/stg_orders.yml",
+      })));
+    const writtenText = invokeMock.mock.calls.find((c) => c[0] === "fs.writeText")![1]!.text as string;
+    expect(writtenText).toContain("one row per order_id per day");
+  });
+
+  it("has no AI-generate button for grain", async () => {
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await screen.findByLabelText("grain");
+    expect(screen.queryByRole("button", { name: /generate grain/i })).not.toBeInTheDocument();
+  });
+
+  it("populates the grain field from a legacy flat meta.grain (pre-namespace data)", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { grain: "flat legacy grain" },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("grain") as HTMLTextAreaElement).value).toBe("flat legacy grain"));
+  });
+
+  it("populates the grain field from the namespaced meta.dbt_open_lineage.grain", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { grain: "nested grain" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("grain") as HTMLTextAreaElement).value).toBe("nested grain"));
+  });
+
+  it("does not show a spurious dirty state (Save/Revert enabled) for a node with nested-only grain data", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { grain: "nested grain" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("grain") as HTMLTextAreaElement).value).toBe("nested grain"));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Revert" })).toBeDisabled();
+  });
+
+  it("Revert restores the grain field to its saved value and clears dirty state", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { grain: "saved grain" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    const grain = await screen.findByLabelText("grain");
+    fireEvent.change(grain, { target: { value: "edited grain" } });
+    expect(screen.getByRole("button", { name: "Revert" })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Revert" }));
+    await waitFor(() =>
+      expect((screen.getByLabelText("grain") as HTMLTextAreaElement).value).toBe("saved grain"));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("optimistic in-memory update after Save writes the NESTED shape (a re-select doesn't revert to stale nested data)", async () => {
+    manifestGraph = {
+      nodes: [{
+        id: "model.proj.stg_orders", name: "stg_orders", resource_type: "model",
+        layer: "staging", path: "models/staging/stg_orders.sql", description: "",
+        meta: { dbt_open_lineage: { grain: "stale nested grain" } },
+      }],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="stg_orders" />);
+    fireEvent.click(await screen.findByText("stg_orders"));
+    const grain = await screen.findByLabelText("grain");
+    await waitFor(() => expect((grain as HTMLTextAreaElement).value).toBe("stale nested grain"));
+    fireEvent.change(grain, { target: { value: "freshly saved grain" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("fs.writeText", expect.anything()));
+    fireEvent.click(screen.getByLabelText("close details"));
+    fireEvent.click(screen.getByText("stg_orders"));
+    await waitFor(() =>
+      expect((screen.getByLabelText("grain") as HTMLTextAreaElement).value).toBe("freshly saved grain"));
+  });
+});
+
 describe("readOnly mode", () => {
   beforeEach(() => { manifestGraph = oneModelGraph; });
 
@@ -462,6 +576,7 @@ describe("readOnly mode", () => {
 
     expect(screen.queryByLabelText("description")).not.toBeInTheDocument(); // textarea absent
     expect(screen.queryByLabelText("gist")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("grain")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revert" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /generate gist/i })).not.toBeInTheDocument();
