@@ -244,6 +244,28 @@ export function edgeOnLineage(
      e.from === selected || lineage.down.has(e.from));
 }
 
+/** Column-to-column edges for the interactive toggle — pure and exported
+ * so it's unit-testable directly, the same way edgeOnLineage is, rather
+ * than through React Flow's rendered SVG. Reuses the same focus/pruned
+ * node-id-set semantics the model-edge computation already applies. */
+export function columnEdgesFor(
+  columnLineage: ColumnLineagePayload,
+  matched: Set<string>,
+  focus: boolean,
+  pruned: Set<string> | null,
+): Edge[] {
+  return columnLineage.edges
+    .filter((e) => (focus ? matched.has(e.source) && matched.has(e.target) : true))
+    .filter((e) => pruned === null || (pruned.has(e.source) && pruned.has(e.target)))
+    .map((e, i) => ({
+      id: `col-${i}-${e.source}->${e.target}`,
+      source: e.source,
+      target: e.target,
+      label: `${e.sourceColumn} → ${e.targetColumn}`,
+      style: { stroke: "#38bdf8", strokeWidth: 1.5, strokeDasharray: "4 2" },
+    }));
+}
+
 export default function App({ projectPath, initialSelector = "", debounceMs = 150, readOnly = false, canRun = false }: Props) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -983,6 +1005,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const rfEdges: Edge[] = useMemo(() => {
     // empty selector → blank DAG, unless "show all" is confirmed
     if (!graph || (!cleanedSelector.trim() && !showAll)) return [];
+    if (columnLineageMode && columnLineage) {
+      return columnEdgesFor(columnLineage, matched, focus, pruned);
+    }
     return graph.edges
       .filter((e) => (focus ? matched.has(e.from) && matched.has(e.to) : true))
       .filter((e) => pruned === null || (pruned.has(e.from) && pruned.has(e.to)))
@@ -1006,7 +1031,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, matched, focus, selected, lineage, view, cleanedSelector, showAll, pruned]);
+  }, [graph, matched, focus, selected, lineage, view, cleanedSelector, showAll, pruned, columnLineageMode, columnLineage]);
 
   const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
   // Double-click a node → open its model/source file in the IDE editor
@@ -1783,6 +1808,22 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 )
                 : "—"}
             </dd>
+
+            {columnLineage?.nodes[selectedNode.id] && (
+              <>
+                <dt style={{ color: "#94a3b8", marginTop: 8 }}>columns</dt>
+                <dd style={{ margin: 0 }}>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {Object.values(columnLineage.nodes[selectedNode.id].columns).map((c) => (
+                      <li key={c.columnName}>
+                        {c.columnName}
+                        {!c.hasLineage && <span style={{ color: "#64748b" }}> (unresolved)</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </>
+            )}
 
             {/* Only rendered once this node has at least one log line —
                 an idle/never-run node shows nothing here, keeping the

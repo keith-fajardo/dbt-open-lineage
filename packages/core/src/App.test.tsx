@@ -84,7 +84,8 @@ vi.mock("./layout", async (orig) => {
   };
 });
 
-import App, { lineageOf, edgeOnLineage } from "./App";
+import App, { lineageOf, edgeOnLineage, columnEdgesFor } from "./App";
+import type { ColumnLineagePayload } from "./columnLineage";
 
 beforeEach(() => {
   layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g;
@@ -210,6 +211,40 @@ describe("dbt DAG App", () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(screen.getByText(/pip install dbt-colibri/)).toBeInTheDocument());
     expect(toggle).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("shows the selected node's columns in the details panel once column lineage is loaded", async () => {
+    columnLineageResult = {
+      nodes: {
+        a: {
+          columns: {
+            id: { columnName: "id", hasLineage: true },
+            raw: { columnName: "raw", hasLineage: false },
+          },
+        },
+      },
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Columns" })).toHaveAttribute("aria-pressed", "true"));
+    fireEvent.click(screen.getAllByText("a")[0]);
+    const panel = await screen.findByRole("complementary");
+    await waitFor(() => expect(panel).toHaveTextContent("columns"));
+    expect(panel).toHaveTextContent("id");
+    expect(panel).toHaveTextContent("raw");
+    expect(panel).toHaveTextContent("unresolved");
+  });
+
+  it("shows no columns section before the toggle has ever been used", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText("a")[0]);
+    const panel = await screen.findByRole("complementary");
+    await waitFor(() => expect(panel).toHaveTextContent("materialization"));
+    expect(panel).not.toHaveTextContent("(unresolved)");
+    expect(screen.queryByText("columns")).not.toBeInTheDocument();
   });
 });
 
@@ -1220,5 +1255,46 @@ describe("edgeOnLineage", () => {
     expect(edgeOnLineage("b", lin, { from: "a", to: "c" })).toBe(false);
     expect(edgeOnLineage("b", lin, { from: "a", to: "b" })).toBe(true);
     expect(edgeOnLineage("b", lin, { from: "b", to: "c" })).toBe(true);
+  });
+});
+
+describe("columnEdgesFor", () => {
+  const payload: ColumnLineagePayload = {
+    nodes: {},
+    edges: [
+      { source: "a", target: "b", sourceColumn: "id", targetColumn: "id" },
+      { source: "b", target: "c", sourceColumn: "id", targetColumn: "id" },
+    ],
+  };
+
+  it("builds one React Flow edge per column edge, labeled sourceColumn → targetColumn", () => {
+    const result = columnEdgesFor(payload, new Set(["a", "b", "c"]), false, null);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ source: "a", target: "b", label: "id → id" });
+    expect(result[1]).toMatchObject({ source: "b", target: "c", label: "id → id" });
+  });
+
+  it("filters to matched-only when focus is on", () => {
+    const result = columnEdgesFor(payload, new Set(["a", "b"]), true, null);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ source: "a", target: "b" });
+  });
+
+  it("filters to pruned-only when a prune set is active", () => {
+    const result = columnEdgesFor(payload, new Set(["a", "b", "c"]), false, new Set(["b", "c"]));
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ source: "b", target: "c" });
+  });
+
+  it("gives every edge a unique id even for repeated source/target pairs", () => {
+    const dup: ColumnLineagePayload = {
+      nodes: {},
+      edges: [
+        { source: "a", target: "b", sourceColumn: "id", targetColumn: "id" },
+        { source: "a", target: "b", sourceColumn: "name", targetColumn: "name" },
+      ],
+    };
+    const result = columnEdgesFor(dup, new Set(["a", "b"]), false, null);
+    expect(result[0].id).not.toBe(result[1].id);
   });
 });
