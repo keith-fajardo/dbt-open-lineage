@@ -936,7 +936,7 @@ describe("show-all confirmation on blank Enter", () => {
     expect(screen.getAllByText("b").length).toBeGreaterThan(0);
     expect(screen.getAllByText("c").length).toBeGreaterThan(0);
     expect(screen.getAllByText("d").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("Focus")).toBeChecked();
+    expect(screen.getByRole("button", { name: "Focus" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("typing after a confirmed show-all resets it — the next blank Enter re-prompts", async () => {

@@ -1111,9 +1111,17 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               spellCheck={false}
               style={{ flex: 1, minWidth: 200, maxWidth: 380, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontVariantLigatures: "none" }}
             />
-            <label style={TOGGLE_PILL}>
-              <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
-            </label>
+            <button
+              onClick={() => setFocus((v) => !v)}
+              aria-pressed={focus}
+              title="Show only the selector's matched nodes"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+                borderRadius: 20, border: `1px solid ${focus ? "#3b82f6" : "#334155"}`,
+                background: focus ? "#16233d" : "#111827",
+                color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+              }}
+            >Focus</button>
             <input
               aria-label="Search nodes"
               placeholder="search…"
