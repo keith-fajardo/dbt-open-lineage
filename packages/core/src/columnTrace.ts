@@ -14,28 +14,65 @@ export interface ColEndpoint {
 export const endpointKey = (node: string, column: string): string => `${node}::${column}`;
 
 /** Multi-hop column trace. An edge is (source,sourceColumn)→(target,targetColumn),
- * so a chain a.x→b.y→c.z is two edges sharing the endpoint (b,y). We walk
- * endpoint ADJACENCY (both directions) transitively via BFS, matching on the
- * shared (node,column) endpoint — never on the column NAME — so a mid-chain
- * rename (sourceColumn≠targetColumn) is followed for free. The visited set
- * terminates any cycle. Returns the set of endpoint keys on the trace,
- * including the start. */
+ * so a chain a.x→b.y→c.z is two edges sharing the endpoint (b,y). We match on
+ * the shared (node,column) endpoint — never on the column NAME — so a mid-chain
+ * rename (sourceColumn≠targetColumn) is followed for free.
+ *
+ * The graph is walked as a DIRECTED graph, NOT undirected. This matters at a
+ * FAN-IN (merge) node — an endpoint fed by two or more DISTINCT upstream source
+ * columns (a join key, a `CASE`/`COALESCE` over two different columns, etc.):
+ *
+ *   - FORWARD exploration (source→target — where a value FLOWS OUT) is always
+ *     followed. Fan-out is genuine lineage no matter how we reached the node.
+ *   - BACKWARD exploration (target→source — where a value FLOWS IN) is followed
+ *     only THROUGH a 1:1 node — one whose single incoming source column is a
+ *     genuine pass-through/rename/staging-copy, i.e. the SAME identity. If a
+ *     node has ≥2 distinct incoming sources it is a merge point, and walking
+ *     back into its sibling sources would conflate two DIFFERENT values'
+ *     lineages (the classic leak: trace gl_code, reach a flag that gl_code and
+ *     document_number both feed, then walk back into document_number and
+ *     forward into document_number's unrelated downstream). So backward
+ *     exploration STOPS at a merge point — regardless of the direction we
+ *     arrived from, and including the start endpoint itself. Selecting a merge
+ *     column therefore shows its forward lineage but not its distinct inputs;
+ *     those are a different value and are one click away by selecting them.
+ *
+ * An undirected walk is exactly the special case where every node is 1:1, so
+ * pure rename chains, fan-outs, and cycles all behave identically to before.
+ * The visited set terminates any cycle. Returns the set of endpoint keys on the
+ * trace, including the start. */
 export function traceColumn(payload: ColumnLineagePayload, start: ColEndpoint): Set<string> {
-  const adj = new Map<string, string[]>();
-  const link = (a: string, b: string) => {
-    (adj.get(a) ?? adj.set(a, []).get(a)!).push(b);
+  // fwd:  source endpoint → target endpoints (value flows OUT) — always walked.
+  // back: target endpoint → source endpoints (value flows IN)  — walked only
+  //       through a 1:1 node (see below).
+  const fwd = new Map<string, string[]>();
+  const back = new Map<string, string[]>();
+  // Distinct source endpoints feeding each target endpoint. size ≥ 2 ⇒ merge
+  // point. A Set dedupes duplicate edges so re-declared lineage never inflates
+  // the count.
+  const sources = new Map<string, Set<string>>();
+  const push = (m: Map<string, string[]>, a: string, b: string) => {
+    (m.get(a) ?? m.set(a, []).get(a)!).push(b);
   };
   for (const e of payload.edges) {
     const s = endpointKey(e.source, e.sourceColumn);
     const t = endpointKey(e.target, e.targetColumn);
-    link(s, t);
-    link(t, s);
+    push(fwd, s, t);
+    push(back, t, s);
+    (sources.get(t) ?? sources.set(t, new Set<string>()).get(t)!).add(s);
   }
+  const isPassThrough = (n: string) => sources.get(n)?.size === 1;
+
   const startKey = endpointKey(start.node, start.column);
   const visited = new Set<string>([startKey]);
   const stack = [startKey];
   while (stack.length) {
-    for (const nb of adj.get(stack.pop()!) ?? []) {
+    const cur = stack.pop()!;
+    const neighbors = fwd.get(cur) ?? [];
+    // Only cross backward through a genuine 1:1 pass-through node — never a
+    // merge point (≥2 distinct sources) or a pure source (0 sources).
+    const back_ = isPassThrough(cur) ? back.get(cur) : undefined;
+    for (const nb of back_ ? [...neighbors, ...back_] : neighbors) {
       if (!visited.has(nb)) {
         visited.add(nb);
         stack.push(nb);

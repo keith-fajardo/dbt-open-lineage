@@ -70,6 +70,81 @@ describe("traceColumn", () => {
       new Set(["a::x", "b::y"]),
     );
   });
+
+  // ── Fan-in (merge) leak: the bug that motivated the directed walk. ──────────
+  // `gl_code` genuinely derives int.flag (a CASE-WHEN). document_number ALSO
+  // feeds that SAME flag (a second, distinct input) AND fans out on its own to
+  // unrelated fact columns. flag itself flows forward to revenue_earned.
+  //
+  //   stg.gl_code ─────────────┐
+  //                            ▼
+  //   stg2.document_number ─► int.flag ─► fact.revenue_earned
+  //          │
+  //          ├─► fact.document_number      (unrelated to gl_code)
+  //          └─► fact.memo                 (unrelated to gl_code)
+  const fanIn: ColumnLineagePayload = {
+    nodes: {},
+    edges: [
+      { source: "stg", target: "int", sourceColumn: "gl_code", targetColumn: "flag" },
+      { source: "stg2", target: "int", sourceColumn: "document_number", targetColumn: "flag" },
+      { source: "stg2", target: "fact", sourceColumn: "document_number", targetColumn: "document_number" },
+      { source: "stg2", target: "fact", sourceColumn: "document_number", targetColumn: "memo" },
+      { source: "int", target: "fact", sourceColumn: "flag", targetColumn: "revenue_earned" },
+    ],
+  };
+
+  it("does NOT leak into a sibling source's unrelated fan-out through a merge node", () => {
+    const trace = traceColumn(fanIn, { node: "stg", column: "gl_code" });
+    // document_number and everything it (alone) feeds must be absent.
+    expect(trace.has("stg2::document_number")).toBe(false);
+    expect(trace.has("fact::document_number")).toBe(false);
+    expect(trace.has("fact::memo")).toBe(false);
+  });
+
+  it("still includes the shared derived target itself (a genuine one-hop derivation) and its forward lineage", () => {
+    const trace = traceColumn(fanIn, { node: "stg", column: "gl_code" });
+    expect(trace).toEqual(
+      new Set(["stg::gl_code", "int::flag", "fact::revenue_earned"]),
+    );
+  });
+
+  it("forward fan-out is unrestricted even when it passes THROUGH a merge node", () => {
+    // Arriving at int.flag forward (from gl_code) must not stop the forward
+    // walk: revenue_earned (flag's downstream) is still reached, merge or not.
+    const trace = traceColumn(fanIn, { node: "stg", column: "gl_code" });
+    expect(trace.has("fact::revenue_earned")).toBe(true);
+  });
+
+  it("forward fan-out downstream of a 1:1 pass-through node is unchanged by the merge rule", () => {
+    // a.id ─► b.id (1:1) ─► c.id and ─► d.id : classic fan-out past a
+    // pass-through node, none of which is a merge point.
+    const fanPastPassThrough: ColumnLineagePayload = {
+      nodes: {},
+      edges: [
+        { source: "a", target: "b", sourceColumn: "id", targetColumn: "id" },
+        { source: "b", target: "c", sourceColumn: "id", targetColumn: "id" },
+        { source: "b", target: "d", sourceColumn: "id", targetColumn: "id" },
+      ],
+    };
+    expect(traceColumn(fanPastPassThrough, { node: "a", column: "id" })).toEqual(
+      new Set(["a::id", "b::id", "c::id", "d::id"]),
+    );
+  });
+
+  // Judgment call: selecting the merge node ITSELF as the start. We block
+  // backward exploration even from the start endpoint — a merge column is a new
+  // value, not the identity of either input — so its distinct inputs are hidden
+  // while its forward lineage is shown. This is the same uniform rule with no
+  // special-casing, and it cannot re-leak into a sibling's fan-out.
+  it("selecting the merge column directly shows its forward lineage but not its distinct inputs", () => {
+    const trace = traceColumn(fanIn, { node: "int", column: "flag" });
+    expect(trace).toEqual(new Set(["int::flag", "fact::revenue_earned"]));
+    // Neither input is pulled in from the start...
+    expect(trace.has("stg::gl_code")).toBe(false);
+    expect(trace.has("stg2::document_number")).toBe(false);
+    // ...so the sibling's unrelated fan-out stays out too.
+    expect(trace.has("fact::memo")).toBe(false);
+  });
 });
 
 describe("columnTraceEdges", () => {
