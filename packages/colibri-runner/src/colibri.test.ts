@@ -54,6 +54,24 @@ describe("runColibri", () => {
     expect(result.edges).toEqual([{ source: "model.a", target: "model.b", sourceColumn: "id", targetColumn: "id" }]);
   });
 
+  it("spawns the given binPath instead of PATH-resolved colibri", async () => {
+    writeFileSync(join(workDir, "colibri-manifest.json"), JSON.stringify({ nodes: {}, lineage: { edges: [] } }));
+    const child = fakeChild();
+    mockedSpawn.mockReturnValue(child);
+
+    const resultPromise = runColibri({
+      manifestPath: "m.json", catalogPath: "c.json", workDir,
+      binPath: "/proj/.venv/bin/colibri",
+    });
+    child.emit("close", 0);
+    await resultPromise;
+
+    expect(mockedSpawn).toHaveBeenCalledWith(
+      "/proj/.venv/bin/colibri",
+      ["generate", "--manifest", "m.json", "--catalog", "c.json", "--output-dir", workDir, "--light", "--disable-telemetry"],
+    );
+  });
+
   it("rejects with a clear install-instruction error when colibri is not on PATH", async () => {
     const child = fakeChild();
     mockedSpawn.mockReturnValue(child);

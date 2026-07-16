@@ -46,4 +46,38 @@ describe("runColumnLineageForProject", () => {
     });
     expect(result).toEqual({ nodes: {}, edges: [] });
   });
+
+  it("passes the venv's colibri as binPath when <root>/.venv/bin/colibri exists", async () => {
+    fs.mkdirSync(path.join(dir, "target"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "target", "manifest.json"), "{}");
+    fs.writeFileSync(path.join(dir, "target", "catalog.json"), "{}");
+    fs.mkdirSync(path.join(dir, ".venv", "bin"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".venv", "bin", "colibri"), "#!/bin/sh");
+    mockedRunColibri.mockResolvedValue({ nodes: {}, edges: [] });
+
+    await runColumnLineageForProject(dir);
+
+    expect(mockedRunColibri).toHaveBeenCalledWith({
+      manifestPath: path.join(dir, "target", "manifest.json"),
+      catalogPath: path.join(dir, "target", "catalog.json"),
+      binPath: path.join(dir, ".venv", "bin", "colibri"),
+    });
+  });
+
+  it("passes the venv's colibri as binPath when <root>/venv/bin/colibri exists (no leading dot)", async () => {
+    fs.mkdirSync(path.join(dir, "target"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "target", "manifest.json"), "{}");
+    fs.writeFileSync(path.join(dir, "target", "catalog.json"), "{}");
+    fs.mkdirSync(path.join(dir, "venv", "bin"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "venv", "bin", "colibri"), "#!/bin/sh");
+    mockedRunColibri.mockResolvedValue({ nodes: {}, edges: [] });
+
+    await runColumnLineageForProject(dir);
+
+    expect(mockedRunColibri).toHaveBeenCalledWith({
+      manifestPath: path.join(dir, "target", "manifest.json"),
+      catalogPath: path.join(dir, "target", "catalog.json"),
+      binPath: path.join(dir, "venv", "bin", "colibri"),
+    });
+  });
 });

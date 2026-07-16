@@ -11,6 +11,11 @@ export interface RunColibriOptions {
   /** Injectable for tests. Production code omits this — runColibri creates
    * a temp dir and cleans it up itself. */
   workDir?: string;
+  /** Executable to spawn. Defaults to "colibri" resolved via PATH. Callers
+   * that know a project venv's colibri exists should pass its absolute path
+   * — PATH-based lookup is unreliable from a GUI-launched editor, whose
+   * process env may not include a venv's bin dir. */
+  binPath?: string;
 }
 
 /** Spawns dbt-colibri's `colibri generate` (PyPI package `dbt-colibri`,
@@ -28,7 +33,7 @@ export async function runColibri(opts: RunColibriOptions): Promise<ColumnLineage
   try {
     await new Promise<void>((resolvePromise, rejectPromise) => {
       const child = spawn(
-        "colibri",
+        opts.binPath ?? "colibri",
         [
           "generate",
           "--manifest", opts.manifestPath,
@@ -43,7 +48,8 @@ export async function runColibri(opts: RunColibriOptions): Promise<ColumnLineage
       child.stdout?.setEncoding("utf8").on("data", (d) => { stdout += d; });
       child.stderr?.setEncoding("utf8").on("data", (d) => { stderr += d; });
       child.on("error", () => {
-        rejectPromise(new Error("dbt-colibri (colibri) not found. Install with: pip install dbt-colibri"));
+        const where = opts.binPath ? ` at ${opts.binPath}` : "";
+        rejectPromise(new Error(`dbt-colibri (colibri) not found${where}. Install with: pip install dbt-colibri`));
       });
       child.on("close", (code) => {
         if (code !== 0) {
