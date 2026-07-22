@@ -10,17 +10,19 @@ interface ModelSql { raw: string; compiled: string }
 export function ModelSqlSection({ nodeId }: { nodeId: string }) {
   const [sql, setSql] = useState<ModelSql | null>(null);
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
   const [mode, setMode] = useState<"raw" | "compiled">("raw");
 
   // Re-fetch whenever the selected node changes. `cancelled` guards against a
   // stale response (an earlier node's SQL) overwriting a newer selection.
   useEffect(() => {
     let cancelled = false;
-    setSql(null); setErr(null); setMode("raw"); setLoading(true);
+    setSql(null); setErr(false); setMode("raw"); setLoading(true);
     invoke<ModelSql>("dbt.modelSql", { id: nodeId })
       .then((r) => { if (!cancelled) { setSql(r); setLoading(false); } })
-      .catch((e) => { if (!cancelled) { setErr(String((e as Error).message ?? e)); setLoading(false); } });
+      // The rejection reason is never rendered — the UI always shows the same
+      // fixed "SQL unavailable" copy — so err only needs to be a boolean.
+      .catch(() => { if (!cancelled) { setErr(true); setLoading(false); } });
     return () => { cancelled = true; };
   }, [nodeId]);
 
