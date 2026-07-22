@@ -12,4 +12,7 @@ mountApp(document.getElementById("root")!, {
   bridge: mextBridge,
   projectPath,
   initialSelector,
+  // Mnemo's host implements dbt.run/dbt.cancel (0.9.9+) — same contract as
+  // the VSCode host, so the Run UI is enabled here identically.
+  canRun: true,
 });
