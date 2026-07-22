@@ -2,7 +2,7 @@
   "name": "dbt-open-lineage",
   "displayName": "dbt Open Lineage",
   "description": "Interactive dbt model lineage graph with dbt node-selection filtering.",
-  "version": "0.4.56",
+  "version": "0.4.57",
   "publisher": "keithfajardo",
   "icon": "images/icon.png",
   "engines": {
