@@ -334,6 +334,31 @@ describe("dbt DAG App", () => {
     expect(screen.queryByText(/run a full `dbt compile`/)).not.toBeInTheDocument();
   });
 
+  // Regression: a background manifestChanged push (external `dbt compile`)
+  // re-fetches column lineage while the toggle is live. If that background
+  // fetch fails, the ORIGINAL toggle-fetch catch reverted columnLineageMode
+  // to false — so the Columns toggle silently turned itself off underneath a
+  // user who was mid-trace, with no click of their own. A background failure
+  // should surface the error banner but leave the toggle (and any live trace)
+  // alone; only the user's own click should turn it off.
+  it("does NOT turn the Columns toggle off when a background manifestChanged refetch fails (only a user click turns it off)", async () => {
+    columnLineageResult = {
+      nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } },
+      edges: [{ source: "a", target: "a", sourceColumn: "id", targetColumn: "id" }],
+    };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+
+    columnLineageResult = new Error("dbt-colibri (colibri) not found. Install with: pip install dbt-colibri");
+    act(() => { manifestChangedCb?.(); });
+
+    await waitFor(() => expect(screen.getByText(/pip install dbt-colibri/)).toBeInTheDocument());
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("shows the selected node's columns in the details panel once column lineage is loaded", async () => {
     columnLineageResult = {
       nodes: {

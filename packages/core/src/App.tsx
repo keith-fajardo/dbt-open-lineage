@@ -899,7 +899,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     finally { setGistBusy(false); }
   };
 
-  const fetchColumnLineage = async () => {
+  // `background: true` marks a silent auto-refetch (host manifestChanged
+  // push) rather than the user's own toggle click. A background failure
+  // must not flip columnLineageMode off — the user never asked for
+  // anything to change, they're likely mid-trace, and the toggle turning
+  // itself off underneath them reads as a bug. Only the user-initiated
+  // path (background: false, the default) reverts the toggle on failure.
+  const fetchColumnLineage = async (opts?: { background?: boolean }) => {
     setColumnLineageBusy(true); setColumnLineageErr(null);
     try {
       const payload = await invoke<ColumnLineagePayload>("dbt.columnLineage", {});
@@ -916,7 +922,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       }
     } catch (e) {
       setColumnLineageErr(String((e as Error).message ?? e));
-      setColumnLineageMode(false); // revert — nothing to show
+      if (!opts?.background) setColumnLineageMode(false); // revert — nothing to show
     } finally {
       setColumnLineageBusy(false);
     }
@@ -950,7 +956,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     return onManifestChanged(() => {
       void load("dbt.manifest");
       setColumnLineage(null);
-      if (columnLineageMode) void fetchColumnLineage();
+      if (columnLineageMode) void fetchColumnLineage({ background: true });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnLineageMode]);
