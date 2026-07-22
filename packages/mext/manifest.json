@@ -1,7 +1,7 @@
 {
   "id": "dbt-dag-viz",
   "name": "dbt Open Lineage",
-  "version": "0.5.18",
+  "version": "0.5.37",
   "entry": "dist/index.html",
   "surface": "window",
   "host_perms": [
@@ -12,6 +12,9 @@
     "fs.readText",
     "fs.writeText",
     "dbt.gist",
-    "dbt.columnLineage"
+    "dbt.columnLineage",
+    "dbt.modelSql",
+    "dbt.run",
+    "dbt.cancel"
   ]
 }
