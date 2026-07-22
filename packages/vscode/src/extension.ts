@@ -8,7 +8,7 @@ import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
 import { makeCompileTask, runTaskToCompletion, makeCompileSelectTask } from "./host/compile";
 import { startDbtRunWithSeed, type RunController } from "./host/run";
-import { readCompiledSql, compiledDocUri, parseCompiledDocQuery } from "./host/compiledSql";
+import { readCompiledSql, readModelSql, compiledDocUri, parseCompiledDocQuery } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
 import { runColumnLineageForProject } from "./host/columnLineage";
@@ -219,6 +219,14 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
         const payload = await runColumnLineageForProject(projectRoot);
         reply({ ok: true, result: payload });
+        break;
+      }
+      case "dbt.modelSql": {
+        projectRoot = resolveRoot();
+        if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
+        const id = String(msg.args.id ?? "");
+        if (!id) throw new Error("dbt.modelSql: missing node id");
+        reply({ ok: true, result: readModelSql(projectRoot, id) });
         break;
       }
       default:
