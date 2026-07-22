@@ -39,3 +39,24 @@ export function parseCompiledDocQuery(query: string): { id: string; root: string
   const params = new URLSearchParams(query);
   return { id: params.get("id") ?? "", root: params.get("root") ?? "" };
 }
+
+export interface ModelSql { raw: string; compiled: string }
+
+/** Pull both `raw_code` (source, Jinja intact) and `compiled_code` (rendered,
+ * "" if never compiled) for one node from a manifest.json string. Throws when
+ * the node id isn't in the manifest at all — same contract as
+ * compiledCodeFromManifest. */
+export function modelSqlFromManifest(manifestJson: string, uniqueId: string): ModelSql {
+  const manifest = JSON.parse(manifestJson) as {
+    nodes?: Record<string, { raw_code?: string; compiled_code?: string }>;
+  };
+  const node = manifest.nodes?.[uniqueId];
+  if (!node) throw new Error(`no node ${uniqueId} in manifest`);
+  return { raw: node.raw_code ?? "", compiled: node.compiled_code ?? "" };
+}
+
+/** Read <root>/target/manifest.json and return the node's raw + compiled SQL. */
+export function readModelSql(root: string, uniqueId: string): ModelSql {
+  const p = path.join(root, "target", "manifest.json");
+  return modelSqlFromManifest(fs.readFileSync(p, "utf8"), uniqueId);
+}

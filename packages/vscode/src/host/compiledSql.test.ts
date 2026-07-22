@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   compiledCodeFromManifest, readCompiledSql, compiledDocUri, parseCompiledDocQuery,
+  modelSqlFromManifest,
 } from "./compiledSql";
 
 const fixture = () =>
@@ -55,5 +56,32 @@ describe("compiledDocUri / parseCompiledDocQuery", () => {
     const uri = compiledDocUri("m", "model.proj.m", "/Users/me/my projects/a&b?");
     const parsed = parseCompiledDocQuery(uri.split("?")[1]);
     expect(parsed).toEqual({ id: "model.proj.m", root: "/Users/me/my projects/a&b?" });
+  });
+});
+
+describe("modelSqlFromManifest", () => {
+  const manifest = JSON.stringify({
+    nodes: {
+      "model.p.m": { raw_code: "select {{ ref('x') }}", compiled_code: "select real.x" },
+      "model.p.uncompiled": { raw_code: "select 1" },
+    },
+  });
+
+  it("returns both raw and compiled when present", () => {
+    expect(modelSqlFromManifest(manifest, "model.p.m")).toEqual({
+      raw: "select {{ ref('x') }}",
+      compiled: "select real.x",
+    });
+  });
+
+  it("returns empty compiled when compiled_code is absent", () => {
+    expect(modelSqlFromManifest(manifest, "model.p.uncompiled")).toEqual({
+      raw: "select 1",
+      compiled: "",
+    });
+  });
+
+  it("throws when the node id is not in the manifest", () => {
+    expect(() => modelSqlFromManifest(manifest, "model.p.missing")).toThrow(/no node model\.p\.missing/);
   });
 });
