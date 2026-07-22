@@ -43,4 +43,43 @@ describe("ModelSqlSection", () => {
     render(<ModelSqlSection nodeId="model.p.x" />);
     await waitFor(() => expect(screen.getByText(/SQL unavailable/)).toBeInTheDocument());
   });
+
+  // Regression: a stale in-flight fetch for a PREVIOUS node must never
+  // overwrite the SQL of the node the user has since selected. Node A's
+  // response resolves LAST (after node B's), so only the `cancelled` guard
+  // in the effect cleanup — not response ordering — can be protecting us.
+  it("discards a stale response from a previous node that resolves after the current node's", async () => {
+    let resolveA: (v: { raw: string; compiled: string }) => void = () => {};
+    invokeMock.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveA = resolve; }),
+    );
+    const { rerender } = render(<ModelSqlSection nodeId="model.p.a" />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.modelSql", { id: "model.p.a" }));
+
+    invokeMock.mockResolvedValueOnce({ raw: "select b", compiled: "select real.b" });
+    rerender(<ModelSqlSection nodeId="model.p.b" />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("model sql")).toHaveTextContent("select b"),
+    );
+
+    resolveA({ raw: "select a", compiled: "select real.a" });
+    // Give A's now-resolved promise a chance to flush into state if it were
+    // going to (it shouldn't — the effect for node A was already cleaned up).
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.getByLabelText("model sql")).toHaveTextContent("select b");
+  });
+
+  it("copies the raw SQL text to the clipboard when the copy button is clicked", async () => {
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText }, configurable: true,
+    });
+    render(<ModelSqlSection nodeId="model.p.x" />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("model sql")).toHaveTextContent("select {{ ref('x') }}"),
+    );
+    fireEvent.click(screen.getByLabelText("copy sql"));
+    expect(writeText).toHaveBeenCalledWith("select {{ ref('x') }}");
+  });
 });

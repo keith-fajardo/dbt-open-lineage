@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   compiledCodeFromManifest, readCompiledSql, compiledDocUri, parseCompiledDocQuery,
-  modelSqlFromManifest,
+  modelSqlFromManifest, readModelSql,
 } from "./compiledSql";
 
 const fixture = () =>
@@ -83,5 +83,20 @@ describe("modelSqlFromManifest", () => {
 
   it("throws when the node id is not in the manifest", () => {
     expect(() => modelSqlFromManifest(manifest, "model.p.missing")).toThrow(/no node model\.p\.missing/);
+  });
+});
+
+describe("readModelSql", () => {
+  it("reads <root>/target/manifest.json and returns raw + compiled code", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dbtms-"));
+    fs.mkdirSync(path.join(dir, "target"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "target", "manifest.json"),
+      JSON.stringify({
+        nodes: { "model.p.m": { raw_code: "select {{ ref('x') }}", compiled_code: "select real.x" } },
+      }),
+    );
+    expect(readModelSql(dir, "model.p.m")).toEqual({ raw: "select {{ ref('x') }}", compiled: "select real.x" });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
