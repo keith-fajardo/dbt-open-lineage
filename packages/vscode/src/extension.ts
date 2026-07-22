@@ -269,9 +269,30 @@ class LineageViewProvider implements vscode.WebviewViewProvider {
       const val = contextValueForEditor(lastGraph, projectRoot, ed.document.uri.fsPath);
       if (val) view.postMessage({ evt: "context", value: val });
     });
+
+    // Watch target/manifest.json so an EXTERNAL `dbt compile` (terminal, CI
+    // task…) refreshes the DAG without a window reload. Debounced: dbt may
+    // fire create+change (or partial-write double events) for one compile —
+    // collapse them into one push. The webview refetches via dbt.manifest on
+    // receipt (see core's onManifestChanged effect).
+    let manifestTimer: ReturnType<typeof setTimeout> | undefined;
+    const pushManifestChanged = () => {
+      clearTimeout(manifestTimer);
+      manifestTimer = setTimeout(() => { void view?.postMessage({ evt: "manifestChanged" }); }, 500);
+    };
+    const watcher = projectRoot
+      ? vscode.workspace.createFileSystemWatcher(
+          new vscode.RelativePattern(projectRoot, "target/manifest.json"),
+        )
+      : undefined;
+    watcher?.onDidChange(pushManifestChanged);
+    watcher?.onDidCreate(pushManifestChanged);
+
     webviewView.onDidDispose(() => {
       sub.dispose();
       editorSub.dispose();
+      watcher?.dispose();
+      clearTimeout(manifestTimer);
       view = undefined;
     });
   }
