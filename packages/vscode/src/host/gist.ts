@@ -9,6 +9,22 @@ const MAX_SQL = 100_000; // keep total argv well under ARG_MAX
  * Windows, `where` serves the same purpose without needing a POSIX shell.
  * Commands already containing a path separator are used as-is; resolution
  * failure falls back to the original name. */
+/** Pick the resolved binary path out of a shell's `command -v` stdout.
+ * The shell must run login+interactive (`-lic`) so ~/.zshrc — where
+ * pyenv/venv init lives — is sourced; without it a shimmed `dbt` won't
+ * resolve at all. But an interactive login shell can also print a startup
+ * banner to STDOUT before the command runs (macOS shell-session-restore
+ * emits "Restored session: <date>"), and `command -v` prints exactly one
+ * path line, always LAST (shell init finishes before the `-c` command).
+ * So take the last non-empty line — a plain `.trim()` would keep the banner
+ * glued to the path, and spawning that 2-line blob as argv[0] fails ENOENT
+ * (the exact "run failed (exit -1)" symptom this guards against). "" if
+ * nothing usable. */
+export function pickResolvedPath(stdout: string): string {
+  const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return lines[lines.length - 1] ?? "";
+}
+
 export function resolveBin(cmd: string): string {
   if (cmd.includes("/") || cmd.includes("\\")) return cmd;
   try {
@@ -17,7 +33,7 @@ export function resolveBin(cmd: string): string {
       if (out) return out;
     } else {
       const shell = process.env.SHELL || "/bin/zsh";
-      const out = execFileSync(shell, ["-lic", `command -v ${cmd}`], { encoding: "utf8" }).trim();
+      const out = pickResolvedPath(execFileSync(shell, ["-lic", `command -v ${cmd}`], { encoding: "utf8" }));
       if (out) return out;
     }
   } catch { /* not resolvable — fall back to the bare name */ }

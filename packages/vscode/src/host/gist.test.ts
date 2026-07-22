@@ -1,11 +1,30 @@
 import { describe, it, expect } from "vitest";
-import { tokenizeCommand, buildGistPrompt, runGist, resolveBin } from "./gist";
+import { tokenizeCommand, buildGistPrompt, runGist, resolveBin, pickResolvedPath } from "./gist";
 
 describe("resolveBin", () => {
   it("passes through a command that already has a path separator", () => {
     expect(resolveBin("/usr/local/bin/claude")).toBe("/usr/local/bin/claude");
     expect(resolveBin("./claude")).toBe("./claude");
     expect(resolveBin("C:\\tools\\claude.cmd")).toBe("C:\\tools\\claude.cmd");
+  });
+});
+
+describe("pickResolvedPath", () => {
+  // A login+interactive shell (needed so pyenv/venv init in .zshrc runs) can
+  // print a startup banner to stdout BEFORE `command -v` — macOS
+  // shell-session-restore emits "Restored session: <date>". `command -v`
+  // prints exactly one path line, and shell init completes before it, so the
+  // real path is always LAST. The old `.trim()` kept the banner glued to the
+  // path, and spawning that 2-line blob as argv[0] failed with ENOENT.
+  it("takes the last non-empty line when a banner precedes the path", () => {
+    const stdout = "Restored session: Wed 22 Jul 2026 09:20:26 PST\n/Users/me/.pyenv/shims/dbt\n";
+    expect(pickResolvedPath(stdout)).toBe("/Users/me/.pyenv/shims/dbt");
+  });
+  it("returns a clean single-line path unchanged", () => {
+    expect(pickResolvedPath("/usr/local/bin/dbt\n")).toBe("/usr/local/bin/dbt");
+  });
+  it("returns empty string when there is no usable output", () => {
+    expect(pickResolvedPath("  \n\n")).toBe("");
   });
 });
 
