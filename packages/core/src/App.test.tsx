@@ -43,6 +43,7 @@ const oneModelGraph: Graph = {
 // test set via `manifestGraph`, and the panel-edit tests need fs.readText /
 // fs.writeText / dbt.gist stubbed too.
 let contextCb: ((v: string) => void) | null = null;
+let manifestChangedCb: (() => void) | null = null;
 let runEventCb: ((e: import("./runStatus").RunEvent) => void) | null = null;
 let manifestGraph: Graph = g;
 let columnLineageResult: unknown = { nodes: {}, edges: [] };
@@ -63,6 +64,7 @@ const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) =>
 vi.mock("./bridge", () => ({
   invoke: (...a: unknown[]) => invokeMock(...(a as [string, Record<string, unknown>])),
   onContext: (cb: (v: string) => void) => { contextCb = cb; return () => { contextCb = null; }; },
+  onManifestChanged: (cb: () => void) => { manifestChangedCb = cb; return () => { manifestChangedCb = null; }; },
   onRunEvent: (cb: (e: import("./runStatus").RunEvent) => void) => { runEventCb = cb; return () => { runEventCb = null; }; },
   saveExport: (...a: unknown[]) => saveExport(...(a as [])),
   openInIde: (...a: unknown[]) => openInIde(...(a as [])),
@@ -99,7 +101,7 @@ import type { DagNodeData } from "./nodes";
 
 beforeEach(() => {
   layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g;
-  lastCalloutHeights = undefined; runEventCb = null;
+  lastCalloutHeights = undefined; runEventCb = null; manifestChangedCb = null;
   columnLineageResult = { nodes: {}, edges: [] };
 });
 afterEach(cleanup);
@@ -178,6 +180,18 @@ describe("dbt DAG App", () => {
     // The IDE switches to another model — the stale selection must reset.
     act(() => contextCb!("+a+"));
     await waitFor(() => expect(screen.queryByRole("complementary")).not.toBeInTheDocument());
+  });
+
+  it("refetches the graph when the host pushes manifestChanged", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", { projectPath: "/proj" }));
+    const before = invokeMock.mock.calls.filter((c) => c[0] === "dbt.manifest").length;
+
+    act(() => { manifestChangedCb?.(); });
+
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.manifest").length).toBe(before + 1),
+    );
   });
 
   it("has no refresh button", async () => {

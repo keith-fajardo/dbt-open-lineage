@@ -6,7 +6,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { toPng, toSvg } from "html-to-image";
 import type { Graph, GraphNode } from "./graphTypes";
-import { invoke, onContext, onRunEvent, saveExport, openInIde } from "./bridge";
+import { invoke, onContext, onRunEvent, saveExport, openInIde, onManifestChanged } from "./bridge";
 import { layoutGraph, computeExportBounds } from "./layout";
 import { resolveSelector, focalName, buildSelector } from "./selector";
 import { hasFullRefreshFlag, stripFullRefreshFlag } from "./runFlags";
@@ -899,27 +899,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
     finally { setGistBusy(false); }
   };
 
-  const onToggleColumnLineage = async () => {
-    const next = !columnLineageMode;
-    setColumnLineageMode(next);
-    if (!next) {
-      // Turning off clears the trace AND drops the cached payload, so the next
-      // enable re-runs colibri against the CURRENT target/manifest.json +
-      // catalog.json. Those files change on every `dbt compile`, but the
-      // payload is otherwise fetched exactly once per webview lifetime (there's
-      // no in-app manifest-refresh that reaches this state) — so without this
-      // clear, column edges added by a later recompile never appear, and
-      // toggling Columns off/on (the natural "refresh" gesture) was a silent
-      // no-op. Concretely: a payload cached before a model started passing a
-      // column through to a downstream node shows the trace one hop short (the
-      // stg→int hop present, the new int→dim hop missing) with no way to
-      // recover short of a full window reload.
-      setSelectedColumn(null);
-      setExpandedNodes(new Set());
-      setColumnLineage(null);
-      return;
-    }
-    if (columnLineage) return; // already loaded for this enable
+  const fetchColumnLineage = async () => {
     setColumnLineageBusy(true); setColumnLineageErr(null);
     try {
       const payload = await invoke<ColumnLineagePayload>("dbt.columnLineage", {});
@@ -941,6 +921,39 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       setColumnLineageBusy(false);
     }
   };
+
+  const onToggleColumnLineage = async () => {
+    const next = !columnLineageMode;
+    setColumnLineageMode(next);
+    if (!next) {
+      // Turning off clears the trace AND drops the cached payload, so the next
+      // enable re-runs colibri against the CURRENT target/manifest.json +
+      // catalog.json. A host manifestChanged push also drops/refetches the
+      // payload (see the onManifestChanged effect), so this off/on gesture is
+      // now a fallback refresh, not the only one.
+      setSelectedColumn(null);
+      setExpandedNodes(new Set());
+      setColumnLineage(null);
+      return;
+    }
+    if (columnLineage) return; // already loaded for this enable
+    await fetchColumnLineage();
+  };
+
+  // An EXTERNAL `dbt compile` rewrote target/manifest.json (host watcher
+  // push): silently refetch the graph. Selection/filters/favorites live in
+  // separate state and survive; the [graph] effect above already resets
+  // column selection/expansion. The colibri payload was parsed from the OLD
+  // manifest — drop it, and when column mode is live refetch it too so the
+  // visible column edges match the new graph.
+  useEffect(() => {
+    return onManifestChanged(() => {
+      void load("dbt.manifest");
+      setColumnLineage(null);
+      if (columnLineageMode) void fetchColumnLineage();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columnLineageMode]);
 
   const onToggleLabel = (label: string) =>
     setLabelFilter((prev) => {
