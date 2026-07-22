@@ -8,6 +8,10 @@ export interface Bridge {
   openInIde(path: string): Promise<boolean>;
   onContext(cb: (value: string) => void): () => void;
   onRunEvent(cb: (e: RunEvent) => void): () => void;
+  /** Optional: hosts that watch target/manifest.json push this when an
+   * EXTERNAL `dbt compile` rewrites it. Optional so hosts without a watcher
+   * (Mnemo, static CLI) keep satisfying the interface unchanged. */
+  onManifestChanged?(cb: () => void): () => void;
 }
 
 let active: Bridge | null = null;
@@ -22,3 +26,8 @@ export const saveExport = (filename: string, dataB64: string): Promise<boolean> 
 export const openInIde = (path: string): Promise<boolean> => get().openInIde(path);
 export const onContext = (cb: (value: string) => void): () => void => get().onContext(cb);
 export const onRunEvent = (cb: (e: RunEvent) => void): (() => void) => get().onRunEvent(cb);
+export const onManifestChanged = (cb: () => void): (() => void) => {
+  const b = get();
+  // Host without a watcher: subscribing is a no-op with a no-op unsubscribe.
+  return b.onManifestChanged ? b.onManifestChanged(cb) : () => {};
+};

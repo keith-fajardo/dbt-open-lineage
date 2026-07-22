@@ -40,4 +40,13 @@ export const vscodeBridge: Bridge = {
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   },
+  onManifestChanged: (cb) => {
+    const onMsg = (ev: MessageEvent) => {
+      const m = ev.data;
+      if (!m || m.evt !== "manifestChanged") return;
+      cb();
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  },
 };

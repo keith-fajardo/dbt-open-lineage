@@ -89,4 +89,30 @@ describe("mextBridge", () => {
     );
     expect(events).toEqual([]);
   });
+
+  it("onManifestChanged() forwards evt:'manifestChanged' pushes from window.parent", () => {
+    let fired = 0;
+    const unsubscribe = mextBridge.onManifestChanged!(() => fired++);
+
+    window.dispatchEvent(
+      new MessageEvent("message", { data: { evt: "manifestChanged" }, source: window.parent }),
+    );
+    expect(fired).toBe(1);
+
+    unsubscribe();
+    window.dispatchEvent(
+      new MessageEvent("message", { data: { evt: "manifestChanged" }, source: window.parent }),
+    );
+    expect(fired).toBe(1);
+  });
+
+  it("onManifestChanged() ignores pushes whose event.source is not window.parent", () => {
+    let fired = 0;
+    mextBridge.onManifestChanged!(() => fired++);
+
+    window.dispatchEvent(
+      new MessageEvent("message", { data: { evt: "manifestChanged" }, source: null }),
+    );
+    expect(fired).toBe(0);
+  });
 });
