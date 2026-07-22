@@ -39,8 +39,12 @@ Silent auto-reload, push-based, mirroring the existing `onContext` pattern.
 
 3. **Core subscription — `packages/core/src/App.tsx`**
    One `useEffect` subscribing via the bridge export. On event:
-   - skip if a graph load is already in flight or a DAG-initiated run is
-     active (`activeRun`-equivalent guard: the local `loading` state);
+   - ~~skip if a graph load is already in flight or a DAG-initiated run is
+     active~~ — DROPPED at implementation (final review concurrence): no
+     `loading` state exists in App, and the redundant refetch a DAG-initiated
+     compile triggers via the watcher is a cheap idempotent manifest re-read
+     (no dbt spawn); with column mode live it's actually the desired colibri
+     refresh. Host-side 500ms debounce is the only guard;
    - silent `load("dbt.manifest")` (existing function — no spinner change);
    - invalidate the column-lineage payload (existing state, same invalidation
      the manual compile path performs) so stale column data doesn't outlive
