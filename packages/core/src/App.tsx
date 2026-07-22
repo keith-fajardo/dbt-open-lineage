@@ -30,6 +30,7 @@ import { computeFiltered } from "./filters";
 import { TagChips } from "./TagChips";
 import { DrawLayer, type DrawMode } from "./DrawLayer";
 import { type Stroke } from "./drawing";
+import { ModelSqlSection } from "./ModelSqlSection";
 
 interface Props { projectPath: string; initialSelector?: string; debounceMs?: number; readOnly?: boolean; canRun?: boolean }
 
@@ -1874,6 +1875,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
             <dd style={{ margin: 0 }}>{selectedNode.materialized || "—"}</dd>
             <dt style={{ color: "#94a3b8", marginTop: 8 }}>path</dt>
             <dd style={{ margin: 0, wordBreak: "break-all" }}>{selectedNode.path}</dd>
+            <ModelSqlSection nodeId={selectedNode.id} />
 
             {!editable && (
               <>

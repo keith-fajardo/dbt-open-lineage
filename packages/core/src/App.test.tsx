@@ -53,6 +53,7 @@ const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) =>
   if (cmd === "fs.readText") return null;
   if (cmd === "fs.writeText") return true;
   if (cmd === "dbt.gist") return "AI gist";
+  if (cmd === "dbt.modelSql") return { raw: "select 1 raw", compiled: "select 1 compiled" };
   if (cmd === "dbt.columnLineage") {
     if (columnLineageResult instanceof Error) throw columnLineageResult;
     return columnLineageResult;
@@ -415,6 +416,16 @@ describe("node click side panel", () => {
       window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
     });
     expect(panel).toHaveStyle({ width: "660px" });
+  });
+
+  it("shows the model SQL section in the details drawer for a selected node", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
+    fireEvent.click((await screen.findAllByText("b"))[0]);
+    await screen.findByRole("complementary");
+    await waitFor(() =>
+      expect(screen.getByLabelText("model sql")).toHaveTextContent("select 1 raw"),
+    );
   });
 });
 
