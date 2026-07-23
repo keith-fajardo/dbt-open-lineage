@@ -22,6 +22,44 @@ let lastGraph: Graph | undefined;
 let activeRun: RunController | undefined; // set while a dbt.run is in flight; guards against overlapping runs
 let runOutputChannel: vscode.OutputChannel | undefined;
 
+let manifestWatcher: vscode.FileSystemWatcher | undefined;
+let manifestWatchRoot: string | undefined; // absolute root the current watcher is pinned to
+let manifestTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Debounced push: dbt may fire create+change (or a partial-write double event)
+// for one compile — collapse them into one message. The webview refetches via
+// dbt.manifest on receipt (see core's onManifestChanged effect).
+function pushManifestChanged(): void {
+  clearTimeout(manifestTimer);
+  manifestTimer = setTimeout(() => { void view?.postMessage({ evt: "manifestChanged" }); }, 500);
+}
+
+// (Re)build the target/manifest.json watcher for `root` so an EXTERNAL `dbt
+// compile` (terminal, CI) refreshes the DAG without a window reload. Called on
+// EVERY graph load (dbt.manifest/dbt.compile), not just at panel-open, because
+// resolveRoot() can return undefined at first paint (workspace still loading)
+// or change later (multi-root) — a watcher pinned to the panel-open value
+// would then watch nothing, or the wrong project's manifest. No-ops when the
+// root is unchanged so repeat loads don't churn the watcher.
+function ensureManifestWatcher(root: string | undefined): void {
+  if (root === manifestWatchRoot) return;
+  manifestWatcher?.dispose();
+  manifestWatchRoot = root;
+  if (!root) { manifestWatcher = undefined; return; }
+  manifestWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(root, "target/manifest.json"),
+  );
+  manifestWatcher.onDidChange(pushManifestChanged);
+  manifestWatcher.onDidCreate(pushManifestChanged);
+}
+
+function disposeManifestWatcher(): void {
+  manifestWatcher?.dispose();
+  manifestWatcher = undefined;
+  manifestWatchRoot = undefined;
+  clearTimeout(manifestTimer);
+}
+
 // A dedicated Output channel (not vscode.window.createTerminal) so a run
 // shows up under the OUTPUT tab, not TERMINAL — the extension host's focus
 // shouldn't get yanked onto a shell tab every time a run starts.
@@ -97,6 +135,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
       case "dbt.manifest": {
         projectRoot = resolveRoot();
         if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
+        ensureManifestWatcher(projectRoot); // re-pin the watcher to the freshly resolved root
         const p = path.join(projectRoot, "target", "manifest.json");
         if (!fs.existsSync(p)) throw new Error(`no manifest at ${p} — run \`dbt compile\``);
         const graph: Graph = parseManifest(fs.readFileSync(p, "utf8"));
@@ -107,6 +146,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
       case "dbt.compile": {
         projectRoot = resolveRoot();
         if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
+        ensureManifestWatcher(projectRoot); // re-pin the watcher to the freshly resolved root
         const code = await runTaskToCompletion(makeCompileTask(projectRoot), {
           executeTask: (t) => vscode.tasks.executeTask(t),
           onDidEndTaskProcess: (cb) => vscode.tasks.onDidEndTaskProcess(cb),
@@ -270,29 +310,15 @@ class LineageViewProvider implements vscode.WebviewViewProvider {
       if (val) view.postMessage({ evt: "context", value: val });
     });
 
-    // Watch target/manifest.json so an EXTERNAL `dbt compile` (terminal, CI
-    // task…) refreshes the DAG without a window reload. Debounced: dbt may
-    // fire create+change (or partial-write double events) for one compile —
-    // collapse them into one push. The webview refetches via dbt.manifest on
-    // receipt (see core's onManifestChanged effect).
-    let manifestTimer: ReturnType<typeof setTimeout> | undefined;
-    const pushManifestChanged = () => {
-      clearTimeout(manifestTimer);
-      manifestTimer = setTimeout(() => { void view?.postMessage({ evt: "manifestChanged" }); }, 500);
-    };
-    const watcher = projectRoot
-      ? vscode.workspace.createFileSystemWatcher(
-          new vscode.RelativePattern(projectRoot, "target/manifest.json"),
-        )
-      : undefined;
-    watcher?.onDidChange(pushManifestChanged);
-    watcher?.onDidCreate(pushManifestChanged);
+    // Best-effort watcher at panel-open; re-evaluated on every graph load (see
+    // ensureManifestWatcher — the reliable point, since resolveRoot() may be
+    // undefined here while the workspace is still loading).
+    ensureManifestWatcher(projectRoot);
 
     webviewView.onDidDispose(() => {
       sub.dispose();
       editorSub.dispose();
-      watcher?.dispose();
-      clearTimeout(manifestTimer);
+      disposeManifestWatcher();
       view = undefined;
     });
   }
