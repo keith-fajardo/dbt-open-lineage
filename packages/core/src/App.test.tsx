@@ -56,6 +56,10 @@ const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) =>
   if (cmd === "dbt.gist") return "AI gist";
   if (cmd === "dbt.modelSql") return { raw: "select 1 raw", compiled: "select 1 compiled" };
   if (cmd === "dbt.columnLineage") {
+    // Tests that need to control RESOLUTION ORDER (independent of call
+    // order) set columnLineageResult to a function that hands back a
+    // per-call deferred promise (see `defer()` below).
+    if (typeof columnLineageResult === "function") return (columnLineageResult as () => unknown)();
     if (columnLineageResult instanceof Error) throw columnLineageResult;
     return columnLineageResult;
   }
@@ -411,6 +415,99 @@ describe("dbt DAG App", () => {
     // "id" reveals it as a row on the still-collapsed node a (auto-reveal).
     fireEvent.click(screen.getByRole("button", { name: "trace column id" }));
     await waitFor(() => expect(screen.getAllByText("id").length).toBeGreaterThan(1));
+  });
+
+  // Regression: fetchColumnLineage is asymmetric (only the 0-edge branch SETs
+  // columnLineageErr; the success branch never CLEARS it) and unguarded (no
+  // single-flight token), so two concurrent fetches — the user's toggle click
+  // and a background manifestChanged refetch, or two rapid manifestChanged
+  // pushes — can race. Whichever call's promise resolves LAST wins, regardless
+  // of which one was STARTED last. These two tests pin the correct behavior:
+  // the fetch that was started MOST RECENTLY always wins, by controlling
+  // resolution order independently of call order via deferred promises.
+  function defer<T>() {
+    let resolve!: (v: T) => void;
+    const p = new Promise<T>((r) => { resolve = r; });
+    return { p, resolve };
+  }
+
+  it("a good fetch resolving after a 0-edge fetch clears the stale error", async () => {
+    const first = defer<unknown>();
+    const second = defer<unknown>();
+    const calls: Array<ReturnType<typeof defer<unknown>>["p"]> = [first.p, second.p];
+    columnLineageResult = () => calls.shift();
+
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+
+    // Call #1: the user's toggle click (older).
+    fireEvent.click(toggle);
+    await waitFor(() => expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(1));
+    // Call #2: a background manifestChanged refetch (newer) fires while #1 is in flight.
+    act(() => { manifestChangedCb?.(); });
+    await waitFor(() => expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(2));
+
+    // Resolve the OLDER call first, with 0 edges (sets the stale-manifest message).
+    await act(async () => {
+      first.resolve({ nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } }, edges: [] });
+      await Promise.resolve();
+    });
+    // Resolve the NEWER call last, with a real edge (the good payload).
+    await act(async () => {
+      second.resolve({
+        nodes: {
+          a: { columns: { id: { columnName: "id", hasLineage: true } } },
+          b: { columns: { id: { columnName: "id", hasLineage: true } } },
+        },
+        edges: [{ source: "a", target: "b", sourceColumn: "id", targetColumn: "id" }],
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.queryByText(/No column-level lineage found/)).not.toBeInTheDocument());
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("a stale background fetch resolving last does not clobber a newer good payload or resurrect the error", async () => {
+    const first = defer<unknown>();
+    const second = defer<unknown>();
+    const calls: Array<ReturnType<typeof defer<unknown>>["p"]> = [first.p, second.p];
+    columnLineageResult = () => calls.shift();
+
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    const toggle = screen.getByRole("button", { name: "Columns" });
+
+    // Call #1: the user's toggle click (older, but will resolve LAST — stale).
+    fireEvent.click(toggle);
+    await waitFor(() => expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(1));
+    // Call #2: a background manifestChanged refetch (newer, resolves FIRST).
+    act(() => { manifestChangedCb?.(); });
+    await waitFor(() => expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.columnLineage").length).toBe(2));
+
+    // Resolve the NEWER call first, with a real edge (the good payload).
+    await act(async () => {
+      second.resolve({
+        nodes: {
+          a: { columns: { id: { columnName: "id", hasLineage: true } } },
+          b: { columns: { id: { columnName: "id", hasLineage: true } } },
+        },
+        edges: [{ source: "a", target: "b", sourceColumn: "id", targetColumn: "id" }],
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.queryByText(/No column-level lineage found/)).not.toBeInTheDocument());
+
+    // Resolve the OLDER (stale) call last, with 0 edges. It must be discarded —
+    // no payload write, no error resurrection.
+    await act(async () => {
+      first.resolve({ nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } }, edges: [] });
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText(/No column-level lineage found/)).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 });
 

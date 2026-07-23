@@ -501,6 +501,13 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [columnLineage, setColumnLineage] = useState<ColumnLineagePayload | null>(null);
   const [columnLineageBusy, setColumnLineageBusy] = useState(false);
   const [columnLineageErr, setColumnLineageErr] = useState<string | null>(null);
+  // Monotonic single-flight token: bumped at the start of every fetch (and on
+  // toggle-off). A fetch only commits its result if it's still the CURRENT
+  // (most-recently-started) request when its promise settles — otherwise a
+  // superseded fetch (e.g. a background manifestChanged refetch racing the
+  // user's own toggle click) silently drops its result instead of clobbering
+  // a newer one. See fetchColumnLineage.
+  const columnLineageReq = useRef(0);
 
   // Which nodes have their full column catalog EXPANDED (collapsed by default).
   // Structural: a node's rendered row count — hence its box size and the
@@ -906,9 +913,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // itself off underneath them reads as a bug. Only the user-initiated
   // path (background: false, the default) reverts the toggle on failure.
   const fetchColumnLineage = async (opts?: { background?: boolean }) => {
+    // Claim this fetch as the current one. Any earlier in-flight fetch that
+    // settles later will see its captured `myReq` no longer match the ref and
+    // discard its result instead of overwriting this (newer) one's.
+    const myReq = ++columnLineageReq.current;
     setColumnLineageBusy(true); setColumnLineageErr(null);
     try {
       const payload = await invoke<ColumnLineagePayload>("dbt.columnLineage", {});
+      if (myReq !== columnLineageReq.current) return; // superseded — drop silently
       setColumnLineage(payload);
       // dbt-colibri resolves column-level lineage by parsing COMPILED SQL out
       // of manifest.json — if that's stale (e.g. only a selective/partial
@@ -916,14 +928,18 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       // it), colibri silently falls back to model-level-only edges, which
       // extractColumnLineage correctly filters out. The result looks
       // identical to "nothing traces," with no indication why. Surface it
-      // explicitly rather than leaving the toggle looking broken.
-      if (payload.edges.length === 0) {
-        setColumnLineageErr("No column-level lineage found — run a full `dbt compile` and try again.");
-      }
+      // explicitly rather than leaving the toggle looking broken. Symmetric
+      // with the 0-edge branch below: a later good fetch must CLEAR an
+      // earlier fetch's stale error, not just rely on the reset at the top.
+      setColumnLineageErr(payload.edges.length === 0
+        ? "No column-level lineage found — run a full `dbt compile` and try again."
+        : null);
     } catch (e) {
+      if (myReq !== columnLineageReq.current) return; // superseded — drop silently
       setColumnLineageErr(String((e as Error).message ?? e));
       if (!opts?.background) setColumnLineageMode(false); // revert — nothing to show
     } finally {
+      if (myReq !== columnLineageReq.current) return; // superseded — a newer fetch owns busy
       setColumnLineageBusy(false);
     }
   };
@@ -937,9 +953,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       // catalog.json. A host manifestChanged push also drops/refetches the
       // payload (see the onManifestChanged effect), so this off/on gesture is
       // now a fallback refresh, not the only one.
+      // Bump the single-flight token too: an in-flight fetch that resolves
+      // AFTER the user turns the feature off must not repopulate the payload
+      // or error underneath a now-off toggle.
+      columnLineageReq.current++;
       setSelectedColumn(null);
       setExpandedNodes(new Set());
       setColumnLineage(null);
+      setColumnLineageErr(null);
       return;
     }
     if (columnLineage) return; // already loaded for this enable
