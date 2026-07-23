@@ -939,6 +939,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       setColumnLineageErr(String((e as Error).message ?? e));
       if (!opts?.background) setColumnLineageMode(false); // revert — nothing to show
     } finally {
+      // NOTE: a `return` in `finally` overrides try/catch completion and would
+      // swallow a throw — safe ONLY because the catch above never rethrows.
+      // Keep it that way. Guard so a superseded fetch doesn't clear busy out
+      // from under the newer fetch that now owns it.
       if (myReq !== columnLineageReq.current) return; // superseded — a newer fetch owns busy
       setColumnLineageBusy(false);
     }
@@ -961,6 +965,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
       setExpandedNodes(new Set());
       setColumnLineage(null);
       setColumnLineageErr(null);
+      // Clear busy explicitly rather than leaning on the in-flight fetch's
+      // guarded finally: off bumped the token, so any in-flight fetch is now
+      // superseded and its finally early-returns WITHOUT clearing busy. Without
+      // this, an off-click during a load would strand busy=true (button stuck
+      // disabled). Removes the implicit "button is disabled while busy" crutch.
+      setColumnLineageBusy(false);
       return;
     }
     if (columnLineage) return; // already loaded for this enable
