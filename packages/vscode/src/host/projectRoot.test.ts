@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findProjectRoot, nodeIdForFile } from "./projectRoot";
+import { findProjectRoot, resolveProjectRoot, nodeIdForFile } from "./projectRoot";
 import type { Graph } from "@dbt-open-lineage/core";
 
 describe("findProjectRoot", () => {
@@ -10,6 +10,77 @@ describe("findProjectRoot", () => {
   });
   it("returns null when none found", () => {
     expect(findProjectRoot("/a/b/c", () => false)).toBeNull();
+  });
+});
+
+// A tiny in-memory filesystem for resolveProjectRoot: `files` are exact paths
+// that exist; `listDirs` derives immediate child dirs from the set. Paths use
+// "/" so the same fixtures read on any OS.
+function fakeFs(paths: string[]) {
+  const files = new Set(paths);
+  const exists = (p: string) => files.has(p);
+  const listDirs = (dir: string): string[] => {
+    const prefix = dir.endsWith("/") ? dir : dir + "/";
+    const kids = new Set<string>();
+    for (const p of files) {
+      if (!p.startsWith(prefix)) continue;
+      const rest = p.slice(prefix.length);
+      const seg = rest.split("/")[0];
+      if (rest.includes("/") && seg) kids.add(prefix + seg); // it's a dir (has children)
+    }
+    return [...kids];
+  };
+  return { exists, listDirs };
+}
+
+describe("resolveProjectRoot", () => {
+  it("uses the active file's project when its scheme is a real file (walk up)", () => {
+    const { exists, listDirs } = fakeFs(["/ws/he-dbt-bi/dbt_project.yml"]);
+    expect(resolveProjectRoot({
+      activeFileDir: "/ws/he-dbt-bi/models/staging",
+      workspaceFolders: ["/ws"], exists, listDirs,
+    })).toBe("/ws/he-dbt-bi");
+  });
+
+  it("finds a dbt project in a workspace SUBFOLDER when no file is active (Bug 1)", () => {
+    // Workspace opened at the parent (GitHub); project lives in he-dbt-bi/.
+    const { exists, listDirs } = fakeFs([
+      "/GitHub/he-dbt-bi/dbt_project.yml",
+      "/GitHub/he-dbt-bi/target/manifest.json",
+      "/GitHub/some-other-repo/README.md",
+    ]);
+    expect(resolveProjectRoot({
+      activeFileDir: undefined,
+      workspaceFolders: ["/GitHub"], exists, listDirs,
+    })).toBe("/GitHub/he-dbt-bi");
+  });
+
+  it("returns undefined (not a bogus root) when no dbt_project.yml exists anywhere (Bug 2)", () => {
+    const { exists, listDirs } = fakeFs(["/temp/readonly/some-file.sql"]);
+    expect(resolveProjectRoot({
+      activeFileDir: "/temp/readonly",
+      workspaceFolders: ["/temp/readonly"], exists, listDirs,
+    })).toBeUndefined();
+  });
+
+  it("prefers the subfolder that already has target/manifest.json", () => {
+    const { exists, listDirs } = fakeFs([
+      "/ws/proj-a/dbt_project.yml",
+      "/ws/proj-b/dbt_project.yml",
+      "/ws/proj-b/target/manifest.json",
+    ]);
+    expect(resolveProjectRoot({
+      activeFileDir: undefined,
+      workspaceFolders: ["/ws"], exists, listDirs,
+    })).toBe("/ws/proj-b");
+  });
+
+  it("searches all workspace folders, not just the first", () => {
+    const { exists, listDirs } = fakeFs(["/second/dbt_project.yml"]);
+    expect(resolveProjectRoot({
+      activeFileDir: undefined,
+      workspaceFolders: ["/first", "/second"], exists, listDirs,
+    })).toBe("/second");
   });
 });
 

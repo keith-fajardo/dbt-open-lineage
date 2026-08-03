@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { buildHtml } from "./webview/panel";
 import { parseManifest } from "./host/manifest";
-import { findProjectRoot } from "./host/projectRoot";
+import { resolveProjectRoot } from "./host/projectRoot";
 import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
 import { makeCompileTask, runTaskToCompletion, makeCompileSelectTask } from "./host/compile";
@@ -76,10 +76,29 @@ let graphCache: { root: string; mtimeMs: number; graph: Graph } | undefined;
 function resolveRoot(): string | undefined {
   const configured = vscode.workspace.getConfiguration("dbt-open-lineage").get<string>("projectRoot");
   if (configured) return configured;
-  const active = vscode.window.activeTextEditor?.document.uri.fsPath;
-  const start = active ? path.dirname(active) : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!start) return undefined;
-  return findProjectRoot(start, (p) => fs.existsSync(p)) ?? start;
+  // Only a real on-disk file can seed the root. A virtual/readonly doc (the
+  // `dbt-compiled:` preview, a git-diff, a remote scheme) has a fabricated
+  // fsPath — trusting it resolved to bogus roots like `/temp/readonly/target`.
+  const ed = vscode.window.activeTextEditor;
+  const activeFileDir = ed && ed.document.uri.scheme === "file"
+    ? path.dirname(ed.document.uri.fsPath) : undefined;
+  const workspaceFolders = (vscode.workspace.workspaceFolders ?? [])
+    .filter((f) => f.uri.scheme === "file")
+    .map((f) => f.uri.fsPath);
+  return resolveProjectRoot({
+    activeFileDir,
+    workspaceFolders,
+    exists: (p) => fs.existsSync(p),
+    listDirs: (dir) => {
+      try {
+        return fs.readdirSync(dir, { withFileTypes: true })
+          .filter((d) => d.isDirectory()
+            && d.name !== "node_modules" && d.name !== "dbt_packages"
+            && d.name !== "target" && !d.name.startsWith("."))
+          .map((d) => path.join(dir, d.name));
+      } catch { return []; }
+    },
+  });
 }
 
 // Parse target/manifest.json once per manifest write — cheap enough for the
