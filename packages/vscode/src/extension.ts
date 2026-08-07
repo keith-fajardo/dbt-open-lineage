@@ -6,8 +6,7 @@ import { parseManifest } from "./host/manifest";
 import { resolveProjectRoot } from "./host/projectRoot";
 import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
-import { makeCompileTask, runTaskToCompletion, makeCompileSelectTask } from "./host/compile";
-import { startDbtRunWithSeed, type RunController } from "./host/run";
+import { startDbtRunWithSeed, spawnDbtToCompletion, type RunController } from "./host/run";
 import { readCompiledSql, readModelSql, compiledDocUri, parseCompiledDocQuery } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
@@ -166,10 +165,12 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         projectRoot = resolveRoot();
         if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
         ensureManifestWatcher(projectRoot); // re-pin the watcher to the freshly resolved root
-        const code = await runTaskToCompletion(makeCompileTask(projectRoot), {
-          executeTask: (t) => vscode.tasks.executeTask(t),
-          onDidEndTaskProcess: (cb) => vscode.tasks.onDidEndTaskProcess(cb),
-        });
+        const channel = getRunOutputChannel();
+        channel.clear();
+        channel.appendLine("> dbt compile");
+        // Silent: spawn (no Task, no Terminal). Output goes to the "dbt Open
+        // Lineage" channel; never .show() it — a compile must not yank focus.
+        const code = await spawnDbtToCompletion(projectRoot, ["compile"], (l) => channel.appendLine(l));
         if (code !== 0) throw new Error(`dbt compile failed (exit ${code})`);
         const p = path.join(projectRoot, "target", "manifest.json");
         const graph: Graph = parseManifest(fs.readFileSync(p, "utf8"));
@@ -396,13 +397,14 @@ export function activate(context: vscode.ExtensionContext) {
       const name = path.basename(uri.path).replace(/\.sql$/, "");
       if (!root) { void vscode.window.showErrorMessage("no dbt project found"); return; }
       // Running feedback: a notification spinner "Recompiling <model>…" for the
-      // duration of the dbt task (native parity for Mnemo's amber note).
+      // duration of the dbt compile (native parity for Mnemo's amber note).
+      // Silent: spawn to the Output channel, never the Terminal (see dbt.compile).
+      const channel = getRunOutputChannel();
+      channel.clear();
+      channel.appendLine(`> dbt compile --select ${name}`);
       const code = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Recompiling ${name}…`, cancellable: false },
-        () => runTaskToCompletion(makeCompileSelectTask(root, name), {
-          executeTask: (t) => vscode.tasks.executeTask(t),
-          onDidEndTaskProcess: (cb) => vscode.tasks.onDidEndTaskProcess(cb),
-        }),
+        () => spawnDbtToCompletion(root, ["compile", "--select", name], (l) => channel.appendLine(l)),
       );
       if (code !== 0) { void vscode.window.showErrorMessage(`dbt compile failed (exit ${code})`); return; }
       const { sql, compiled } = readCompiledSql(root, id);
