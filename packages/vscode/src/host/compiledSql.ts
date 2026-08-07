@@ -60,3 +60,19 @@ export function readModelSql(root: string, uniqueId: string): ModelSql {
   const p = path.join(root, "target", "manifest.json");
   return modelSqlFromManifest(fs.readFileSync(p, "utf8"), uniqueId);
 }
+
+/** Find the analysis node (resource_type "analysis") whose original_file_path
+ * matches `relPath` (project-relative, forward slashes). Analyses are NOT in
+ * the DAG graph (parseManifest keeps only model/seed/snapshot/source), so the
+ * compile commands resolve them straight off the manifest instead. Returns the
+ * node's unique id + name, or null (no match / malformed json — never throws). */
+export function analysisNodeFromManifest(manifestJson: string, relPath: string): { id: string; name: string } | null {
+  let doc: { nodes?: Record<string, { resource_type?: string; name?: string; original_file_path?: string }> };
+  try { doc = JSON.parse(manifestJson); } catch { return null; }
+  for (const [id, n] of Object.entries(doc.nodes ?? {})) {
+    if (n.resource_type === "analysis" && n.original_file_path === relPath) {
+      return { id, name: n.name ?? "" };
+    }
+  }
+  return null;
+}

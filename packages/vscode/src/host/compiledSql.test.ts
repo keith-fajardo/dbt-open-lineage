@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   compiledCodeFromManifest, readCompiledSql, compiledDocUri, parseCompiledDocQuery,
-  modelSqlFromManifest, readModelSql,
+  modelSqlFromManifest, readModelSql, analysisNodeFromManifest,
 } from "./compiledSql";
 
 const fixture = () =>
@@ -99,4 +99,21 @@ describe("readModelSql", () => {
     expect(readModelSql(dir, "model.p.m")).toEqual({ raw: "select {{ ref('x') }}", compiled: "select real.x" });
     fs.rmSync(dir, { recursive: true, force: true });
   });
+});
+
+describe("analysisNodeFromManifest", () => {
+  const manifest = JSON.stringify({
+    nodes: {
+      "model.p.stg_x":  { resource_type: "model",    name: "stg_x", original_file_path: "models/staging/stg_x.sql" },
+      "analysis.p.rev": { resource_type: "analysis", name: "rev",   original_file_path: "analyses/rev.sql" },
+    },
+  });
+  it("resolves an analysis node by its file path", () =>
+    expect(analysisNodeFromManifest(manifest, "analyses/rev.sql")).toEqual({ id: "analysis.p.rev", name: "rev" }));
+  it("returns null for a non-analysis file path (a model)", () =>
+    expect(analysisNodeFromManifest(manifest, "models/staging/stg_x.sql")).toBeNull());
+  it("returns null when nothing matches", () =>
+    expect(analysisNodeFromManifest(manifest, "analyses/missing.sql")).toBeNull());
+  it("returns null on malformed json without throwing", () =>
+    expect(analysisNodeFromManifest("not json", "analyses/rev.sql")).toBeNull());
 });
