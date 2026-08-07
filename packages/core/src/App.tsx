@@ -9,6 +9,7 @@ import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde, onManifestChanged } from "./bridge";
 import { layoutGraph, computeExportBounds } from "./layout";
 import { resolveSelector, focalName, buildSelector } from "./selector";
+import { isLineageLocked, shouldConfirmSwitch } from "./lock";
 import { hasFullRefreshFlag, stripFullRefreshFlag } from "./runFlags";
 import type { RunDisplayStatus, RunEvent } from "./runStatus";
 import { nodeTypes, isDimmed, type DagNodeData } from "./nodes";
@@ -326,6 +327,10 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // always re-prompts, no session memory of a prior confirmation.
   const [showAll, setShowAll] = useState(false);
   const [confirmShowAll, setConfirmShowAll] = useState(false);
+  const [locked, setLocked] = useState(false); // manual lineage lock (🔒 toggle)
+  const [confirmSwitch, setConfirmSwitch] = useState<{ onConfirm: () => void } | null>(null);
+  const lineageLockedRef = useRef(false);      // live lock state for the stable onContext callback
+  const allowNextRetargetRef = useRef(false);  // let ONE confirmed retarget through the lock
   useEffect(() => {
     if (raw.trim() !== "") setShowAll(false);
   }, [raw]);
@@ -467,6 +472,11 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // Any node picked by hand in the old graph is stale now — drop it so the
   // new model's lineage isn't dimmed by a leftover selection.
   useEffect(() => onContext((value) => {
+    // Locked (manually or auto during a run): ignore host-pushed retargets so
+    // an accidental file-open can't wipe live run statuses. A confirmed switch
+    // sets allowNextRetargetRef to let exactly one through.
+    if (lineageLockedRef.current && !allowNextRetargetRef.current) return;
+    allowNextRetargetRef.current = false;
     setRaw(value);
     setSelector(value);
     setFocus(value !== "");
@@ -486,6 +496,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     clearTimeout(timer.current);
+    // While locked, typing must not auto-retarget the DAG (that would wipe
+    // statuses without a confirm). Only an explicit Enter commits (guarded).
+    if (lineageLockedRef.current) return;
     timer.current = setTimeout(() => setSelector(raw), debounceMs);
     return () => clearTimeout(timer.current);
   }, [raw, debounceMs]);
@@ -1096,6 +1109,9 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const [runMenu, setRunMenu] = useState(false);
   const [runActive, setRunActive] = useState<"run" | "build" | "test" | null>(null);
   const [runStatus, setRunStatus] = useState<Map<string, RunDisplayStatus> | null>(null);
+  const lineageLocked = isLineageLocked(locked, runActive);
+  const hasLiveRun = runActive !== null || (runStatus?.size ?? 0) > 0;
+  lineageLockedRef.current = lineageLocked; // mirror for the stable onContext callback
   const [runErr, setRunErr] = useState<string | null>(null);
 
   const runMenuRef = useRef<HTMLDivElement>(null);
@@ -1353,7 +1369,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   // (no-op in the standalone window, which has no editor to open into).
   const onNodeDoubleClick: NodeMouseHandler = (_, n) => {
     const target = graph?.nodes.find((x) => x.id === n.id);
-    if (target?.path) void openInIde(target.path).catch(() => {/* standalone window */});
+    if (!target?.path) return;
+    const open = () => { allowNextRetargetRef.current = true; void openInIde(target.path).catch(() => {/* standalone window */}); };
+    // Locked + a live run → ask before letting the retarget discard statuses.
+    if (shouldConfirmSwitch(lineageLocked, hasLiveRun)) { setConfirmSwitch({ onConfirm: open }); return; }
+    // Unlocked → normal: openInIde pushes a context that retargets the DAG.
+    // Locked but no live run → openInIde still opens the file; onContext stays
+    // blocked, so the DAG stays frozen (nothing to protect, no dialog).
+    void openInIde(target.path).catch(() => {/* standalone window */});
   };
 
   // ── Export: the CURRENT SELECTION (matched set) as CSV/Mermaid/SVG/PNG.
@@ -1445,6 +1468,23 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
           </div>
         </div>
       )}
+      {confirmSwitch && (
+        <div role="dialog" aria-modal="true" aria-label="switch lineage confirmation"
+          style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(2,6,23,0.6)" }}>
+          <div style={{ background: "#111827", border: "1px solid #334155", borderRadius: 10, padding: 20, width: 340, boxShadow: "0 20px 50px rgba(0,0,0,0.5)" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#e5e7eb", marginBottom: 6 }}>Run in progress</div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
+              Switching lineage discards this run's live statuses. Continue?
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setConfirmSwitch(null)}
+                style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#94a3b8", cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
+              <button onClick={() => { const c = confirmSwitch; setConfirmSwitch(null); c.onConfirm(); }}
+                style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #334155", background: "#2563eb", color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Switch</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ width: "100vw", height: "100vh", display: "flex", background: "#0b1220", fontFamily: FONT_UI }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div style={{
@@ -1483,8 +1523,14 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 }
                 // Enter commits the selector: apply it immediately (skip the
                 // debounce) and filter the DAG to only the matched nodes.
-                setSelector(raw);
-                setFocus(true);
+                // While locked with a live run, confirm first — committing a
+                // new selector retargets the DAG and discards run statuses.
+                const commit = () => { setSelector(raw); setFocus(true); };
+                if (shouldConfirmSwitch(lineageLocked, hasLiveRun)) {
+                  setConfirmSwitch({ onConfirm: commit });
+                  return;
+                }
+                commit();
               }}
               autoCorrect="off"
               autoCapitalize="off"
@@ -1516,6 +1562,19 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
                 color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
               }}
             >Focus</button>
+            <button
+              onClick={() => setLocked((v) => !v)}
+              aria-pressed={lineageLocked}
+              title={lineageLocked
+                ? (runActive ? "Lineage locked while a run is active" : "Lineage locked — click to unlock")
+                : "Lock the lineage so navigation can't discard run statuses"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+                borderRadius: 20, border: `1px solid ${lineageLocked ? "#3b82f6" : "#334155"}`,
+                background: lineageLocked ? "#16233d" : "#111827",
+                color: "#e5e7eb", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+              }}
+            >{lineageLocked ? "🔒 Locked" : "🔓 Lock"}</button>
             <button
               onClick={() => void onToggleColumnLineage()}
               aria-pressed={columnLineageMode}

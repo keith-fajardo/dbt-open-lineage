@@ -1351,15 +1351,34 @@ describe("run/build/test button", () => {
     act(() => runEventCb!({ type: "status", nodeId: "a", status: "success" }));
     await waitFor(() => expect(screen.getByLabelText("run status: success")).toBeInTheDocument());
 
-    // Simulate double-clicking a node to open it in the IDE: the host pushes
-    // a new context, which commits a different selector — same mechanism as
-    // typing a new selector and pressing Enter.
+    // During an active run the lineage auto-locks: committing a different
+    // selector now ASKS first (protects in-flight statuses). The pilot light
+    // survives until the switch is confirmed.
     const input = screen.getByPlaceholderText(/select/i);
     fireEvent.change(input, { target: { value: "b" } });
     fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByLabelText("run status: success")).toBeInTheDocument(); // gate holds
+    fireEvent.click(screen.getByText("Switch"));
     await waitFor(() => expect(screen.queryByText("a")).not.toBeInTheDocument());
     expect(screen.queryByLabelText("run status: success")).not.toBeInTheDocument();
     expect(screen.getByLabelText("reset run status")).toBeDisabled();
+  });
+
+  it("an accidental host context push during a run is IGNORED (lineage auto-locked, statuses survive)", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() => expect(runEventCb).not.toBeNull());
+    act(() => runEventCb!({ type: "status", nodeId: "a", status: "success" }));
+    await waitFor(() => expect(screen.getByLabelText("run status: success")).toBeInTheDocument());
+
+    // The host pushes a new context (e.g. the user clicked another .sql file).
+    // While the run is active the lineage is auto-locked, so this retarget is
+    // ignored — the DAG stays put and the pilot light is NOT wiped.
+    await waitFor(() => expect(contextCb).not.toBeNull());
+    act(() => contextCb!("d")); // would retarget to only "d" if the lock didn't hold
+    expect(screen.getByLabelText("run status: success")).toBeInTheDocument();
+    expect(screen.getAllByText("a").length).toBeGreaterThan(0); // still on the original lineage
   });
 
   it("a log RunEvent appends that line to the right node's log, shown in its sidebar section once selected", async () => {
@@ -1419,6 +1438,8 @@ describe("run/build/test button", () => {
     const input = screen.getByPlaceholderText(/select/i);
     fireEvent.change(input, { target: { value: "a" } });
     fireEvent.keyDown(input, { key: "Enter" });
+    // Active run → confirm the lineage switch (see the lock feature).
+    fireEvent.click(screen.getByText("Switch"));
     await waitFor(() => expect(screen.queryByText("b")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getAllByText("a")[0]);
