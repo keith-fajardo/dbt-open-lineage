@@ -131,3 +131,31 @@ describe("buildSelector", () => {
     expect(buildSelector(new Set(["source.p.raw.orders"]), rg)).toBe("");
   });
 });
+
+describe("unused:staging", () => {
+  // s1 (stg_, leaf) unused; s2 (stg_, has child m) used; m (mart leaf) not
+  // staging; sd (stg_-named but a seed) excluded by the model guard.
+  const gst: Graph = {
+    nodes: [
+      { id: "s1", name: "stg_orphan", resource_type: "model", layer: "staging", path: "models/staging/stg_orphan.sql", description: "" },
+      { id: "s2", name: "stg_used",   resource_type: "model", layer: "staging", path: "models/staging/stg_used.sql",   description: "" },
+      { id: "m",  name: "mart_x",     resource_type: "model", layer: "mart",    path: "models/marts/mart_x.sql",       description: "" },
+      { id: "sd", name: "stg_seed",   resource_type: "seed",  layer: "staging", path: "seeds/stg_seed.csv",            description: "" },
+    ],
+    edges: [{ from: "s2", to: "m" }],
+  };
+  const sids = (q: string) => [...resolveSelector(gst, q)].sort();
+
+  it("matches a stg_-named model with no downstream consumers", () =>
+    expect(sids("unused:staging")).toEqual(["s1"]));
+  it("does NOT match a stg_ model that has a downstream consumer", () =>
+    expect(sids("unused:staging")).not.toContain("s2"));
+  it("does NOT match a non-stg_ leaf model", () =>
+    expect(sids("unused:staging")).not.toContain("m"));
+  it("does NOT match a stg_-named non-model (seed) — model guard", () =>
+    expect(sids("unused:staging")).not.toContain("sd"));
+  it("--exclude unused:staging subtracts the unused staging set", () =>
+    // include by NAME (dbt selectors match names, not ids); s1's name is
+    // stg_orphan (the unused staging one) → excluded, leaving s2 + m.
+    expect(sids("stg_orphan stg_used mart_x --exclude unused:staging")).toEqual(["m", "s2"]));
+});

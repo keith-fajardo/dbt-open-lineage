@@ -78,10 +78,23 @@ function matchCore(adj: Adj, core: string): string[] {
     // unused:sources — sources with NO downstream consumers at all (defined
     // in a .yml but never referenced by staging/int/mart models). Composes
     // with --exclude to hide them: "--exclude unused:sources".
-    if (value !== "sources" && value !== "source") return [];
-    return adj.nodes
-      .filter((n) => n.resource_type === "source" && !adj.down.get(n.id)?.length)
-      .map((n) => n.id);
+    if (value === "sources" || value === "source")
+      return adj.nodes
+        .filter((n) => n.resource_type === "source" && !adj.down.get(n.id)?.length)
+        .map((n) => n.id);
+    // unused:staging — staging MODELS nothing references. "Staging" is the
+    // stg_ NAME prefix (not the /staging/ folder, not the layer field), per
+    // the project's naming convention. Same "no downstream consumers" rule as
+    // unused:sources; tests/exposures aren't graph edges so they don't count
+    // as usage.
+    if (value === "staging")
+      return adj.nodes
+        .filter((n) =>
+          n.resource_type === "model" &&
+          n.name.toLowerCase().startsWith("stg_") &&
+          !adj.down.get(n.id)?.length)
+        .map((n) => n.id);
+    return [];
   }
   if (method.startsWith("config.meta.")) {
     const key = method.slice("config.meta.".length);
