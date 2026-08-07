@@ -7,7 +7,7 @@ import { resolveProjectRoot } from "./host/projectRoot";
 import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
 import { startDbtRunWithSeed, spawnDbtToCompletion, type RunController } from "./host/run";
-import { readCompiledSql, readModelSql, compiledDocUri, parseCompiledDocQuery } from "./host/compiledSql";
+import { readCompiledSql, readModelSql, compiledDocUri, parseCompiledDocQuery, analysisNodeFromManifest } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
 import { runColumnLineageForProject } from "./host/columnLineage";
@@ -126,6 +126,23 @@ function activeModelNode(): { root: string; node: GraphNode } | undefined {
   if (!graph) return undefined;
   const rel = path.relative(root, ed.document.uri.fsPath).split(path.sep).join("/");
   const node = graph.nodes.find((n) => n.path === rel);
+  return node ? { root, node } : undefined;
+}
+
+// Like activeModelNode, but also recognizes an ANALYSIS file (not in the DAG
+// graph) by scanning the manifest. Used by the Compile commands + their context
+// key so analyses (analyses/*.sql) can be compiled like models.
+function activeCompilableNode(): { root: string; node: { id: string; name: string; path?: string } } | undefined {
+  const m = activeModelNode();
+  if (m) return m;
+  const ed = vscode.window.activeTextEditor;
+  if (!ed || path.extname(ed.document.uri.fsPath) !== ".sql" || ed.document.uri.scheme !== "file") return undefined;
+  const root = resolveRoot();
+  if (!root) return undefined;
+  const p = path.join(root, "target", "manifest.json");
+  if (!fs.existsSync(p)) return undefined;
+  const rel = path.relative(root, ed.document.uri.fsPath).split(path.sep).join("/");
+  const node = analysisNodeFromManifest(fs.readFileSync(p, "utf8"), rel);
   return node ? { root, node } : undefined;
 }
 
@@ -349,7 +366,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const setModelCtx = () => {
     void vscode.commands.executeCommand(
-      "setContext", "dbtOpenLineage.activeIsModel", activeModelNode() !== undefined,
+      "setContext", "dbtOpenLineage.activeIsCompilable", activeCompilableNode() !== undefined,
     );
   };
   setModelCtx();
@@ -365,7 +382,7 @@ export function activate(context: vscode.ExtensionContext) {
     compiledChanged,
     vscode.window.onDidChangeActiveTextEditor(setModelCtx),
     vscode.commands.registerCommand("dbt-open-lineage.compile", async () => {
-      const m = activeModelNode();
+      const m = activeCompilableNode();
       if (!m) {
         void vscode.window.showInformationMessage(
           "Compile: active file is not a dbt model (or no manifest — run `dbt compile`).",
@@ -399,12 +416,19 @@ export function activate(context: vscode.ExtensionContext) {
       // Running feedback: a notification spinner "Recompiling <model>…" for the
       // duration of the dbt compile (native parity for Mnemo's amber note).
       // Silent: spawn to the Output channel, never the Terminal (see dbt.compile).
+      //
+      // Analyses (id "analysis.*") aren't reliably selectable by `--select`
+      // across dbt versions, so recompile them with a full `dbt compile` (which
+      // always compiles analyses) rather than a targeted select. Models keep
+      // the fast targeted compile.
+      const isAnalysis = id.startsWith("analysis.");
+      const args = isAnalysis ? ["compile"] : ["compile", "--select", name];
       const channel = getRunOutputChannel();
       channel.clear();
-      channel.appendLine(`> dbt compile --select ${name}`);
+      channel.appendLine(`> dbt ${args.join(" ")}`);
       const code = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Recompiling ${name}…`, cancellable: false },
-        () => spawnDbtToCompletion(root, ["compile", "--select", name], (l) => channel.appendLine(l)),
+        () => spawnDbtToCompletion(root, args, (l) => channel.appendLine(l)),
       );
       if (code !== 0) { void vscode.window.showErrorMessage(`dbt compile failed (exit ${code})`); return; }
       const { sql, compiled } = readCompiledSql(root, id);

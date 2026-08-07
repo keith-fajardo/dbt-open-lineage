@@ -48,7 +48,7 @@
         },
         {
           "command": "dbt-open-lineage.compile",
-          "when": "resourceExtname == .sql && dbtOpenLineage.activeIsModel",
+          "when": "resourceExtname == .sql && dbtOpenLineage.activeIsCompilable",
           "group": "navigation"
         },
         {
@@ -65,7 +65,7 @@
         },
         {
           "command": "dbt-open-lineage.compile",
-          "when": "resourceExtname == .sql && dbtOpenLineage.activeIsModel",
+          "when": "resourceExtname == .sql && dbtOpenLineage.activeIsCompilable",
           "group": "navigation"
         }
       ]
