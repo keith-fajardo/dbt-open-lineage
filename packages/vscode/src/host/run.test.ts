@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
-import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, startDbtRun, startDbtRunWithSeed } from "./run";
+import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, startDbtRun, startDbtRunWithSeed, spawnDbtToCompletion } from "./run";
 
 describe("LineBuffer", () => {
   it("splits complete lines and carries a partial one across pushes", () => {
@@ -425,5 +425,38 @@ describe("startDbtRunWithSeed", () => {
       { spawn: spawnSpy },
     );
     expect(spawnSpy).toHaveBeenCalledWith("/proj", ["test", "--select", "x", "--log-format", "json"]);
+  });
+});
+
+describe("spawnDbtToCompletion", () => {
+  it("spawns dbt with the given args and streams stdout lines to onWrite", async () => {
+    const proc = fakeChild();
+    const spawnSpy = vi.fn(() => proc as unknown as ChildProcess);
+    const written: string[] = [];
+    const p = spawnDbtToCompletion("/proj", ["compile"], (l) => written.push(l), { spawn: spawnSpy });
+    expect(spawnSpy).toHaveBeenCalledWith("/proj", ["compile"]);
+    proc.stdout.emit("data", Buffer.from("Running with dbt=1.11\nDone.\n"));
+    proc.emit("close", 0);
+    await expect(p).resolves.toBe(0);
+    expect(written).toEqual(["Running with dbt=1.11", "Done."]);
+  });
+
+  it("resolves the non-zero exit code and flushes a trailing partial line", async () => {
+    const proc = fakeChild();
+    const written: string[] = [];
+    const p = spawnDbtToCompletion("/proj", ["compile", "--select", "stg_x"], (l) => written.push(l), { spawn: () => proc as unknown as ChildProcess });
+    proc.stdout.emit("data", Buffer.from("no trailing newline"));
+    proc.emit("close", 2);
+    await expect(p).resolves.toBe(2);
+    expect(written).toEqual(["no trailing newline"]);
+  });
+
+  it("a spawn error writes the message and resolves -1", async () => {
+    const proc = fakeChild();
+    const written: string[] = [];
+    const p = spawnDbtToCompletion("/proj", ["compile"], (l) => written.push(l), { spawn: () => proc as unknown as ChildProcess });
+    proc.emit("error", new Error("ENOENT"));
+    await expect(p).resolves.toBe(-1);
+    expect(written.join("\n")).toContain("ENOENT");
   });
 });

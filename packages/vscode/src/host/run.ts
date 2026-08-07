@@ -232,3 +232,33 @@ export function startDbtRunWithSeed(
 
   return { cancel: () => current.cancel() };
 }
+
+/** Run `dbt <args>` to completion in `projectRoot`, streaming every output
+ * line to `onWrite` (one line, no trailing newline) and resolving with the
+ * exit code (or -1 on spawn failure / no code). Unlike vscode.Task's
+ * ShellExecution this spawns via child_process (resolveBin("dbt"), no shell),
+ * so it never reveals the Terminal panel — the caller pipes onWrite to the
+ * "dbt Open Lineage" OutputChannel WITHOUT .show(). Plain text: compile has
+ * no --log-format json, so there's nothing to parse per line. */
+export function spawnDbtToCompletion(
+  projectRoot: string, args: string[], onWrite: (line: string) => void,
+  deps: RunDeps = defaultDeps,
+): Promise<number> {
+  return new Promise<number>((resolve) => {
+    const child = deps.spawn(projectRoot, args);
+    const out = new LineBuffer();
+    const err = new LineBuffer();
+    const emit = (lines: string[]) => { for (const l of lines) onWrite(l); };
+    let done = false;
+    const finish = (code: number) => { if (done) return; done = true; resolve(code); };
+
+    child.stdout?.on("data", (c: Buffer) => emit(out.push(c.toString("utf8"))));
+    child.stderr?.on("data", (c: Buffer) => emit(err.push(c.toString("utf8"))));
+    child.on("close", (code: number | null) => {
+      emit(out.flush());
+      emit(err.flush());
+      finish(code ?? -1);
+    });
+    child.on("error", (e: Error) => { onWrite(`spawn error: ${e.message}`); finish(-1); });
+  });
+}
