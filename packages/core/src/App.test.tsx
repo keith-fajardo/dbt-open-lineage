@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import type { Graph } from "./graphTypes";
 import { favoritesKey } from "./favorites";
@@ -1753,6 +1753,78 @@ describe("Clear button", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(input).toHaveValue("");
     expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+  });
+});
+
+describe("large-render warning", () => {
+  const bigGraph = (count: number): Graph => ({
+    nodes: Array.from({ length: count }, (_, i) => ({
+      id: `m${i}`, name: `m${i}`, resource_type: "model",
+      layer: "staging", path: "m.sql", description: "",
+    })),
+    edges: [],
+  });
+
+  it("warns and skips layout when 4000+ nodes would be shown", async () => {
+    manifestGraph = bigGraph(4000);
+    render(<App projectPath="/proj" initialSelector="resource_type:model" debounceMs={0} />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("4,000 models would be shown");
+    expect(screen.getByRole("button", { name: /Show anyway/ })).toBeInTheDocument();
+    // Layout (the expensive step) never runs for the oversized set.
+    expect(layoutSpy).not.toHaveBeenCalledWith(4000);
+  });
+
+  it("Show anyway lays out the graph past the warning", async () => {
+    manifestGraph = bigGraph(4000);
+    render(<App projectPath="/proj" initialSelector="resource_type:model" debounceMs={0} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Show anyway/ }));
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledWith(4000));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not warn just under the limit", async () => {
+    manifestGraph = bigGraph(3999);
+    render(<App projectPath="/proj" initialSelector="resource_type:model" debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledWith(3999));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("summary panel", () => {
+  it("shows the nodes-shown count and per-type resource totals", async () => {
+    manifestGraph = {
+      nodes: [
+        { id: "a", name: "a", resource_type: "model", layer: "staging", path: "m.sql", description: "" },
+        { id: "b", name: "b", resource_type: "model", layer: "mart", path: "m.sql", description: "" },
+      ],
+      edges: [{ from: "a", to: "b" }],
+      summary: {
+        sources: 4, models: 3, snapshots: 1, seeds: 0, tests: 2000,
+        semantic_models: 5, metrics: 12, exposures: 0, tags: 30,
+      },
+    };
+    render(<App projectPath="/proj" initialSelector="a b" debounceMs={0} />);
+    const panel = await screen.findByLabelText("lineage summary");
+    expect(panel).toHaveTextContent("Nodes shown: 2");
+    expect(panel).toHaveTextContent("Total Resources");
+    expect(within(panel).getByText("sources")).toBeInTheDocument();
+    expect(within(panel).getByText("4")).toBeInTheDocument();   // sources
+    expect(panel).toHaveTextContent("2,000");                    // tests (localized)
+    expect(within(panel).getByText("semantic")).toBeInTheDocument();
+    expect(within(panel).getByText("30")).toBeInTheDocument();   // tags
+    // zero-count types are omitted
+    expect(within(panel).queryByText("seeds")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("exposures")).not.toBeInTheDocument();
+  });
+
+  it("falls back to node-derived counts when the graph has no summary", async () => {
+    // `g` (the default fixture) has no summary field → derive from nodes.
+    render(<App projectPath="/proj" initialSelector="a" debounceMs={0} />);
+    const panel = await screen.findByLabelText("lineage summary");
+    expect(panel).toHaveTextContent("Nodes shown: 1");
+    expect(within(panel).getByText("models")).toBeInTheDocument();
+    expect(within(panel).getByText("4")).toBeInTheDocument(); // 4 model nodes in g
   });
 });
 

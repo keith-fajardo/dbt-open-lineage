@@ -52,6 +52,40 @@ describe("parseManifest", () => {
   });
 });
 
+describe("resource summary", () => {
+  it("counts kept nodes, tests, and distinct tags from the fixture", () => {
+    const s = parseManifest(fixture()).summary!;
+    expect(s.sources).toBe(1);
+    expect(s.models).toBe(2);
+    expect(s.snapshots).toBe(0);
+    expect(s.seeds).toBe(0);
+    expect(s.tests).toBe(1); // the one test node, not kept in the graph
+    expect(s.tags).toBe(3);  // staging, mart, daily
+  });
+
+  it("counts semantic models / metrics / exposures from the full manifest", () => {
+    const json = JSON.stringify({
+      nodes: {
+        "model.p.a": { name: "a", resource_type: "model", original_file_path: "models/a.sql" },
+        "snapshot.p.s": { name: "s", resource_type: "snapshot", original_file_path: "snapshots/s.sql" },
+        "seed.p.c": { name: "c", resource_type: "seed", original_file_path: "seeds/c.csv" },
+      },
+      sources: { "source.p.raw.o": { name: "o", resource_type: "source" } },
+      semantic_models: { "semantic_model.p.sm1": {}, "semantic_model.p.sm2": {} },
+      metrics: { "metric.p.m1": {}, "metric.p.m2": {}, "metric.p.m3": {} },
+      exposures: { "exposure.p.e1": {} },
+    });
+    const s = parseManifest(json).summary!;
+    expect(s.models).toBe(1);
+    expect(s.snapshots).toBe(1);
+    expect(s.seeds).toBe(1);
+    expect(s.sources).toBe(1);
+    expect(s.semantic_models).toBe(2);
+    expect(s.metrics).toBe(3);
+    expect(s.exposures).toBe(1);
+  });
+});
+
 describe("patch_path", () => {
   it("strips the project:// prefix to a project-relative path", () => {
     const json = JSON.stringify({

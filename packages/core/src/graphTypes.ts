@@ -17,4 +17,21 @@ export interface GraphNode {
   patch_path?: string;
 }
 export interface GraphEdge { from: string; to: string }
-export interface Graph { nodes: GraphNode[]; edges: GraphEdge[] }
+
+/** Project-wide resource inventory, counted from the full manifest (not just
+ * the graph nodes — semantic models / metrics / exposures / tests are never
+ * kept as DAG nodes). Optional: older cached graphs may lack it. */
+export interface ResourceSummary {
+  sources: number;
+  models: number;
+  snapshots: number;
+  seeds: number;
+  tests: number;
+  semantic_models: number;
+  metrics: number;
+  exposures: number;
+  /** Distinct tag names across the graph's model/seed/snapshot/source nodes. */
+  tags: number;
+}
+
+export interface Graph { nodes: GraphNode[]; edges: GraphEdge[]; summary?: ResourceSummary }

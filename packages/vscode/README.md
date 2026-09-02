@@ -60,6 +60,8 @@ Press Enter to apply the selector — typing does not filter the graph until you
 | `resource_type:value` | Nodes of a given dbt resource type (`model`, `seed`, `snapshot`, `source`). |
 | `config.meta.a.b:value` | Dotted lookup into a node's `meta`. |
 | `unused:sources` | Source nodes with no downstream consumers. |
+| `unused:staging` | `stg_`-named models with no downstream consumers. |
+| `unused:intermediate` | `int_`-named models with no downstream consumers. |
 | `--exclude <expr>` | Subtracts a second selector's matches from the result; repeatable. |
 | `--full-refresh` | Not a filter — flags the run/build invocation for a full refresh. |
 

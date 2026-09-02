@@ -189,3 +189,29 @@ describe("unused:staging", () => {
     // stg_orphan (the unused staging one) → excluded, leaving s2 + m.
     expect(sids("stg_orphan stg_used mart_x --exclude unused:staging")).toEqual(["m", "s2"]));
 });
+
+describe("unused:intermediate", () => {
+  // i1 (int_, leaf) unused; i2 (int_, has child m) used; m (mart leaf) not
+  // intermediate; id_ (int_-named but a seed) excluded by the model guard.
+  const gin: Graph = {
+    nodes: [
+      { id: "i1", name: "int_orphan", resource_type: "model", layer: "intermediate", path: "models/intermediate/int_orphan.sql", description: "" },
+      { id: "i2", name: "int_used",   resource_type: "model", layer: "intermediate", path: "models/intermediate/int_used.sql",   description: "" },
+      { id: "m",  name: "mart_x",     resource_type: "model", layer: "mart",         path: "models/marts/mart_x.sql",            description: "" },
+      { id: "id_", name: "int_seed",  resource_type: "seed",  layer: "intermediate", path: "seeds/int_seed.csv",                 description: "" },
+    ],
+    edges: [{ from: "i2", to: "m" }],
+  };
+  const iids = (q: string) => [...resolveSelector(gin, q)].sort();
+
+  it("matches an int_-named model with no downstream consumers", () =>
+    expect(iids("unused:intermediate")).toEqual(["i1"]));
+  it("does NOT match an int_ model that has a downstream consumer", () =>
+    expect(iids("unused:intermediate")).not.toContain("i2"));
+  it("does NOT match a non-int_ leaf model", () =>
+    expect(iids("unused:intermediate")).not.toContain("m"));
+  it("does NOT match an int_-named non-model (seed) — model guard", () =>
+    expect(iids("unused:intermediate")).not.toContain("id_"));
+  it("--exclude unused:intermediate subtracts the unused intermediate set", () =>
+    expect(iids("int_orphan int_used mart_x --exclude unused:intermediate")).toEqual(["i2", "m"]));
+});

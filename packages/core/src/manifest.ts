@@ -1,4 +1,4 @@
-import type { Graph, GraphNode, GraphEdge } from "./graphTypes";
+import type { Graph, GraphNode, GraphEdge, ResourceSummary } from "./graphTypes";
 
 const KEEP = new Set(["model", "seed", "snapshot", "source"]);
 
@@ -21,7 +21,14 @@ interface RawNode {
 }
 
 export function parseManifest(json: string): Graph {
-  let doc: { nodes?: Record<string, RawNode>; sources?: Record<string, RawNode>; child_map?: Record<string, string[]> };
+  let doc: {
+    nodes?: Record<string, RawNode>;
+    sources?: Record<string, RawNode>;
+    child_map?: Record<string, string[]>;
+    metrics?: Record<string, unknown>;
+    semantic_models?: Record<string, unknown>;
+    exposures?: Record<string, unknown>;
+  };
   try { doc = JSON.parse(json); } catch (e) { throw new Error(`bad manifest json: ${e}`); }
 
   const kept = new Set<string>();
@@ -71,5 +78,32 @@ export function parseManifest(json: string): Graph {
   }
 
   nodes.sort((a, b) => a.id.localeCompare(b.id));
-  return { nodes, edges };
+
+  // Project-wide inventory. Counts come from the FULL manifest, not just the
+  // kept DAG nodes: tests / semantic models / metrics / exposures never become
+  // graph nodes but still belong in the resource tally.
+  let models = 0, snapshots = 0, seeds = 0, tests = 0;
+  for (const n of Object.values(doc.nodes ?? {})) {
+    switch (n.resource_type) {
+      case "model": models++; break;
+      case "snapshot": snapshots++; break;
+      case "seed": seeds++; break;
+      case "test": tests++; break;
+    }
+  }
+  const distinctTags = new Set<string>();
+  for (const n of nodes) for (const t of n.tags ?? []) distinctTags.add(t);
+  const summary: ResourceSummary = {
+    sources: Object.keys(doc.sources ?? {}).length,
+    models,
+    snapshots,
+    seeds,
+    tests,
+    semantic_models: Object.keys(doc.semantic_models ?? {}).length,
+    metrics: Object.keys(doc.metrics ?? {}).length,
+    exposures: Object.keys(doc.exposures ?? {}).length,
+    tags: distinctTags.size,
+  };
+
+  return { nodes, edges, summary };
 }

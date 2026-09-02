@@ -100,6 +100,16 @@ function matchCore(adj: Adj, core: string): string[] {
           n.name.toLowerCase().startsWith("stg_") &&
           !adj.down.get(n.id)?.length)
         .map((n) => n.id);
+    // unused:intermediate — intermediate MODELS nothing references. Same rule
+    // as unused:staging, keyed on the int_ NAME prefix (the project's naming
+    // convention, not the /intermediate/ folder or the layer field).
+    if (value === "intermediate")
+      return adj.nodes
+        .filter((n) =>
+          n.resource_type === "model" &&
+          n.name.toLowerCase().startsWith("int_") &&
+          !adj.down.get(n.id)?.length)
+        .map((n) => n.id);
     return [];
   }
   if (method.startsWith("config.meta.")) {

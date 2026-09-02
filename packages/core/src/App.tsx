@@ -5,7 +5,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { toPng, toSvg } from "html-to-image";
-import type { Graph, GraphNode } from "./graphTypes";
+import type { Graph, GraphNode, ResourceSummary } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde, onManifestChanged } from "./bridge";
 import { layoutGraph, computeExportBounds } from "./layout";
 import { resolveSelector, focalName, buildSelector } from "./selector";
@@ -312,6 +312,11 @@ export function currentHitTarget(hits: SearchHit[], hitIdx: number): string | nu
   return `${hit.key}:${hit.cx},${hit.cy}`;
 }
 
+// Rendering this many nodes (dagre layout + one React Flow node per model)
+// can freeze the host. Past this count we warn instead of drawing, with a
+// "Show anyway" escape.
+const LARGE_RENDER_LIMIT = 4000;
+
 export default function App({ projectPath, initialSelector = "", readOnly = false, canRun = false }: Props) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -327,6 +332,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // always re-prompts, no session memory of a prior confirmation.
   const [showAll, setShowAll] = useState(false);
   const [confirmShowAll, setConfirmShowAll] = useState(false);
+  // "Show anyway" acknowledgement past the large-render warning. Reset whenever
+  // what would be shown changes (see the effect below), so each big view
+  // re-warns.
+  const [ackLargeRender, setAckLargeRender] = useState(false);
   const [locked, setLocked] = useState(false); // manual lineage lock (🔒 toggle)
   const [confirmSwitch, setConfirmSwitch] = useState<{ onConfirm: () => void } | null>(null);
   const lineageLockedRef = useRef(false);      // live lock state for the stable onContext callback
@@ -609,6 +618,33 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
         passesFocus(e.from) && passesFocus(e.to) && passesPrune(e.from) && passesPrune(e.to)),
     };
   }, [graph, focus, matched, cleanedSelector, showAll, pruned]);
+
+  // Performance guard: computing `visibleGraph` (array filtering) is cheap; the
+  // dagre layout and one React Flow node per model below are what freeze on a
+  // huge view. When the visible set crosses LARGE_RENDER_LIMIT we skip both and
+  // render a warning until the user clicks "Show anyway" (ackLargeRender).
+  const visibleCount = visibleGraph ? visibleGraph.nodes.length : 0;
+  const tooManyNodes = visibleCount >= LARGE_RENDER_LIMIT && !ackLargeRender;
+
+  // Project-wide resource inventory for the summary panel. Prefer the
+  // manifest-derived counts (include semantic models / metrics / exposures,
+  // which are never DAG nodes); fall back to a node-derived tally for graphs
+  // parsed before the summary existed.
+  const resourceSummary = useMemo<ResourceSummary | null>(() => {
+    if (!graph) return null;
+    if (graph.summary) return graph.summary;
+    let sources = 0, models = 0, snapshots = 0, seeds = 0, tests = 0;
+    const tags = new Set<string>();
+    for (const n of graph.nodes) {
+      if (n.resource_type === "source") sources++;
+      else if (n.resource_type === "model") models++;
+      else if (n.resource_type === "snapshot") snapshots++;
+      else if (n.resource_type === "seed") seeds++;
+      tests += n.tests?.length ?? 0;
+      for (const t of n.tags ?? []) tags.add(t);
+    }
+    return { sources, models, snapshots, seeds, tests, semantic_models: 0, metrics: 0, exposures: 0, tags: tags.size };
+  }, [graph]);
   // Reserve layout space for callout bubbles: when callouts are on, a model
   // that actually has a callout gets extra height in dagre (see layout.ts), so
   // its bubble no longer overlaps the row above. Empty when callouts are off →
@@ -653,8 +689,8 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     return m;
   }, [columnLineageMode, columnLineage, expandedNodes, columnTrace, graph]);
   const positioned = useMemo(
-    () => (visibleGraph ? layoutGraph(visibleGraph, calloutHeights, nodeSizes) : new Map()),
-    [visibleGraph, calloutHeights, nodeSizes],
+    () => (visibleGraph && !tooManyNodes ? layoutGraph(visibleGraph, calloutHeights, nodeSizes) : new Map()),
+    [visibleGraph, calloutHeights, nodeSizes, tooManyNodes],
   );
 
   const [drawMode, setDrawMode] = useState<DrawMode>("off");
@@ -706,7 +742,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     // focus filters to the matched set, and without focus every node
     // renders (dimming handles emphasis). `pruned` (Apply Filter) narrows
     // further on top of either case.
-    !graph || (!cleanedSelector.trim() && !showAll) ? [] : graph.nodes
+    !graph || (!cleanedSelector.trim() && !showAll) || tooManyNodes ? [] : graph.nodes
       .filter((n) => (focus ? matched.has(n.id) : true))
       .filter((n) => pruned === null || pruned.has(n.id))
       .map((n) => ({
@@ -741,8 +777,8 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // (label colors live in node data). A drag never changes either, so this
   // never rebuilds mid-drag — preserving node identity for React Flow.
   const nodeBuildKey = useMemo(
-    () => ({ positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage }),
-    [positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage],
+    () => ({ positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes }),
+    [positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes],
   );
   const [nodeState, setNodeState] = useState<{ base: unknown; nodes: Node<DagNodeData>[] }>(
     { base: null, nodes: [] },
@@ -1142,6 +1178,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     setRunLogs(null);
     setPruned(null);
   }, [selector, regexMode]);
+
+  // Re-arm the large-render warning whenever what would be shown changes, so a
+  // prior "Show anyway" doesn't silently carry over to a different big view.
+  useEffect(() => { setAckLargeRender(false); }, [cleanedSelector, showAll, focus, pruned, regexMode]);
 
   const onResetStatus = () => {
     setRunStatus(null);
@@ -1901,6 +1941,37 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
               </div>
             </div>
           )}
+          {tooManyNodes ? (
+            <div
+              role="alert"
+              aria-label="large lineage warning"
+              style={{
+                position: "absolute", inset: 0, display: "flex", alignItems: "center",
+                justifyContent: "center", flexDirection: "column", gap: 12,
+                textAlign: "center", padding: 24,
+              }}
+            >
+              <div style={{ fontSize: 32 }} aria-hidden>⚠️</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#fbbf24" }}>
+                {visibleCount.toLocaleString()} models would be shown
+              </div>
+              <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 440, lineHeight: 1.5 }}>
+                Drawing {LARGE_RENDER_LIMIT.toLocaleString()}+ nodes can be slow and may freeze
+                the editor. Narrow the view with hops (<code style={{ color: "#cbd5e1" }}>+model+</code>),
+                a <code style={{ color: "#cbd5e1" }}>tag:</code> or{" "}
+                <code style={{ color: "#cbd5e1" }}>resource_type:</code> filter, or show it anyway.
+              </div>
+              <button
+                type="button"
+                onClick={() => setAckLargeRender(true)}
+                style={{
+                  padding: "7px 14px", borderRadius: 7, border: "1px solid #b45309",
+                  background: "#78350f", color: "#fde68a", cursor: "pointer",
+                  fontFamily: "inherit", fontSize: 13,
+                }}
+              >Show anyway ({visibleCount.toLocaleString()})</button>
+            </div>
+          ) : (
           <ViewContext.Provider value={view}>
           <ReactFlow
             // Remount when the committed filter OR the pruning state
@@ -1970,6 +2041,49 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
             />
           </ReactFlow>
           </ViewContext.Provider>
+          )}
+          {graph && !error && resourceSummary && (() => {
+            const rows: [string, number][] = [];
+            const add = (label: string, v: number) => { if (v > 0) rows.push([label, v]); };
+            add("sources", resourceSummary.sources);
+            add("models", resourceSummary.models);
+            add("snapshots", resourceSummary.snapshots);
+            add("seeds", resourceSummary.seeds);
+            add("tests", resourceSummary.tests);
+            add("semantic", resourceSummary.semantic_models);
+            add("metrics", resourceSummary.metrics);
+            add("exposures", resourceSummary.exposures);
+            add("tags", resourceSummary.tags);
+            return (
+              <div
+                aria-label="lineage summary"
+                style={{
+                  position: "absolute", right: 12, bottom: 12, zIndex: 6, pointerEvents: "none",
+                  background: "rgba(17,24,39,0.92)", border: "1px solid #334155", borderRadius: 8,
+                  padding: "8px 10px", fontSize: 11, color: "#cbd5e1", minWidth: 148,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+                }}
+              >
+                <div style={{ fontWeight: 600, color: "#e5e7eb", marginBottom: rows.length ? 6 : 0 }}>
+                  Nodes shown: {rfNodes.length.toLocaleString()}
+                </div>
+                {rows.length > 0 && (
+                  <>
+                    <div style={{
+                      fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em",
+                      color: "#64748b", marginBottom: 4,
+                    }}>Total Resources</div>
+                    {rows.map(([label, v]) => (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 14 }}>
+                        <span style={{ color: "#94a3b8" }}>{label}</span>
+                        <span style={{ color: "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>{v.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            );
+          })()}
           {runToast && (
             <div
               role="status"
