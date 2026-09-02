@@ -120,9 +120,10 @@ describe("dbt DAG App", () => {
   it("changing the selector does NOT re-run layout (no-freeze)", async () => {
     render(<App projectPath="/proj" debounceMs={0} />);
     const input = screen.getByPlaceholderText(/select/i);
-    // Reveal the graph first — a non-empty selector with focus OFF (no Enter)
-    // shows every node in dim mode; that's the one layout pass we allow.
+    // Reveal the graph first — commit a selector with Enter; that's the one
+    // layout pass we allow. (Typing no longer auto-commits.)
     fireEvent.change(input, { target: { value: "a" } });
+    fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     const runs = layoutSpy.mock.calls.length;
     // Typing more of the selector (still no Enter) must NOT re-lay-out.
@@ -134,8 +135,9 @@ describe("dbt DAG App", () => {
   it("Enter applies the selector as a filter — only matched nodes remain, laid out compactly", async () => {
     render(<App projectPath="/proj" debounceMs={0} />);
     const input = screen.getByPlaceholderText(/select/i);
-    // Reveal the whole graph first.
+    // Reveal the whole graph first (commit with Enter — no auto-filter).
     fireEvent.change(input, { target: { value: ALL } });
+    fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
     // Commit "a" with Enter → only a remains.
     fireEvent.change(input, { target: { value: "a" } });
@@ -146,11 +148,9 @@ describe("dbt DAG App", () => {
     // The filtered view re-lays-out the visible SUBGRAPH (1 node), so nodes
     // sit compactly instead of keeping full-graph positions.
     expect(layoutSpy).toHaveBeenLastCalledWith(1);
-    // Clearing + Enter now BLANKS the DAG (no default "show every model").
-    fireEvent.change(input, { target: { value: "" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(screen.queryByText("a")).not.toBeInTheDocument());
-    expect(layoutSpy).toHaveBeenLastCalledWith(0);
+    // (Clearing the box no longer auto-blanks the DAG — a blank Enter opens
+    // the Show-All confirm instead; that path is covered by the
+    // "show-all confirmation on blank Enter" describe block below.)
   });
 
   it("starts committed+focused on an initial selector (inline Lineage panel)", async () => {
@@ -1529,6 +1529,7 @@ describe("regex selector mode", () => {
     await waitFor(() => expect(screen.getByText("invalid pattern")).toBeInTheDocument());
     expect(screen.queryByText("a")).not.toBeInTheDocument();
     fireEvent.change(input, { target: { value: "a" } });
+    fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(screen.queryByText("invalid pattern")).not.toBeInTheDocument());
     expect(screen.getAllByText("a").length).toBeGreaterThan(0);
   });

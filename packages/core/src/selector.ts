@@ -63,8 +63,9 @@ function metaValue(meta: Record<string, unknown> | undefined, path: string): unk
 }
 
 /** Seed ids for a term core: a bare model name, or a dbt method selector —
- * `tag:v`, `config.materialized:v`, `config.meta.<key.path>:<v>`. Unknown
- * methods match nothing (mirrors an unknown model name). */
+ * `tag:v`, `config.materialized:v`, `resource_type:v`,
+ * `config.meta.<key.path>:<v>`. Unknown methods match nothing (mirrors an
+ * unknown model name). */
 function matchCore(adj: Adj, core: string): string[] {
   const i = core.indexOf(":");
   if (i < 0) return adj.byName.get(core) ?? [];
@@ -74,6 +75,11 @@ function matchCore(adj: Adj, core: string): string[] {
     return adj.nodes.filter((n) => n.tags?.includes(value)).map((n) => n.id);
   if (method === "config.materialized")
     return adj.nodes.filter((n) => (n.materialized ?? "") === value).map((n) => n.id);
+  // resource_type:<type> — dbt's node-type method (model/seed/snapshot/source).
+  // The graph only carries those four types, so any other value (test,
+  // exposure, metric, …) simply matches nothing.
+  if (method === "resource_type")
+    return adj.nodes.filter((n) => n.resource_type === value).map((n) => n.id);
   if (method === "unused") {
     // unused:sources — sources with NO downstream consumers at all (defined
     // in a .yml but never referenced by staging/int/mart models). Composes

@@ -85,6 +85,36 @@ describe("resolveSelector", () => {
   it("unused sources never include a model without consumers", () =>
     // m1 has no downstream either, but it's a model — not a source.
     expect(ids2("unused:sources").includes("m1")).toBe(false));
+
+  // resource_type: — dbt's `resource_type:<type>` method (docs: node-selection
+  // /methods). The graph only holds model/seed/snapshot/source, so those are
+  // the meaningful values; anything else (test/exposure/…) matches nothing.
+  const gr: Graph = {
+    nodes: [
+      { id: "src.o", name: "raw_orders", resource_type: "source", layer: "source", path: "", description: "" },
+      { id: "seed.c", name: "countries", resource_type: "seed", layer: "model", path: "", description: "" },
+      { id: "snap.o", name: "orders_snapshot", resource_type: "snapshot", layer: "snapshot", path: "", description: "" },
+      { id: "mod.a", name: "stg_orders", resource_type: "model", layer: "staging", path: "", description: "" },
+      { id: "mod.b", name: "fct_orders", resource_type: "model", layer: "mart", path: "", description: "" },
+    ],
+    edges: [{ from: "src.o", to: "mod.a" }, { from: "mod.a", to: "mod.b" }],
+  };
+  const ids3 = (q: string) => [...resolveSelector(gr, q)].sort();
+
+  it("resource_type:source selects only sources", () =>
+    expect(ids3("resource_type:source")).toEqual(["src.o"]));
+  it("resource_type:snapshot selects only snapshots", () =>
+    expect(ids3("resource_type:snapshot")).toEqual(["snap.o"]));
+  it("resource_type:seed selects only seeds", () =>
+    expect(ids3("resource_type:seed")).toEqual(["seed.c"]));
+  it("resource_type:model selects only models", () =>
+    expect(ids3("resource_type:model")).toEqual(["mod.a", "mod.b"]));
+  it("resource_type: composes with hops", () =>
+    expect(ids3("resource_type:source+")).toEqual(["mod.a", "mod.b", "src.o"]));
+  it("resource_type: composes with --exclude", () =>
+    expect(ids3("--exclude resource_type:source")).toEqual(["mod.a", "mod.b", "seed.c", "snap.o"]));
+  it("resource_type with a type absent from the graph matches nothing", () =>
+    expect(ids3("resource_type:test")).toEqual([]));
 });
 
 describe("focalName — the open model behind a +model+ push", () => {

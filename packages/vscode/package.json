@@ -2,7 +2,7 @@
   "name": "dbt-open-lineage",
   "displayName": "dbt Open Lineage",
   "description": "Interactive dbt model lineage graph with dbt node-selection filtering.",
-  "version": "0.4.63",
+  "version": "0.4.64",
   "publisher": "keithfajardo",
   "icon": "images/icon.png",
   "engines": {
@@ -104,7 +104,7 @@
             "custom"
           ],
           "default": "claude-code",
-          "description": "AI CLI used by the \u2728 gist button. Presets fill ai.command; choose 'custom' to set your own."
+          "description": "AI CLI used by the ✨ gist button. Presets fill ai.command; choose 'custom' to set your own."
         },
         "dbt-open-lineage.ai.command": {
           "type": "string",
@@ -125,8 +125,8 @@
     "package": "vsce package --no-dependencies"
   },
   "dependencies": {
-    "@dbt-open-lineage/core": "*",
-    "@dbt-open-lineage/colibri-runner": "*"
+    "@dbt-open-lineage/colibri-runner": "*",
+    "@dbt-open-lineage/core": "*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

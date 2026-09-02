@@ -312,7 +312,7 @@ export function currentHitTarget(hits: SearchHit[], hitIdx: number): string | nu
   return `${hit.key}:${hit.cx},${hit.cy}`;
 }
 
-export default function App({ projectPath, initialSelector = "", debounceMs = 150, readOnly = false, canRun = false }: Props) {
+export default function App({ projectPath, initialSelector = "", readOnly = false, canRun = false }: Props) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
   // An initial selector (from the IDE's Lineage panel) starts committed AND
@@ -492,16 +492,12 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
   const hasFullRefresh = useMemo(() => hasFullRefreshFlag(selector), [selector]);
   const cleanedSelector = useMemo(() => stripFullRefreshFlag(selector), [selector]);
 
-  // debounce selector input → no resolve per keystroke
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => {
-    clearTimeout(timer.current);
-    // While locked, typing must not auto-retarget the DAG (that would wipe
-    // statuses without a confirm). Only an explicit Enter commits (guarded).
-    if (lineageLockedRef.current) return;
-    timer.current = setTimeout(() => setSelector(raw), debounceMs);
-    return () => clearTimeout(timer.current);
-  }, [raw, debounceMs]);
+  // The selector is committed ONLY on an explicit Enter (see the box's
+  // onKeyDown). Typing used to auto-commit on a debounce, but on a large
+  // project (thousands of models) resolving + re-laying-out the graph on
+  // every keystroke froze the host, so live auto-filtering is gone: `raw`
+  // is the box text, `selector` is what the DAG resolves against, and they
+  // only sync when the user presses Enter (or the host pushes a context).
 
   // Regex mode is a pure mode switch: when on, the box's text is a
   // case-insensitive regex matched against model NAMES, and dbt selector
@@ -1503,7 +1499,7 @@ export default function App({ projectPath, initialSelector = "", debounceMs = 15
               so flexWrap alone never gets the chance to trigger. */}
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
             <input
-              placeholder="select… e.g. stg_orders+ or tag:mart --exclude unused:staging  (Enter shows only the selection)"
+              placeholder="select… e.g. stg_orders+  tag:mart  resource_type:source --exclude unused:staging  (Enter applies the selection)"
               value={raw}
               // macOS "smart dashes" in the WKWebView rewrites a typed `--` to a
               // single em-dash (U+2014), which silently breaks `--exclude`. dbt
