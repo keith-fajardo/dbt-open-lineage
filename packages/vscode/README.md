@@ -40,6 +40,7 @@ Use dbt-style selectors to focus the graph:
 my_model+
 tag:mart
 stg_orders,dim_customer
+stg_*,config.materialized:table
 config.materialized:view --exclude tag:deprecated
 ```
 
@@ -50,6 +51,7 @@ Press Enter to apply the selector — typing does not filter the graph until you
 | Syntax | Matches |
 |---|---|
 | `model_name` | Exact node by name. |
+| `stg_*` / `*orders` / `stg_order?` / `[sd]*` | Name glob — dbt-style `*`, `?`, and `[…]` wildcards on the model name. |
 | `n+model` / `+model` | Up to `n` ancestor hops upstream (`+` alone = unlimited). |
 | `model+n` / `model+` | Up to `n` descendant hops downstream (`+` alone = unlimited). |
 | `+model+` | Both directions combined. |

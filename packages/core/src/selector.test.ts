@@ -190,6 +190,41 @@ describe("unused:staging", () => {
     expect(sids("stg_orphan stg_used mart_x --exclude unused:staging")).toEqual(["m", "s2"]));
 });
 
+describe("bare-token glob wildcards", () => {
+  // dbt-style name globbing on bare tokens: * ? [abc] [a-z].
+  const gg: Graph = {
+    nodes: [
+      { id: "stg_orders",  name: "stg_orders",  resource_type: "model", layer: "staging", path: "", description: "" },
+      { id: "stg_refunds", name: "stg_refunds", resource_type: "model", layer: "staging", path: "", description: "", materialized: "table" },
+      { id: "int_orders",  name: "int_orders",  resource_type: "model", layer: "intermediate", path: "", description: "" },
+      { id: "dim_users",   name: "dim_users",   resource_type: "model", layer: "mart", path: "", description: "" },
+    ],
+    edges: [{ from: "stg_orders", to: "int_orders" }],
+  };
+  const gids = (q: string) => [...resolveSelector(gg, q)].sort();
+
+  it("* matches a name prefix", () =>
+    expect(gids("stg_*")).toEqual(["stg_orders", "stg_refunds"]));
+  it("* matches a name suffix", () =>
+    expect(gids("*orders")).toEqual(["int_orders", "stg_orders"]));
+  it("* matches anywhere", () =>
+    expect(gids("*_*")).toEqual(["dim_users", "int_orders", "stg_orders", "stg_refunds"]));
+  it("? matches a single character", () =>
+    expect(gids("stg_order?")).toEqual(["stg_orders"]));
+  it("[..] matches a character set", () =>
+    expect(gids("[sd]*")).toEqual(["dim_users", "stg_orders", "stg_refunds"]));
+  it("an exact (wildcard-free) name still matches exactly", () =>
+    expect(gids("stg_orders")).toEqual(["stg_orders"]));
+  it("a glob that matches nothing returns empty", () =>
+    expect(gids("xyz_*")).toEqual([]));
+  it("intersects a name glob with a method (the stg_ + table case)", () =>
+    expect(gids("stg_*,config.materialized:table")).toEqual(["stg_refunds"]));
+  it("composes with hops", () =>
+    expect(gids("stg_*+")).toEqual(["int_orders", "stg_orders", "stg_refunds"]));
+  it("composes with --exclude", () =>
+    expect(gids("stg_* --exclude *refunds")).toEqual(["stg_orders"]));
+});
+
 describe("unused:intermediate", () => {
   // i1 (int_, leaf) unused; i2 (int_, has child m) used; m (mart leaf) not
   // intermediate; id_ (int_-named but a seed) excluded by the model guard.

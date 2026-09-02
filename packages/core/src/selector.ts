@@ -52,6 +52,38 @@ function parseTerm(raw: string): Term {
   return { up, name, down };
 }
 
+/** dbt-style glob → anchored RegExp: `*` any run, `?` one char, `[abc]`/`[a-z]`
+ * a set (leading `!` negates, dbt-style). All other characters are matched
+ * literally (regex metacharacters escaped). Case-sensitive, matching dbt. */
+function globToRegExp(glob: string): RegExp {
+  let re = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*") { re += ".*"; continue; }
+    if (c === "?") { re += "."; continue; }
+    if (c === "[") {
+      let j = i + 1;
+      let cls = "";
+      if (glob[j] === "!") { cls += "^"; j++; }
+      while (j < glob.length && glob[j] !== "]") { cls += glob[j]; j++; }
+      if (j < glob.length) { re += "[" + cls + "]"; i = j; continue; }
+      re += "\\["; continue; // unterminated `[` → literal
+    }
+    re += c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp("^" + re + "$");
+}
+
+/** Seed ids for a bare (methodless) token: an exact name match, or — when the
+ * token carries a glob metacharacter (`*`, `?`, `[`) — every node whose name
+ * matches the dbt-style glob. */
+function matchByName(adj: Adj, core: string): string[] {
+  if (!/[*?[]/.test(core)) return adj.byName.get(core) ?? [];
+  let re: RegExp;
+  try { re = globToRegExp(core); } catch { return []; }
+  return adj.nodes.filter((n) => re.test(n.name)).map((n) => n.id);
+}
+
 /** Dotted lookup into a node's meta: "owner.team" → meta.owner.team. */
 function metaValue(meta: Record<string, unknown> | undefined, path: string): unknown {
   let cur: unknown = meta;
@@ -62,13 +94,13 @@ function metaValue(meta: Record<string, unknown> | undefined, path: string): unk
   return cur;
 }
 
-/** Seed ids for a term core: a bare model name, or a dbt method selector —
- * `tag:v`, `config.materialized:v`, `resource_type:v`,
- * `config.meta.<key.path>:<v>`. Unknown methods match nothing (mirrors an
- * unknown model name). */
+/** Seed ids for a term core: a bare model name (exact, or a dbt-style glob
+ * with `*`/`?`/`[…]`), or a dbt method selector — `tag:v`,
+ * `config.materialized:v`, `resource_type:v`, `config.meta.<key.path>:<v>`.
+ * Unknown methods match nothing (mirrors an unknown model name). */
 function matchCore(adj: Adj, core: string): string[] {
   const i = core.indexOf(":");
-  if (i < 0) return adj.byName.get(core) ?? [];
+  if (i < 0) return matchByName(adj, core);
   const method = core.slice(0, i);
   const value = core.slice(i + 1);
   if (method === "tag")
