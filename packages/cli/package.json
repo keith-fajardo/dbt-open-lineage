@@ -1,6 +1,6 @@
 {
   "name": "@dbt-open-lineage/cli",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "type": "module",
   "bin": {
     "dbt-open-lineage": "./out/cli.js"

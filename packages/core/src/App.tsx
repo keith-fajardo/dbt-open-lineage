@@ -1149,6 +1149,30 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     setRunLogs(null);
   };
 
+  // Clear the lineage: blank the DAG back to the empty state — no committed
+  // selector, no show-all, no focus, no selection. The [selector] effect
+  // above then drops any pruning / run status on its own. Restores the
+  // blank-on-clear gesture as an explicit control (typing no longer
+  // auto-blanks since the debounce was removed).
+  const clearLineage = () => {
+    setRaw("");
+    setSelector("");
+    setFocus(false);
+    setShowAll(false);
+    setSelected(null);
+    setSelectedColumn(null);
+    setActiveName("");
+  };
+  // Guarded like an Enter commit: while locked with a live run, clearing
+  // would discard run statuses, so confirm first.
+  const onClearLineage = () => {
+    if (shouldConfirmSwitch(lineageLocked, hasLiveRun)) {
+      setConfirmSwitch({ onConfirm: clearLineage });
+      return;
+    }
+    clearLineage();
+  };
+
   useEffect(() => onRunEvent((e: RunEvent) => {
     if (e.type === "status") {
       setRunStatus((prev) => {
@@ -1533,6 +1557,24 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
               spellCheck={false}
               style={{ flex: 1, minWidth: 200, maxWidth: 380, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#111827", color: "#e5e7eb", fontFamily: "inherit", fontVariantLigatures: "none" }}
             />
+            {(() => {
+              const nothingToClear = !raw.trim() && !cleanedSelector.trim() && !showAll;
+              return (
+                <button
+                  onClick={onClearLineage}
+                  disabled={nothingToClear}
+                  title="Clear the lineage — blank the DAG and empty the selector"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+                    borderRadius: 20, border: "1px solid #334155",
+                    background: "#111827",
+                    color: nothingToClear ? "#475569" : "#e5e7eb",
+                    cursor: nothingToClear ? "default" : "pointer",
+                    fontFamily: "inherit", fontSize: 12,
+                  }}
+                >Clear</button>
+              );
+            })()}
             <button
               onClick={() => setRegexMode((v) => !v)}
               aria-pressed={regexMode}

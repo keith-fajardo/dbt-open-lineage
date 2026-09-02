@@ -1724,6 +1724,38 @@ describe("show-all confirmation on blank Enter", () => {
   });
 });
 
+describe("Clear button", () => {
+  it("blanks the DAG and empties the selector", async () => {
+    render(<App projectPath="/proj" initialSelector="+b+" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
+    const input = screen.getByPlaceholderText(/select/i);
+    expect(input).toHaveValue("+b+");
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(screen.queryByText("b")).not.toBeInTheDocument());
+    expect(screen.queryByText("a")).not.toBeInTheDocument();
+    expect(screen.queryByText("c")).not.toBeInTheDocument();
+    expect(input).toHaveValue("");
+    expect(layoutSpy).toHaveBeenLastCalledWith(0);
+  });
+
+  it("is disabled when the DAG is already blank", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+  });
+
+  it("also clears typed-but-uncommitted text without an Enter", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "stg_" } });
+    expect(screen.getByRole("button", { name: "Clear" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(input).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+  });
+});
+
 describe("edgeOnLineage", () => {
   it("marks upstream and downstream edges of the selection, nothing else", () => {
     const lin = lineageOf(g, "b");
