@@ -50,6 +50,8 @@ describe("runColibri", () => {
     expect(mockedSpawn).toHaveBeenCalledWith(
       "colibri",
       ["generate", "--manifest", "m.json", "--catalog", "c.json", "--output-dir", workDir, "--light", "--disable-telemetry"],
+      // UTF-8 env so colibri's emoji banner doesn't crash Windows (cp1252).
+      expect.objectContaining({ env: expect.objectContaining({ PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" }) }),
     );
     expect(result.edges).toEqual([{ source: "model.a", target: "model.b", sourceColumn: "id", targetColumn: "id" }]);
   });
@@ -69,6 +71,7 @@ describe("runColibri", () => {
     expect(mockedSpawn).toHaveBeenCalledWith(
       "/proj/.venv/bin/colibri",
       ["generate", "--manifest", "m.json", "--catalog", "c.json", "--output-dir", workDir, "--light", "--disable-telemetry"],
+      expect.objectContaining({ env: expect.objectContaining({ PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" }) }),
     );
   });
 

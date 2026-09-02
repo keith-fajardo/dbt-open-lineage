@@ -42,6 +42,12 @@ export async function runColibri(opts: RunColibriOptions): Promise<ColumnLineage
           "--light",
           "--disable-telemetry",
         ],
+        // Force UTF-8 for the child's stdout/stderr. colibri's CLI prints a
+        // banner containing an emoji ("Welcome to dbt-colibri 🐦"); on Windows
+        // Python defaults its console encoding to cp1252, which can't encode
+        // it and crashes with UnicodeEncodeError before any work happens.
+        // PYTHONIOENCODING + PYTHONUTF8 make Python use UTF-8 regardless.
+        { env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } },
       );
       let stdout = "";
       let stderr = "";
