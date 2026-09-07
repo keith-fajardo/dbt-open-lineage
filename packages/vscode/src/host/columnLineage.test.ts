@@ -65,6 +65,20 @@ describe("runColumnLineageForProject", () => {
     expect(JSON.parse(fs.readFileSync(path.join(dir, "target", COLUMN_LINEAGE_ARTIFACT), "utf8"))).toEqual(result);
   });
 
+  it("uses PATH colibri (no bundled engine) when engine is 'colibri', even if the bundled exe is absent", async () => {
+    fs.mkdirSync(path.join(dir, "target"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "target", "manifest.json"), "{}");
+    fs.writeFileSync(path.join(dir, "target", "catalog.json"), "{}");
+    // deliberately do NOT addBundledEngine() — 'colibri' must not require it
+    mockedRunColibri.mockResolvedValue({ nodes: {}, edges: [] });
+
+    const result = await runColumnLineageForProject(dir, extensionDir, { engine: "colibri" });
+
+    expect(mockedRunColibri).toHaveBeenCalledOnce();
+    expect(mockedRunColibri.mock.calls[0][0].binPath).toBeUndefined();
+    expect(result).toEqual({ nodes: {}, edges: [] });
+  });
+
   it("scopes both lineage passes to the currently visible graph nodes", async () => {
     fs.mkdirSync(path.join(dir, "target"), { recursive: true });
     fs.writeFileSync(path.join(dir, "target", "manifest.json"), JSON.stringify({

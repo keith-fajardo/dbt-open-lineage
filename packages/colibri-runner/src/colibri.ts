@@ -47,28 +47,38 @@ export async function runColibri(opts: RunColibriOptions): Promise<ColumnLineage
       args.push("--node-ids-file", nodeIdsPath);
     }
     args.push("--light", "--disable-telemetry");
+    // Classify a spawn failure the same way whether it arrives as an async
+    // 'error' event OR is thrown synchronously by spawn() (on Windows, spawn
+    // throws synchronously — e.g. `spawn UNKNOWN` — rather than emitting
+    // 'error'; an unguarded sync throw would otherwise leak that raw, contextless
+    // message straight to the UI).
+    const startupError = (error: Error): Error =>
+      opts.binPath
+        ? new Error(`column-lineage engine failed to start at ${opts.binPath}: ${error.message}`)
+        : new Error("dbt-colibri (colibri) not found. Install with: pip install dbt-colibri");
+
     await new Promise<void>((resolvePromise, rejectPromise) => {
-      const child = spawn(
-        opts.binPath ?? "colibri",
-        args,
-        // Force UTF-8 for the child's stdout/stderr. colibri's CLI prints a
-        // banner containing an emoji ("Welcome to dbt-colibri 🐦"); on Windows
-        // Python defaults its console encoding to cp1252, which can't encode
-        // it and crashes with UnicodeEncodeError before any work happens.
-        // PYTHONIOENCODING + PYTHONUTF8 make Python use UTF-8 regardless.
-        { env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } },
-      );
+      let child;
+      try {
+        child = spawn(
+          opts.binPath ?? "colibri",
+          args,
+          // Force UTF-8 for the child's stdout/stderr. colibri's CLI prints a
+          // banner containing an emoji ("Welcome to dbt-colibri 🐦"); on Windows
+          // Python defaults its console encoding to cp1252, which can't encode
+          // it and crashes with UnicodeEncodeError before any work happens.
+          // PYTHONIOENCODING + PYTHONUTF8 make Python use UTF-8 regardless.
+          { env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } },
+        );
+      } catch (error) {
+        rejectPromise(startupError(error as Error));
+        return;
+      }
       let stdout = "";
       let stderr = "";
       child.stdout?.setEncoding("utf8").on("data", (d) => { stdout += d; });
       child.stderr?.setEncoding("utf8").on("data", (d) => { stderr += d; });
-      child.on("error", (error) => {
-        if (opts.binPath) {
-          rejectPromise(new Error(`column-lineage engine failed to start at ${opts.binPath}: ${error.message}`));
-          return;
-        }
-        rejectPromise(new Error("dbt-colibri (colibri) not found. Install with: pip install dbt-colibri"));
-      });
+      child.on("error", (error) => { rejectPromise(startupError(error)); });
       child.on("close", (code) => {
         if (code !== 0) {
           rejectPromise(new Error(`colibri generate failed: ${stderr || stdout || "unknown error"}`));

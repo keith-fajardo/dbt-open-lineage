@@ -24,6 +24,11 @@ export interface ColumnLineageOptions {
   /** Refresh information_schema through dbt docs generate into an isolated
    * target-path before comparing physical and compiled schemas. */
   refreshCatalog?: boolean;
+  /** Which column-lineage engine to run. "bundled" (default) uses the
+   * PyInstaller binary shipped in the VSIX; "colibri" ignores it and spawns
+   * `colibri` from PATH (pip `dbt-colibri`) — the escape hatch for locked-down
+   * Windows where the bundled .exe can't launch (AV / Mark-of-the-Web). */
+  engine?: "bundled" | "colibri";
   onLog?: (line: string) => void;
 }
 
@@ -108,7 +113,10 @@ export async function runColumnLineageForProject(
 
     if (!fs.existsSync(manifestPath)) throw new Error(`no manifest at ${manifestPath} — run \`dbt compile\``);
     if (!fs.existsSync(catalogPath)) throw new Error(`no catalog at ${catalogPath} — run \`dbt docs generate\``);
-    const binPath = resolveBundledLineageEngine(extensionRoot);
+    // "colibri" bypasses the bundled binary entirely (undefined binPath makes
+    // runColibri spawn `colibri` from PATH); never touch resolveBundledLineageEngine
+    // then, so a missing/blocked .exe is irrelevant in that mode.
+    const binPath = opts.engine === "colibri" ? undefined : resolveBundledLineageEngine(extensionRoot);
     const [manifestJson, catalogJson] = await Promise.all([
       readStableJsonText(manifestPath),
       readStableJsonText(catalogPath),

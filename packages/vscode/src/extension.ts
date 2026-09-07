@@ -347,12 +347,14 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const inspectionTarget = cfg.get<string>("columnLineage.inspectionTarget") ?? "";
         const autoBuild = cfg.get<boolean>("columnLineage.autoBuild") ?? true;
         const refreshCatalog = cfg.get<boolean>("columnLineage.refreshCatalog") ?? true;
+        const engine = cfg.get<"bundled" | "colibri">("columnLineage.engine") ?? "bundled";
         const channel = getRunOutputChannel();
         const payload = await runColumnLineageForProject(projectRoot, extensionRoot, {
           nodeIds,
           inspectionTarget,
           autoBuild,
           refreshCatalog,
+          engine,
           onLog: (line) => channel.appendLine(line),
         });
         reply({ ok: true, result: payload });

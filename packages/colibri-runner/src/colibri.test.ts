@@ -119,6 +119,28 @@ describe("runColibri", () => {
     await expect(resultPromise).rejects.not.toThrow(/pip install/);
   });
 
+  it("wraps a SYNCHRONOUS spawn throw with the engine path so the raw error never leaks", async () => {
+    // On Windows, child_process.spawn throws synchronously (e.g. `spawn UNKNOWN`
+    // when cwd/exec is unusable) instead of emitting an async 'error' event.
+    // That throw must be classified like the async path, not leak raw.
+    mockedSpawn.mockImplementation(() => { throw new Error("spawn UNKNOWN"); });
+
+    const resultPromise = runColibri({
+      manifestPath: "m.json", catalogPath: "c.json", workDir,
+      binPath: "C:\\ext\\bin\\win32-x64\\lineage-engine.exe",
+    });
+
+    await expect(resultPromise).rejects.toThrow(/column-lineage engine failed to start.*lineage-engine\.exe.*UNKNOWN/);
+    await expect(resultPromise).rejects.not.toThrow(/pip install/);
+  });
+
+  it("wraps a synchronous spawn throw with the pip hint when no binPath is given", async () => {
+    mockedSpawn.mockImplementation(() => { throw new Error("spawn UNKNOWN"); });
+
+    await expect(runColibri({ manifestPath: "m.json", catalogPath: "c.json", workDir }))
+      .rejects.toThrow(/pip install dbt-colibri/);
+  });
+
   it("rejects wrapping stderr when colibri exits non-zero", async () => {
     const child = fakeChild();
     mockedSpawn.mockReturnValue(child);

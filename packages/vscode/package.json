@@ -111,6 +111,19 @@
           "default": true,
           "description": "Refresh warehouse relation and column metadata with dbt docs generate in an isolated target path before calculating column lineage. This does not build models."
         },
+        "dbt-open-lineage.columnLineage.engine": {
+          "type": "string",
+          "enum": [
+            "bundled",
+            "colibri"
+          ],
+          "enumDescriptions": [
+            "Use the column-lineage engine bundled inside the extension (no Python needed).",
+            "Use `colibri` from PATH (install with `pip install dbt-colibri`). Choose this if the bundled engine fails to launch, e.g. on locked-down Windows where antivirus or Mark-of-the-Web blocks the bundled executable."
+          ],
+          "default": "bundled",
+          "description": "Which column-lineage engine to run. 'bundled' uses the executable shipped with the extension; 'colibri' runs pip-installed dbt-colibri from PATH instead."
+        },
         "dbt-open-lineage.ai.provider": {
           "type": "string",
           "enum": [
