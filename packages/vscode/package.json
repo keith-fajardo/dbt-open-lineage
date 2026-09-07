@@ -2,7 +2,7 @@
   "name": "dbt-open-lineage",
   "displayName": "dbt Open Lineage",
   "description": "Interactive dbt model lineage graph with dbt node-selection filtering.",
-  "version": "0.4.74",
+  "version": "0.4.75",
   "publisher": "keithfajardo",
   "icon": "images/icon.png",
   "engines": {
@@ -139,7 +139,8 @@
     "pretest:integration": "npm run build && tsc test/integration/runTest.ts test/integration/open.test.ts --outDir out-test --rootDir test --module commonjs --target ES2022 --skipLibCheck --esModuleInterop",
     "test:integration": "node out-test/integration/runTest.js",
     "prepackage": "node scripts/verify-lineage-engine.mjs",
-    "package": "node scripts/package-extension.mjs"
+    "package": "node scripts/package-extension.mjs",
+    "package:universal": "node scripts/package-universal.mjs"
   },
   "dependencies": {
     "@dbt-open-lineage/colibri-runner": "*",

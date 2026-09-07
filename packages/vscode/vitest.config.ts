@@ -5,5 +5,5 @@ import { defineConfig } from "vitest/config";
 // vite.config.ts's `root: "src/webview"` (webview build config) and fail to
 // discover src/host/**/*.test.ts.
 export default defineConfig({
-  test: { include: ["src/**/*.test.ts"] },
+  test: { include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"] },
 });

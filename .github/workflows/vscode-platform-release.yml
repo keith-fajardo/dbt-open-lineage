@@ -2,19 +2,13 @@ name: VS Code platform release
 
 on:
   workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish all successfully built platform packages to the VS Marketplace
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build ${{ matrix.target }}
+    name: Build engine ${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,21 +50,20 @@ jobs:
       - name: Test bundled lineage engine
         run: python -m unittest discover -s packages/vscode/python -p "test_*.py"
       - run: npm run build:lineage -w packages/vscode
-      - run: npm run build -w packages/vscode
-      - run: npm run package -w packages/vscode
 
+      # Upload only the platform engine. The universal VSIX is assembled once
+      # (below) from all four engines — each can only be built on its own OS
+      # because PyInstaller cannot cross-compile.
       - uses: actions/upload-artifact@v4
         with:
-          name: dbt-open-lineage-${{ matrix.target }}
-          path: packages/vscode/dbt-open-lineage-*-${{ matrix.target }}.vsix
+          name: engine-${{ matrix.target }}
+          path: packages/vscode/bin/${{ matrix.target }}
           if-no-files-found: error
 
-  publish:
-    name: Publish platform packages
-    if: ${{ inputs.publish }}
+  assemble:
+    name: Assemble universal VSIX
     needs: build
     runs-on: ubuntu-latest
-    environment: vscode-marketplace
 
     steps:
       - uses: actions/checkout@v4
@@ -80,18 +73,36 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - uses: actions/download-artifact@v4
+      - name: Download every platform engine
+        uses: actions/download-artifact@v4
         with:
-          pattern: dbt-open-lineage-*
-          path: platform-vsix
-          merge-multiple: true
+          pattern: engine-*
+          path: engines
 
-      - name: Publish every target for the same extension version
+      - name: Stage engines under packages/vscode/bin/<target>
         shell: bash
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
-          test -n "$VSCE_PAT"
-          for package in platform-vsix/*.vsix; do
-            node_modules/.bin/vsce publish --packagePath "$package" -p "$VSCE_PAT"
+          set -euo pipefail
+          for dir in engines/engine-*; do
+            target="${dir#engines/engine-}"
+            mkdir -p "packages/vscode/bin/$target"
+            cp -R "$dir"/. "packages/vscode/bin/$target/"
           done
+          # upload-artifact drops the Unix exec bit; restore it so the packaged
+          # non-Windows engines spawn at runtime.
+          for target in linux-x64 darwin-arm64 darwin-x64; do
+            chmod +x "packages/vscode/bin/$target/lineage-engine"
+          done
+          ls -R packages/vscode/bin
+
+      - name: Build extension host + webview
+        run: npm run build -w packages/vscode
+
+      - name: Package universal VSIX
+        run: npm run package:universal -w packages/vscode
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dbt-open-lineage-universal
+          path: packages/vscode/dbt-open-lineage-*.vsix
+          if-no-files-found: error
