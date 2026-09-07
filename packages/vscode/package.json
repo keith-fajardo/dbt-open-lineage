@@ -2,7 +2,7 @@
   "name": "dbt-open-lineage",
   "displayName": "dbt Open Lineage",
   "description": "Interactive dbt model lineage graph with dbt node-selection filtering.",
-  "version": "0.4.68",
+  "version": "0.4.74",
   "publisher": "keithfajardo",
   "icon": "images/icon.png",
   "engines": {
@@ -44,12 +44,12 @@
         {
           "command": "dbt-open-lineage.open",
           "when": "resourceExtname == .sql",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "dbt-open-lineage.compile",
           "when": "resourceExtname == .sql && dbtOpenLineage.activeIsCompilable",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "dbt-open-lineage.recompile",
@@ -96,6 +96,21 @@
           "default": "",
           "description": "Absolute path to the dbt project root (contains dbt_project.yml). Empty = auto-detect."
         },
+        "dbt-open-lineage.columnLineage.inspectionTarget": {
+          "type": "string",
+          "default": "",
+          "description": "Optional dbt target dedicated to disposable column-lineage inspection. Missing, divergent, or unresolved persistent models are built with --empty only in this target. Never point this at production or a schema containing valuable relations."
+        },
+        "dbt-open-lineage.columnLineage.autoBuild": {
+          "type": "boolean",
+          "default": true,
+          "description": "When an inspection target is configured, automatically run zero-row dbt builds there for missing or schema-divergent models."
+        },
+        "dbt-open-lineage.columnLineage.refreshCatalog": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refresh warehouse relation and column metadata with dbt docs generate in an isolated target path before calculating column lineage. This does not build models."
+        },
         "dbt-open-lineage.ai.provider": {
           "type": "string",
           "enum": [
@@ -117,12 +132,14 @@
   "scripts": {
     "build:host": "node esbuild.js",
     "build:webview": "vite build",
+    "build:lineage": "node scripts/build-lineage-engine.mjs",
     "build": "npm run build:host && npm run build:webview",
     "watch": "node esbuild.js --watch",
     "test": "vitest run",
     "pretest:integration": "npm run build && tsc test/integration/runTest.ts test/integration/open.test.ts --outDir out-test --rootDir test --module commonjs --target ES2022 --skipLibCheck --esModuleInterop",
     "test:integration": "node out-test/integration/runTest.js",
-    "package": "vsce package --no-dependencies"
+    "prepackage": "node scripts/verify-lineage-engine.mjs",
+    "package": "node scripts/package-extension.mjs"
   },
   "dependencies": {
     "@dbt-open-lineage/colibri-runner": "*",

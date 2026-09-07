@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { buildHtml } from "./webview/panel";
 import { parseManifest } from "./host/manifest";
-import { resolveProjectRoot } from "./host/projectRoot";
+import { nodeForFile, resolveProjectRoot } from "./host/projectRoot";
 import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
 import { startDbtRunWithSeed, spawnDbtToCompletion, type RunController } from "./host/run";
@@ -11,6 +11,7 @@ import { readCompiledSql, readModelSql, compiledDocUri, parseCompiledDocQuery, a
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
 import { runColumnLineageForProject } from "./host/columnLineage";
+import { readStableArtifact } from "./host/stableArtifact";
 import type { Graph, GraphNode } from "@dbt-open-lineage/core";
 
 const VIEW_ID = "dbtOpenLineage.graph";
@@ -20,6 +21,7 @@ let projectRoot: string | undefined;
 let lastGraph: Graph | undefined;
 let activeRun: RunController | undefined; // set while a dbt.run is in flight; guards against overlapping runs
 let runOutputChannel: vscode.OutputChannel | undefined;
+let extensionRoot: string | undefined;
 
 let manifestWatcher: vscode.FileSystemWatcher | undefined;
 let manifestWatchRoot: string | undefined; // absolute root the current watcher is pinned to
@@ -72,13 +74,13 @@ const compiledContent = new Map<string, string>(); // uri.toString() -> compiled
 const compiledChanged = new vscode.EventEmitter<vscode.Uri>();
 let graphCache: { root: string; mtimeMs: number; graph: Graph } | undefined;
 
-function resolveRoot(): string | undefined {
+function resolveRoot(editor: vscode.TextEditor | undefined = vscode.window.activeTextEditor): string | undefined {
   const configured = vscode.workspace.getConfiguration("dbt-open-lineage").get<string>("projectRoot");
   if (configured) return configured;
   // Only a real on-disk file can seed the root. A virtual/readonly doc (the
   // `dbt-compiled:` preview, a git-diff, a remote scheme) has a fabricated
   // fsPath — trusting it resolved to bogus roots like `/temp/readonly/target`.
-  const ed = vscode.window.activeTextEditor;
+  const ed = editor;
   const activeFileDir = ed && ed.document.uri.scheme === "file"
     ? path.dirname(ed.document.uri.fsPath) : undefined;
   const workspaceFolders = (vscode.workspace.workspaceFolders ?? [])
@@ -115,17 +117,40 @@ function loadGraph(root: string): Graph | undefined {
   }
 }
 
+/** Push the editor's dbt model to the webview.
+ *
+ * Resolve the root and graph from the editor at the time of the event instead
+ * of relying on the panel's asynchronously initialized globals. Previously a
+ * file opened while `dbt.manifest` was still loading was silently discarded
+ * because `projectRoot`/`lastGraph` were undefined, and no later event replayed
+ * it. That race is much easier to hit on a slower Windows extension host. */
+function pushEditorContext(editor: vscode.TextEditor | undefined = vscode.window.activeTextEditor): void {
+  if (!view || !editor || editor.document.uri.scheme !== "file") return;
+  if (path.extname(editor.document.uri.fsPath).toLowerCase() !== ".sql") return;
+
+  const root = resolveRoot(editor);
+  if (!root) return;
+  const graph = loadGraph(root);
+  if (!graph) return;
+  const value = contextValueForEditor(graph, root, editor.document.uri.fsPath);
+  if (!value) return;
+
+  projectRoot = root;
+  lastGraph = graph;
+  ensureManifestWatcher(root);
+  void view.postMessage({ evt: "context", value });
+}
+
 // The dbt model node for the active editor, or undefined. Matches the file's
 // project-relative path to GraphNode.path; returns the node's unique id + name.
 function activeModelNode(): { root: string; node: GraphNode } | undefined {
   const ed = vscode.window.activeTextEditor;
-  if (!ed || path.extname(ed.document.uri.fsPath) !== ".sql") return undefined;
-  const root = resolveRoot();
+  if (!ed || ed.document.uri.scheme !== "file" || path.extname(ed.document.uri.fsPath).toLowerCase() !== ".sql") return undefined;
+  const root = resolveRoot(ed);
   if (!root) return undefined;
   const graph = loadGraph(root);
   if (!graph) return undefined;
-  const rel = path.relative(root, ed.document.uri.fsPath).split(path.sep).join("/");
-  const node = graph.nodes.find((n) => n.path === rel);
+  const node = nodeForFile(graph, root, ed.document.uri.fsPath);
   return node ? { root, node } : undefined;
 }
 
@@ -144,6 +169,16 @@ function activeCompilableNode(): { root: string; node: { id: string; name: strin
   const rel = path.relative(root, ed.document.uri.fsPath).split(path.sep).join("/");
   const node = analysisNodeFromManifest(fs.readFileSync(p, "utf8"), rel);
   return node ? { root, node } : undefined;
+}
+
+/** Refresh the editor-title Compile command's `when` context. This must run
+ * after manifest loading as well as on editor changes: an editor event that
+ * arrives before the graph is available otherwise leaves the command hidden
+ * for the rest of the session. */
+function updateCompilableContext(): void {
+  void vscode.commands.executeCommand(
+    "setContext", "dbtOpenLineage.activeIsCompilable", activeCompilableNode() !== undefined,
+  );
 }
 
 class CompiledSqlProvider implements vscode.TextDocumentContentProvider {
@@ -173,9 +208,14 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         ensureManifestWatcher(projectRoot); // re-pin the watcher to the freshly resolved root
         const p = path.join(projectRoot, "target", "manifest.json");
         if (!fs.existsSync(p)) throw new Error(`no manifest at ${p} — run \`dbt compile\``);
-        const graph: Graph = parseManifest(fs.readFileSync(p, "utf8"));
+        const graph: Graph = await readStableArtifact(p, parseManifest);
         lastGraph = graph;
         reply({ ok: true, result: graph });
+        // The active editor may have changed while the manifest request was in
+        // flight. Replay it after the graph is ready so that early editor events
+        // are never lost.
+        pushEditorContext();
+        updateCompilableContext();
         break;
       }
       case "dbt.compile": {
@@ -190,9 +230,11 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const code = await spawnDbtToCompletion(projectRoot, ["compile"], (l) => channel.appendLine(l));
         if (code !== 0) throw new Error(`dbt compile failed (exit ${code})`);
         const p = path.join(projectRoot, "target", "manifest.json");
-        const graph: Graph = parseManifest(fs.readFileSync(p, "utf8"));
+        const graph: Graph = await readStableArtifact(p, parseManifest);
         lastGraph = graph;
         reply({ ok: true, result: graph });
+        pushEditorContext();
+        updateCompilableContext();
         break;
       }
       case "dbt.run": {
@@ -280,7 +322,10 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         projectRoot = resolveRoot();
         if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
         const id = String(msg.args.uniqueId ?? "");
-        const node = (lastGraph ?? parseManifest(fs.readFileSync(path.join(projectRoot, "target", "manifest.json"), "utf8")))
+        const graph = lastGraph ?? await readStableArtifact(
+          path.join(projectRoot, "target", "manifest.json"), parseManifest,
+        );
+        const node = graph
           .nodes.find((n) => n.id === id);
         if (!node) throw new Error(`unknown model: ${id}`);
         const cfg = vscode.workspace.getConfiguration("dbt-open-lineage");
@@ -294,7 +339,22 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
       case "dbt.columnLineage": {
         projectRoot = resolveRoot();
         if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
-        const payload = await runColumnLineageForProject(projectRoot);
+        if (!extensionRoot) throw new Error("extension installation path is unavailable");
+        const nodeIds = Array.isArray(msg.args.nodeIds)
+          ? [...new Set(msg.args.nodeIds.filter((id): id is string => typeof id === "string" && id.length > 0))]
+          : undefined;
+        const cfg = vscode.workspace.getConfiguration("dbt-open-lineage");
+        const inspectionTarget = cfg.get<string>("columnLineage.inspectionTarget") ?? "";
+        const autoBuild = cfg.get<boolean>("columnLineage.autoBuild") ?? true;
+        const refreshCatalog = cfg.get<boolean>("columnLineage.refreshCatalog") ?? true;
+        const channel = getRunOutputChannel();
+        const payload = await runColumnLineageForProject(projectRoot, extensionRoot, {
+          nodeIds,
+          inspectionTarget,
+          autoBuild,
+          refreshCatalog,
+          onLog: (line) => channel.appendLine(line),
+        });
         reply({ ok: true, result: payload });
         break;
       }
@@ -341,11 +401,7 @@ class LineageViewProvider implements vscode.WebviewViewProvider {
 
     view = wv;
     const sub = wv.onDidReceiveMessage(handleMessage);
-    const editorSub = vscode.window.onDidChangeActiveTextEditor((ed) => {
-      if (!view || !ed || !projectRoot || !lastGraph) return;
-      const val = contextValueForEditor(lastGraph, projectRoot, ed.document.uri.fsPath);
-      if (val) view.postMessage({ evt: "context", value: val });
-    });
+    const editorSub = vscode.window.onDidChangeActiveTextEditor(pushEditorContext);
 
     // Best-effort watcher at panel-open; re-evaluated on every graph load (see
     // ensureManifestWatcher — the reliable point, since resolveRoot() may be
@@ -362,14 +418,10 @@ class LineageViewProvider implements vscode.WebviewViewProvider {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  extensionRoot = context.extensionUri.fsPath;
   const provider = new LineageViewProvider(context.extensionUri);
 
-  const setModelCtx = () => {
-    void vscode.commands.executeCommand(
-      "setContext", "dbtOpenLineage.activeIsCompilable", activeCompilableNode() !== undefined,
-    );
-  };
-  setModelCtx();
+  updateCompilableContext();
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(VIEW_ID, provider, {
@@ -380,7 +432,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.workspace.registerTextDocumentContentProvider(COMPILED_SCHEME, new CompiledSqlProvider()),
     compiledChanged,
-    vscode.window.onDidChangeActiveTextEditor(setModelCtx),
+    vscode.window.onDidChangeActiveTextEditor(updateCompilableContext),
     vscode.commands.registerCommand("dbt-open-lineage.compile", async () => {
       const m = activeCompilableNode();
       if (!m) {

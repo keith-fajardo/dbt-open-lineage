@@ -1,0 +1,32 @@
+{
+  "nodes": {
+    "model.fixture.dim_people": {
+      "unique_id": "model.fixture.dim_people",
+      "metadata": {
+        "type": "VIEW",
+        "schema": "mart",
+        "name": "dim_people",
+        "database": "db"
+      },
+      "columns": {
+        "id": { "type": "INTEGER", "index": 1, "name": "id" },
+        "name": { "type": "VARCHAR", "index": 2, "name": "name" }
+      }
+    }
+  },
+  "sources": {
+    "source.fixture.raw.people": {
+      "unique_id": "source.fixture.raw.people",
+      "metadata": {
+        "type": "TABLE",
+        "schema": "raw",
+        "name": "people",
+        "database": "db"
+      },
+      "columns": {
+        "id": { "type": "INTEGER", "index": 1, "name": "id" },
+        "name": { "type": "VARCHAR", "index": 2, "name": "name" }
+      }
+    }
+  }
+}

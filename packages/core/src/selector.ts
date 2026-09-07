@@ -120,6 +120,12 @@ function matchCore(adj: Adj, core: string): string[] {
       return adj.nodes
         .filter((n) => n.resource_type === "source" && !adj.down.get(n.id)?.length)
         .map((n) => n.id);
+    // unused:snapshot — snapshots with NO downstream consumers. Accept the
+    // plural spelling as a convenience, matching unused:source(s).
+    if (value === "snapshot" || value === "snapshots")
+      return adj.nodes
+        .filter((n) => n.resource_type === "snapshot" && !adj.down.get(n.id)?.length)
+        .map((n) => n.id);
     // unused:staging — staging MODELS nothing references. "Staging" is the
     // stg_ NAME prefix (not the /staging/ folder, not the layer field), per
     // the project's naming convention. Same "no downstream consumers" rule as

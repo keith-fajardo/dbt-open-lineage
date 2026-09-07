@@ -250,3 +250,32 @@ describe("unused:intermediate", () => {
   it("--exclude unused:intermediate subtracts the unused intermediate set", () =>
     expect(iids("int_orphan int_used mart_x --exclude unused:intermediate")).toEqual(["i2", "m"]));
 });
+
+describe("unused:snapshot", () => {
+  // sn1 is a leaf snapshot; sn2 feeds a model; leaf models/seeds must not be
+  // classified as unused snapshots merely because they have no children.
+  const gsn: Graph = {
+    nodes: [
+      { id: "sn1", name: "orphan_snapshot", resource_type: "snapshot", layer: "snapshot", path: "snapshots/orphan_snapshot.sql", description: "" },
+      { id: "sn2", name: "used_snapshot",   resource_type: "snapshot", layer: "snapshot", path: "snapshots/used_snapshot.sql",   description: "" },
+      { id: "m",   name: "stg_from_snapshot", resource_type: "model", layer: "staging", path: "models/staging/stg_from_snapshot.sql", description: "" },
+      { id: "sd",  name: "leaf_seed", resource_type: "seed", layer: "model", path: "seeds/leaf_seed.csv", description: "" },
+    ],
+    edges: [{ from: "sn2", to: "m" }],
+  };
+  const snids = (q: string) => [...resolveSelector(gsn, q)].sort();
+
+  it("matches snapshots with no downstream consumers", () =>
+    expect(snids("unused:snapshot")).toEqual(["sn1"]));
+  it("accepts the plural unused:snapshots alias", () =>
+    expect(snids("unused:snapshots")).toEqual(["sn1"]));
+  it("does NOT match a snapshot that has a downstream consumer", () =>
+    expect(snids("unused:snapshot")).not.toContain("sn2"));
+  it("does NOT include other leaf resource types", () => {
+    expect(snids("unused:snapshot")).not.toContain("m");
+    expect(snids("unused:snapshot")).not.toContain("sd");
+  });
+  it("--exclude unused:snapshot subtracts the unused snapshot set", () =>
+    expect(snids("orphan_snapshot used_snapshot stg_from_snapshot --exclude unused:snapshot"))
+      .toEqual(["m", "sn2"]));
+});

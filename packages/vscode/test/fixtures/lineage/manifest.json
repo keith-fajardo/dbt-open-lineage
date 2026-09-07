@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "adapter_type": "duckdb",
+    "dbt_version": "1.10.0",
+    "project_name": "fixture"
+  },
+  "nodes": {
+    "model.fixture.dim_people": {
+      "name": "dim_people",
+      "resource_type": "model",
+      "database": "db",
+      "schema": "mart",
+      "alias": "dim_people",
+      "relation_name": "\"db\".\"mart\".\"dim_people\"",
+      "original_file_path": "models/dim_people.sql",
+      "compiled_code": "select id, upper(name) as name from \"db\".\"raw\".\"people\"",
+      "depends_on": { "nodes": ["source.fixture.raw.people"] },
+      "config": { "materialized": "view" },
+      "columns": {}
+    }
+  },
+  "sources": {
+    "source.fixture.raw.people": {
+      "name": "people",
+      "identifier": "people",
+      "resource_type": "source",
+      "config": {},
+      "database": "db",
+      "schema": "raw",
+      "relation_name": "\"db\".\"raw\".\"people\"",
+      "original_file_path": "models/sources.yml",
+      "columns": {}
+    }
+  },
+  "parent_map": {
+    "model.fixture.dim_people": ["source.fixture.raw.people"],
+    "source.fixture.raw.people": []
+  },
+  "child_map": {
+    "model.fixture.dim_people": [],
+    "source.fixture.raw.people": ["model.fixture.dim_people"]
+  }
+}

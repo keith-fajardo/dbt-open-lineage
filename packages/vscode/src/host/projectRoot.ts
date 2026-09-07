@@ -1,5 +1,5 @@
 import * as path from "path";
-import type { Graph } from "@dbt-open-lineage/core";
+import type { Graph, GraphNode } from "@dbt-open-lineage/core";
 
 /** Walk up from startDir until a dir contains dbt_project.yml. Pure: `exists`
  * is injected so this is unit-testable without touching the filesystem. */
@@ -74,12 +74,27 @@ export function resolveProjectRoot(opts: {
   return findProjectRootDown(workspaceFolders, exists, listDirs) ?? undefined;
 }
 
-/** Map an absolute .sql path to its graph node NAME (for the context push).
- * Normalize to forward slashes: dbt manifest `original_file_path` always uses
- * `/`, but path.relative yields `\` on Windows — without this the match (and
- * thus the active-editor context push) silently never fires on Windows. */
+/** Return a dbt-style, project-relative path on every host OS.
+ *
+ * Choosing the path implementation from the input (rather than from the OS
+ * running this function) also makes Windows paths deterministic in unit tests
+ * running on macOS/Linux. It covers drive-letter and UNC paths; dbt manifest
+ * paths always use `/` separators. */
+export function projectRelativePath(projectRoot: string, fileAbsPath: string): string {
+  const windowsPath = /^[a-z]:[\\/]/i.test(projectRoot) || /^\\\\/.test(projectRoot);
+  const pathApi = windowsPath ? path.win32 : path.posix;
+  return pathApi.relative(projectRoot, fileAbsPath).replace(/\\/g, "/");
+}
+
+/** Map an absolute file path to its graph node using the same normalization on
+ * every feature that reacts to the active editor (lineage and Compile). */
+export function nodeForFile(graph: Graph, projectRoot: string, fileAbsPath: string): GraphNode | null {
+  const rel = projectRelativePath(projectRoot, fileAbsPath);
+  const hit = graph.nodes.find((n) => n.path.replace(/\\/g, "/").replace(/^\.\//, "") === rel);
+  return hit ?? null;
+}
+
+/** Map an absolute .sql path to its graph node NAME (for the context push). */
 export function nodeIdForFile(graph: Graph, projectRoot: string, fileAbsPath: string): string | null {
-  const rel = path.relative(projectRoot, fileAbsPath).split(path.sep).join("/");
-  const hit = graph.nodes.find((n) => n.path === rel);
-  return hit ? hit.name : null;
+  return nodeForFile(graph, projectRoot, fileAbsPath)?.name ?? null;
 }

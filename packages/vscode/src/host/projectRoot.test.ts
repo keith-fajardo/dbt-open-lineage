@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findProjectRoot, resolveProjectRoot, nodeIdForFile } from "./projectRoot";
+import { findProjectRoot, resolveProjectRoot, projectRelativePath, nodeForFile, nodeIdForFile } from "./projectRoot";
 import type { Graph } from "@dbt-open-lineage/core";
 
 describe("findProjectRoot", () => {
@@ -90,6 +90,26 @@ describe("nodeIdForFile", () => {
   ], edges: [] };
   it("maps an absolute file to its node name", () => {
     expect(nodeIdForFile(g, "/repo/dbt", "/repo/dbt/models/staging/stg_orders.sql")).toBe("stg_orders");
+  });
+  it("maps a Windows file to its forward-slash manifest path on every test OS", () => {
+    expect(nodeIdForFile(
+      g,
+      "C:\\Users\\Keith\\dbt",
+      "C:\\Users\\Keith\\dbt\\models\\staging\\stg_orders.sql",
+    )).toBe("stg_orders");
+  });
+  it("returns the full graph node for Windows-safe compile eligibility checks", () => {
+    expect(nodeForFile(
+      g,
+      "C:\\Users\\Keith\\dbt",
+      "C:\\Users\\Keith\\dbt\\models\\staging\\stg_orders.sql",
+    )?.id).toBe("model.p.stg_orders");
+  });
+  it("matches Windows drive paths case-insensitively", () => {
+    expect(projectRelativePath(
+      "c:\\users\\keith\\dbt",
+      "C:\\Users\\Keith\\dbt\\models\\staging\\stg_orders.sql",
+    )).toBe("models/staging/stg_orders.sql");
   });
   it("returns null for a file not in the graph", () => {
     expect(nodeIdForFile(g, "/repo/dbt", "/repo/dbt/models/other.sql")).toBeNull();

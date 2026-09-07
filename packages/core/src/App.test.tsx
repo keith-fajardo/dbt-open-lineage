@@ -45,12 +45,15 @@ const oneModelGraph: Graph = {
 let contextCb: ((v: string) => void) | null = null;
 let manifestChangedCb: (() => void) | null = null;
 let runEventCb: ((e: import("./runStatus").RunEvent) => void) | null = null;
-let manifestGraph: Graph = g;
+let manifestGraph: Graph | Error = g;
 let columnLineageResult: unknown = { nodes: {}, edges: [] };
 const saveExport = vi.fn(async () => true);
 const openInIde = vi.fn(async () => true);
 const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) => {
-  if (cmd === "dbt.manifest" || cmd === "dbt.compile") return manifestGraph;
+  if (cmd === "dbt.manifest" || cmd === "dbt.compile") {
+    if (manifestGraph instanceof Error) throw manifestGraph;
+    return manifestGraph;
+  }
   if (cmd === "fs.readText") return null;
   if (cmd === "fs.writeText") return true;
   if (cmd === "dbt.gist") return "AI gist";
@@ -198,6 +201,18 @@ describe("dbt DAG App", () => {
     );
   });
 
+  it("keeps the last valid graph without flashing an error when a watcher refresh sees partial JSON", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+
+    manifestGraph = new Error("bad manifest json: expected ':' at position 100");
+    act(() => { manifestChangedCb?.(); });
+
+    await waitFor(() => expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.manifest").length).toBe(2));
+    expect(screen.queryByText(/bad manifest json/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText("a").length).toBeGreaterThan(0);
+  });
+
   it("has no refresh button", async () => {
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
@@ -214,7 +229,42 @@ describe("dbt DAG App", () => {
     const toggle = screen.getByRole("button", { name: "Columns" });
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
-    expect(invokeMock).toHaveBeenCalledWith("dbt.columnLineage", {});
+    expect(invokeMock).toHaveBeenCalledWith("dbt.columnLineage", { nodeIds: ["a", "b", "c", "d"] });
+  });
+
+  it("parses only rendered nodes and refetches when the visible subgraph changes", async () => {
+    columnLineageResult = {
+      nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } },
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="a" debounceMs={0} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Columns" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith(
+      "dbt.columnLineage", { nodeIds: ["a"] },
+    ));
+
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "+a+" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith(
+      "dbt.columnLineage", { nodeIds: ["a", "b", "c"] },
+    ));
+    expect(invokeMock.mock.calls.filter((call) => call[0] === "dbt.columnLineage")).toHaveLength(2);
+  });
+
+  it("warns when persistent model columns are inferred rather than physically verified", async () => {
+    columnLineageResult = {
+      nodes: {
+        a: { columns: { id: { columnName: "id", hasLineage: true } } },
+        b: { columns: { id: { columnName: "id", hasLineage: true } } },
+      },
+      edges: [{ source: "a", sourceColumn: "id", target: "b", targetColumn: "id" }],
+      inspection: { current: ["a"], divergent: [], missing: ["b"], unknown: [], ephemeral: [] },
+    };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Columns" }));
+    await screen.findByText(/1 persistent model could not be physically verified/i);
   });
 
   it("keeps the cached lineage for a single on→off→on without re-fetching redundantly (fetch is once per enable)", async () => {
@@ -309,7 +359,7 @@ describe("dbt DAG App", () => {
   // to model-level-only edges, which extractColumnLineage correctly filters
   // out. Without a warning this looks identical to a broken toggle (the
   // fetch succeeds, mode stays on, but nothing ever traces) with no hint why.
-  it("warns when the fetch succeeds but has zero real column edges (stale/uncompiled manifest)", async () => {
+  it("does not warn for a one-model scope that has columns but naturally has no edges", async () => {
     columnLineageResult = {
       nodes: { a: { columns: { id: { columnName: "id", hasLineage: true } } } },
       edges: [], // colibri ran, but every edge was model-level-only and got filtered
@@ -319,6 +369,15 @@ describe("dbt DAG App", () => {
     const toggle = screen.getByRole("button", { name: "Columns" });
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    expect(screen.queryByText(/run a full `dbt compile`/)).not.toBeInTheDocument();
+  });
+
+  it("warns when the scoped fetch has no column data at all", async () => {
+    columnLineageResult = { nodes: {}, edges: [] };
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    const toggle = await screen.findByRole("button", { name: "Columns" });
+    fireEvent.click(toggle);
     await waitFor(() => expect(screen.getByText(/run a full `dbt compile`/)).toBeInTheDocument());
   });
 

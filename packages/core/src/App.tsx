@@ -393,10 +393,15 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     window.addEventListener("pointerup", up);
   };
 
-  const load = async (cmd: "dbt.manifest" | "dbt.compile") => {
-    setError(null);
+  const load = async (cmd: "dbt.manifest" | "dbt.compile", opts?: { background?: boolean }) => {
+    if (!opts?.background) setError(null);
     try { setGraph(await invoke<Graph>(cmd, { projectPath })); }
-    catch (e) { setError(String((e as Error).message ?? e)); }
+    catch (e) {
+      // A watcher refresh is advisory. Keep the last valid graph and avoid a
+      // red error flash if dbt happened to be midway through replacing its
+      // large manifest; the host already retries the read before rejecting.
+      if (!opts?.background) setError(String((e as Error).message ?? e));
+    }
   };
   useEffect(() => { void load("dbt.manifest"); /* eslint-disable-next-line */ }, []);
   // A fresh compile / manifest reload invalidates any column selection/expansion.
@@ -519,6 +524,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   const [columnLineage, setColumnLineage] = useState<ColumnLineagePayload | null>(null);
   const [columnLineageBusy, setColumnLineageBusy] = useState(false);
   const [columnLineageErr, setColumnLineageErr] = useState<string | null>(null);
+  const [columnLineageNotice, setColumnLineageNotice] = useState<string | null>(null);
   // Monotonic single-flight token: bumped at the start of every fetch (and on
   // toggle-off). A fetch only commits its result if it's still the CURRENT
   // (most-recently-started) request when its promise settles — otherwise a
@@ -526,6 +532,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // user's own toggle click) silently drops its result instead of clobbering
   // a newer one. See fetchColumnLineage.
   const columnLineageReq = useRef(0);
+  // Scope of the newest successful or in-flight request. Comparing this with
+  // the rendered node set avoids a duplicate fetch on enable, while allowing
+  // selector/focus/prune changes to replace the scoped payload.
+  const columnLineageScopeRef = useRef<string | null>(null);
 
   // Which nodes have their full column catalog EXPANDED (collapsed by default).
   // Structural: a node's rendered row count — hence its box size and the
@@ -618,6 +628,11 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
         passesFocus(e.from) && passesFocus(e.to) && passesPrune(e.from) && passesPrune(e.to)),
     };
   }, [graph, focus, matched, cleanedSelector, showAll, pruned]);
+  const visibleNodeIds = useMemo(
+    () => visibleGraph?.nodes.map((node) => node.id) ?? [],
+    [visibleGraph],
+  );
+  const visibleNodeKey = useMemo(() => visibleNodeIds.join("\n"), [visibleNodeIds]);
 
   // Performance guard: computing `visibleGraph` (array filtering) is cheap; the
   // dagre layout and one React Flow node per model below are what freeze on a
@@ -962,11 +977,26 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     // settles later will see its captured `myReq` no longer match the ref and
     // discard its result instead of overwriting this (newer) one's.
     const myReq = ++columnLineageReq.current;
+    const requestedNodeIds = visibleNodeIds;
+    const requestedScope = visibleNodeKey;
+    columnLineageScopeRef.current = requestedScope;
     setColumnLineageBusy(true); setColumnLineageErr(null);
+    setColumnLineageNotice(null);
     try {
-      const payload = await invoke<ColumnLineagePayload>("dbt.columnLineage", {});
+      const payload = await invoke<ColumnLineagePayload>("dbt.columnLineage", { nodeIds: requestedNodeIds });
       if (myReq !== columnLineageReq.current) return; // superseded — drop silently
       setColumnLineage(payload);
+      const ephemeral = new Set(payload.inspection?.ephemeral ?? []);
+      const unverified = new Set([
+        ...(payload.inspection?.missing ?? []),
+        ...(payload.inspection?.divergent ?? []),
+        ...(payload.inspection?.unknown ?? []),
+      ].filter((id) => !ephemeral.has(id)));
+      if (unverified.size) {
+        setColumnLineageNotice(
+          `${unverified.size} persistent model${unverified.size === 1 ? "" : "s"} could not be physically verified; inferred lineage is shown.`,
+        );
+      }
       // dbt-colibri resolves column-level lineage by parsing COMPILED SQL out
       // of manifest.json — if that's stale (e.g. only a selective/partial
       // `dbt compile` ran, or another tool's background parse invalidated
@@ -976,11 +1006,15 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
       // explicitly rather than leaving the toggle looking broken. Symmetric
       // with the 0-edge branch below: a later good fetch must CLEAR an
       // earlier fetch's stale error, not just rely on the reset at the top.
-      setColumnLineageErr(payload.edges.length === 0
+      const hasColumnData = Object.values(payload.nodes).some(
+        (node) => Object.keys(node.columns ?? {}).length > 0,
+      );
+      setColumnLineageErr(!hasColumnData
         ? "No column-level lineage found — run a full `dbt compile` and try again."
         : null);
     } catch (e) {
       if (myReq !== columnLineageReq.current) return; // superseded — drop silently
+      columnLineageScopeRef.current = null;
       setColumnLineageErr(String((e as Error).message ?? e));
       if (!opts?.background) setColumnLineageMode(false); // revert — nothing to show
     } finally {
@@ -1006,10 +1040,12 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
       // AFTER the user turns the feature off must not repopulate the payload
       // or error underneath a now-off toggle.
       columnLineageReq.current++;
+      columnLineageScopeRef.current = null;
       setSelectedColumn(null);
       setExpandedNodes(new Set());
       setColumnLineage(null);
       setColumnLineageErr(null);
+      setColumnLineageNotice(null);
       // Clear busy explicitly rather than leaning on the in-flight fetch's
       // guarded finally: off bumped the token, so any in-flight fetch is now
       // superseded and its finally early-returns WITHOUT clearing busy. Without
@@ -1030,12 +1066,24 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // visible column edges match the new graph.
   useEffect(() => {
     return onManifestChanged(() => {
-      void load("dbt.manifest");
+      void load("dbt.manifest", { background: true });
       setColumnLineage(null);
       if (columnLineageMode) void fetchColumnLineage({ background: true });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnLineageMode]);
+
+  // Column parsing is scoped to what React Flow actually lays out. When a
+  // selector, focus toggle, or prune action changes that rendered subgraph,
+  // replace the payload so newly visible nodes gain columns and hidden models
+  // never enter the bundled parser.
+  useEffect(() => {
+    if (!columnLineageMode || columnLineageScopeRef.current === visibleNodeKey) return;
+    setSelectedColumn(null);
+    setExpandedNodes(new Set());
+    void fetchColumnLineage({ background: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columnLineageMode, visibleNodeKey]);
 
   const onToggleLabel = (label: string) =>
     setLabelFilter((prev) => {
@@ -1563,7 +1611,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
               so flexWrap alone never gets the chance to trigger. */}
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
             <input
-              placeholder="select… e.g. stg_orders+  tag:mart  resource_type:source --exclude unused:staging  (Enter applies the selection)"
+              placeholder="select… e.g. stg_orders+  tag:mart  unused:snapshot  --exclude unused:staging  (Enter applies the selection)"
               value={raw}
               // macOS "smart dashes" in the WKWebView rewrites a typed `--` to a
               // single em-dash (U+2014), which silently breaks `--exclude`. dbt
@@ -1670,6 +1718,9 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
             >{columnLineageBusy ? "loading…" : "Columns"}</button>
             {columnLineageErr && (
               <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{columnLineageErr}</span>
+            )}
+            {columnLineageNotice && !columnLineageErr && (
+              <span style={{ color: "#fbbf24", fontSize: 12, whiteSpace: "nowrap" }}>{columnLineageNotice}</span>
             )}
             <input
               aria-label="Search nodes"

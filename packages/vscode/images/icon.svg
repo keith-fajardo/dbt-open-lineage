@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">dbt Open Lineage</title>
+  <desc id="desc">Four colored data nodes connected in a left-to-right lineage graph.</desc>
+  <defs>
+    <filter id="nodeShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#000000" flood-opacity=".35"/>
+    </filter>
+  </defs>
+
+  <rect width="256" height="256" rx="44" fill="#0B1220"/>
+  <rect x="4" y="4" width="248" height="248" rx="40" fill="none" stroke="#FFFFFF" stroke-opacity=".09" stroke-width="8"/>
+
+  <g fill="none" stroke="#DCE6F5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M63 128H81C92 128 96 120 96 109V94C96 82 104 75 116 75H122" stroke-opacity=".82" stroke-width="12"/>
+    <path d="M63 128H81C92 128 96 136 96 147V162C96 174 104 181 116 181H122" stroke-opacity=".82" stroke-width="12"/>
+    <path d="M146 75H153C165 75 172 83 172 95V108C172 120 180 128 192 128H198" stroke-opacity=".82" stroke-width="12"/>
+    <path d="M146 181H153C165 181 172 173 172 161V148C172 136 180 128 192 128H198" stroke-opacity=".82" stroke-width="12"/>
+  </g>
+
+  <g filter="url(#nodeShadow)">
+    <rect x="39" y="104" width="48" height="48" rx="15" fill="#F59E0B"/>
+    <rect x="110" y="53" width="48" height="44" rx="14" fill="#3B82F6"/>
+    <rect x="110" y="159" width="48" height="44" rx="14" fill="#14B8A6"/>
+    <rect x="190" y="104" width="48" height="48" rx="15" fill="#F59E0B"/>
+  </g>
+
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-opacity=".78">
+    <path d="M51 119h24M51 128h16M51 137h20" stroke-width="4"/>
+    <path d="M122 68h24M122 77h16M122 86h20" stroke-width="3.5"/>
+    <path d="M122 174h24M122 183h16M122 192h20" stroke-width="3.5"/>
+    <path d="M202 119h24M202 128h16M202 137h20" stroke-width="4"/>
+  </g>
+</svg>

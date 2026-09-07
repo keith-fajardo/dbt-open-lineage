@@ -56,4 +56,13 @@ describe("extractColumnLineage", () => {
   it("handles missing nodes/lineage gracefully", () => {
     expect(extractColumnLineage({})).toEqual({ nodes: {}, edges: [] });
   });
+
+  it("preserves inspection classifications emitted by the bundled engine", () => {
+    const inspection = {
+      current: ["model.proj.a"], divergent: ["model.proj.b"],
+      missing: [], unknown: [], ephemeral: ["model.proj.helper"],
+    };
+    expect(extractColumnLineage({ ...RAW_COLIBRI_MANIFEST, dbtOpenLineageInspection: inspection }).inspection)
+      .toEqual(inspection);
+  });
 });

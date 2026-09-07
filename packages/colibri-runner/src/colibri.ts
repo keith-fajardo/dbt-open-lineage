@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { extractColumnLineage } from "@dbt-open-lineage/core/src/columnLineage";
@@ -16,6 +16,10 @@ export interface RunColibriOptions {
    * — PATH-based lookup is unreliable from a GUI-launched editor, whose
    * process env may not include a venv's bin dir. */
   binPath?: string;
+  /** Restrict parsing and output to this exact visible graph node set. An
+   * empty array intentionally produces an empty payload; undefined preserves
+   * the legacy whole-manifest behaviour. */
+  nodeIds?: string[];
 }
 
 /** Spawns dbt-colibri's `colibri generate` (PyPI package `dbt-colibri`,
@@ -31,17 +35,22 @@ export async function runColibri(opts: RunColibriOptions): Promise<ColumnLineage
   const ownWorkDir = !opts.workDir;
   const workDir = opts.workDir ?? mkdtempSync(join(tmpdir(), "dol-colibri-"));
   try {
+    const args = [
+      "generate",
+      "--manifest", opts.manifestPath,
+      "--catalog", opts.catalogPath,
+      "--output-dir", workDir,
+    ];
+    if (opts.nodeIds) {
+      const nodeIdsPath = join(workDir, "selected-node-ids.json");
+      writeFileSync(nodeIdsPath, JSON.stringify([...new Set(opts.nodeIds)].sort()), "utf8");
+      args.push("--node-ids-file", nodeIdsPath);
+    }
+    args.push("--light", "--disable-telemetry");
     await new Promise<void>((resolvePromise, rejectPromise) => {
       const child = spawn(
         opts.binPath ?? "colibri",
-        [
-          "generate",
-          "--manifest", opts.manifestPath,
-          "--catalog", opts.catalogPath,
-          "--output-dir", workDir,
-          "--light",
-          "--disable-telemetry",
-        ],
+        args,
         // Force UTF-8 for the child's stdout/stderr. colibri's CLI prints a
         // banner containing an emoji ("Welcome to dbt-colibri 🐦"); on Windows
         // Python defaults its console encoding to cp1252, which can't encode
@@ -53,9 +62,12 @@ export async function runColibri(opts: RunColibriOptions): Promise<ColumnLineage
       let stderr = "";
       child.stdout?.setEncoding("utf8").on("data", (d) => { stdout += d; });
       child.stderr?.setEncoding("utf8").on("data", (d) => { stderr += d; });
-      child.on("error", () => {
-        const where = opts.binPath ? ` at ${opts.binPath}` : "";
-        rejectPromise(new Error(`dbt-colibri (colibri) not found${where}. Install with: pip install dbt-colibri`));
+      child.on("error", (error) => {
+        if (opts.binPath) {
+          rejectPromise(new Error(`column-lineage engine failed to start at ${opts.binPath}: ${error.message}`));
+          return;
+        }
+        rejectPromise(new Error("dbt-colibri (colibri) not found. Install with: pip install dbt-colibri"));
       });
       child.on("close", (code) => {
         if (code !== 0) {

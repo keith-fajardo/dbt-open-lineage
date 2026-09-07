@@ -1,0 +1,5 @@
+# Build-time only. The resulting one-file executable has no Python/pip runtime
+# dependency. Keep these pins aligned with THIRD_PARTY_NOTICES.md.
+dbt-colibri==0.3.0
+sqlglot==30.8.0
+pyinstaller==6.16.0

@@ -1,0 +1,94 @@
+name: VS Code platform release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish all successfully built platform packages to the VS Marketplace
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: win32-x64
+          - runner: ubuntu-latest
+            target: linux-x64
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: packages/vscode/requirements-lineage-build.txt
+
+      - name: Verify runner architecture
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: node -e 'const actual=`${process.platform}-${process.arch}`; if(actual!==process.env.EXPECTED_TARGET) throw new Error(`expected ${process.env.EXPECTED_TARGET}, got ${actual}`)'
+
+      - run: npm ci
+      - run: python -m pip install --requirement packages/vscode/requirements-lineage-build.txt
+      - run: npm test
+      - run: npm run build:lineage -w packages/vscode
+      - run: npm run build -w packages/vscode
+      - run: npm run package -w packages/vscode
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dbt-open-lineage-${{ matrix.target }}
+          path: packages/vscode/dbt-open-lineage-*-${{ matrix.target }}.vsix
+          if-no-files-found: error
+
+  publish:
+    name: Publish platform packages
+    if: ${{ inputs.publish }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment: vscode-marketplace
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dbt-open-lineage-*
+          path: platform-vsix
+          merge-multiple: true
+
+      - name: Publish every target for the same extension version
+        shell: bash
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          test -n "$VSCE_PAT"
+          for package in platform-vsix/*.vsix; do
+            node_modules/.bin/vsce publish --packagePath "$package" -p "$VSCE_PAT"
+          done

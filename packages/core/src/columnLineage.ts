@@ -15,9 +15,24 @@ export interface ColumnLineageEdge {
   targetColumn: string;
 }
 
+export interface ColumnLineageInspection {
+  /** Existing relation whose physical type and output-column set match the
+   * current compiled SQL closely enough for column-lineage purposes. */
+  current: string[];
+  /** Existing relation whose physical type or output columns differ. */
+  divergent: string[];
+  /** Persistent model with no entry in catalog.json. */
+  missing: string[];
+  /** Persistent model whose projection could not be inferred safely. */
+  unknown: string[];
+  /** Virtual dbt nodes; inferred from SQL and never expected in the catalog. */
+  ephemeral: string[];
+}
+
 export interface ColumnLineagePayload {
   nodes: Record<string, ColumnLineageNode>;
   edges: ColumnLineageEdge[];
+  inspection?: ColumnLineageInspection;
 }
 
 interface RawColibriColumn {
@@ -41,6 +56,7 @@ interface RawColibriEdge {
 interface RawColibriManifest {
   nodes?: Record<string, RawColibriNode>;
   lineage?: { edges?: RawColibriEdge[] };
+  dbtOpenLineageInspection?: ColumnLineageInspection;
 }
 
 /** Trims dbt-colibri's colibri-manifest.json down to just what the DAG's
@@ -69,5 +85,9 @@ export function extractColumnLineage(raw: unknown): ColumnLineagePayload {
     .filter((e) => e.sourceColumn !== "" && e.targetColumn !== "" && !e.edgeType)
     .map((e) => ({ source: e.source, target: e.target, sourceColumn: e.sourceColumn, targetColumn: e.targetColumn }));
 
-  return { nodes, edges };
+  return {
+    nodes,
+    edges,
+    ...(doc.dbtOpenLineageInspection ? { inspection: doc.dbtOpenLineageInspection } : {}),
+  };
 }

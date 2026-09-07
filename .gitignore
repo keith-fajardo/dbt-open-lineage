@@ -6,4 +6,7 @@ out-test/
 media/
 *.vsix
 *.mext
+packages/vscode/bin/
+__pycache__/
+*.pyc
 .vscode-test/

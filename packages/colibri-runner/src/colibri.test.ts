@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawn } from "child_process";
@@ -75,6 +75,26 @@ describe("runColibri", () => {
     );
   });
 
+  it("passes the visible graph node ids through a file so only that subgraph is parsed", async () => {
+    writeFileSync(join(workDir, "colibri-manifest.json"), JSON.stringify({ nodes: {}, lineage: { edges: [] } }));
+    const child = fakeChild();
+    mockedSpawn.mockReturnValue(child);
+
+    const resultPromise = runColibri({
+      manifestPath: "m.json", catalogPath: "c.json", workDir,
+      nodeIds: ["model.proj.b", "model.proj.a", "model.proj.b"],
+    });
+    child.emit("close", 0);
+    await resultPromise;
+
+    const nodeIdsPath = join(workDir, "selected-node-ids.json");
+    expect(JSON.parse(readFileSync(nodeIdsPath, "utf8"))).toEqual(["model.proj.a", "model.proj.b"]);
+    expect(mockedSpawn.mock.calls[0][1]).toEqual([
+      "generate", "--manifest", "m.json", "--catalog", "c.json", "--output-dir", workDir,
+      "--node-ids-file", nodeIdsPath, "--light", "--disable-telemetry",
+    ]);
+  });
+
   it("rejects with a clear install-instruction error when colibri is not on PATH", async () => {
     const child = fakeChild();
     mockedSpawn.mockReturnValue(child);
@@ -83,6 +103,20 @@ describe("runColibri", () => {
     child.emit("error", new Error("spawn colibri ENOENT"));
 
     await expect(resultPromise).rejects.toThrow(/pip install dbt-colibri/);
+  });
+
+  it("reports a packaged engine startup failure without suggesting pip", async () => {
+    const child = fakeChild();
+    mockedSpawn.mockReturnValue(child);
+
+    const resultPromise = runColibri({
+      manifestPath: "m.json", catalogPath: "c.json", workDir,
+      binPath: "/extension/bin/darwin-arm64/lineage-engine",
+    });
+    child.emit("error", new Error("spawn EACCES"));
+
+    await expect(resultPromise).rejects.toThrow(/column-lineage engine failed to start.*EACCES/);
+    await expect(resultPromise).rejects.not.toThrow(/pip install/);
   });
 
   it("rejects wrapping stderr when colibri exits non-zero", async () => {
