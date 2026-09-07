@@ -11,6 +11,13 @@ describe("findProjectRoot", () => {
   it("returns null when none found", () => {
     expect(findProjectRoot("/a/b/c", () => false)).toBeNull();
   });
+  it("walks Windows paths on every host OS", () => {
+    const present = new Set(["C:\\repo\\dbt\\dbt_project.yml"]);
+    expect(findProjectRoot(
+      "C:\\repo\\dbt\\models\\staging",
+      (candidate) => present.has(candidate),
+    )).toBe("C:\\repo\\dbt");
+  });
 });
 
 // A tiny in-memory filesystem for resolveProjectRoot: `files` are exact paths

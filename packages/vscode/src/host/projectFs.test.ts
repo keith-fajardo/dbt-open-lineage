@@ -11,4 +11,10 @@ describe("resolveInProject", () => {
   it("rejects absolute paths", () => {
     expect(() => resolveInProject("/proj", "/etc/passwd")).toThrow(/escapes project/);
   });
+  it("resolves and confines Windows paths on every host OS", () => {
+    expect(resolveInProject("C:\\repo\\dbt", "models\\x.yml"))
+      .toBe("C:\\repo\\dbt\\models\\x.yml");
+    expect(() => resolveInProject("C:\\repo\\dbt", "..\\secrets.yml"))
+      .toThrow(/escapes project/);
+  });
 });

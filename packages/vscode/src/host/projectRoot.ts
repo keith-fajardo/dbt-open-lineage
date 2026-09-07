@@ -1,13 +1,18 @@
 import * as path from "path";
 import type { Graph, GraphNode } from "@dbt-open-lineage/core";
 
+function pathApiFor(value: string): typeof path.posix | typeof path.win32 {
+  return /^[a-z]:[\\/]/i.test(value) || /^\\\\/.test(value) ? path.win32 : path.posix;
+}
+
 /** Walk up from startDir until a dir contains dbt_project.yml. Pure: `exists`
  * is injected so this is unit-testable without touching the filesystem. */
 export function findProjectRoot(startDir: string, exists: (p: string) => boolean): string | null {
+  const pathApi = pathApiFor(startDir);
   let dir = startDir;
   for (;;) {
-    if (exists(path.join(dir, "dbt_project.yml"))) return dir;
-    const parent = path.dirname(dir);
+    if (exists(pathApi.join(dir, "dbt_project.yml"))) return dir;
+    const parent = pathApi.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
@@ -31,15 +36,16 @@ function findProjectRootDown(
     for (let depth = 0; depth < maxDepth && frontier.length; depth++) {
       const next: string[] = [];
       for (const dir of frontier) {
+        const pathApi = pathApiFor(dir);
         for (const child of listDirs(dir)) {
-          if (exists(path.join(child, "dbt_project.yml"))) matches.push(child);
+          if (exists(pathApi.join(child, "dbt_project.yml"))) matches.push(child);
           else next.push(child);
         }
       }
       frontier = next;
     }
   }
-  const hasManifest = (d: string) => exists(path.join(d, "target", "manifest.json"));
+  const hasManifest = (d: string) => exists(pathApiFor(d).join(d, "target", "manifest.json"));
   matches.sort((a, b) => Number(hasManifest(b)) - Number(hasManifest(a)));
   return matches[0] ?? null;
 }
