@@ -72,6 +72,7 @@ Press Enter to apply the selector — typing does not filter the graph until you
 | `tag:value` | Nodes whose dbt `tags` include `value`. |
 | `config.materialized:value` | Nodes with a matching `materialized` config. |
 | `resource_type:value` | Nodes of a given dbt resource type (`model`, `seed`, `snapshot`, `source`). |
+| `source:name` | Source nodes by source group name (glob-aware): `source:salesforce_1_dev`, `source:*_1*`, or a specific table with `source:group.table`. Combine with `+` for dependents (`source:*_1*+`). |
 | `config.meta.a.b:value` | Dotted lookup into a node's `meta`. |
 | `unused:sources` | Source nodes with no downstream consumers. |
 | `unused:snapshot` | Snapshot nodes with no downstream consumers (`unused:snapshots` also works). |

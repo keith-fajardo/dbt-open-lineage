@@ -117,6 +117,45 @@ describe("resolveSelector", () => {
     expect(ids3("resource_type:test")).toEqual([]));
 });
 
+describe("source: method — dbt source selector by source group name", () => {
+  // Source ids are source.<project>.<source_name>.<table>; node.name is only the
+  // table. The source group (e.g. SALESFORCE_1_DEV) lives in id segment [2].
+  const gsrc: Graph = {
+    nodes: [
+      { id: "source.p.SALESFORCE_1_DEV.BRANCH", name: "BRANCH", resource_type: "source", layer: "source", path: "", description: "" },
+      { id: "source.p.SALESFORCE_1_DEV.BRANCH_TYPE", name: "BRANCH_TYPE", resource_type: "source", layer: "source", path: "", description: "" },
+      { id: "source.p.SALESFORCE_2_PROD.ACCOUNT", name: "ACCOUNT", resource_type: "source", layer: "source", path: "", description: "" },
+      { id: "model.p.stg_branch", name: "stg_branch", resource_type: "model", layer: "staging", path: "", description: "" },
+      { id: "model.p.rpt_branch", name: "rpt_branch", resource_type: "model", layer: "mart", path: "", description: "" },
+    ],
+    edges: [
+      { from: "source.p.SALESFORCE_1_DEV.BRANCH", to: "model.p.stg_branch" },
+      { from: "model.p.stg_branch", to: "model.p.rpt_branch" },
+    ],
+  };
+  const sq = (q: string) => [...resolveSelector(gsrc, q)].sort();
+
+  it("selects every table under a source group by its exact name", () =>
+    expect(sq("source:SALESFORCE_1_DEV")).toEqual([
+      "source.p.SALESFORCE_1_DEV.BRANCH", "source.p.SALESFORCE_1_DEV.BRANCH_TYPE",
+    ]));
+  it("globs the source group name", () =>
+    expect(sq("source:*_1*")).toEqual([
+      "source.p.SALESFORCE_1_DEV.BRANCH", "source.p.SALESFORCE_1_DEV.BRANCH_TYPE",
+    ]));
+  it("matches a specific table via source_name.table", () =>
+    expect(sq("source:SALESFORCE_1_DEV.BRANCH")).toEqual(["source.p.SALESFORCE_1_DEV.BRANCH"]));
+  it("composes with downstream hops to find dependents", () =>
+    expect(sq("source:*_1*+")).toEqual([
+      "model.p.rpt_branch", "model.p.stg_branch",
+      "source.p.SALESFORCE_1_DEV.BRANCH", "source.p.SALESFORCE_1_DEV.BRANCH_TYPE",
+    ]));
+  it("never matches non-source nodes even if their name would glob-match", () =>
+    expect(sq("source:*branch*")).toEqual([]));
+  it("isolates a different source group", () =>
+    expect(sq("source:*_2*")).toEqual(["source.p.SALESFORCE_2_PROD.ACCOUNT"]));
+});
+
 describe("focalName — the open model behind a +model+ push", () => {
   it("strips the surrounding hop operators", () => {
     expect(focalName("+dim_date+")).toBe("dim_date");

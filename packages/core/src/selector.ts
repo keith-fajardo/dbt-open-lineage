@@ -112,6 +112,22 @@ function matchCore(adj: Adj, core: string): string[] {
   // exposure, metric, …) simply matches nothing.
   if (method === "resource_type")
     return adj.nodes.filter((n) => n.resource_type === value).map((n) => n.id);
+  // source:<glob> — dbt's source method. A source id is
+  // source.<project>.<source_name>.<table>; the graph only stores the table as
+  // `name`, so the source GROUP name is id segment [2]. Match that group name,
+  // or the full "<source_name>.<table>", glob-aware (anchored) like bare tokens.
+  // Restricted to source nodes so a like-named model never sneaks in.
+  if (method === "source") {
+    let re: RegExp;
+    try { re = globToRegExp(value); } catch { return []; }
+    return adj.nodes
+      .filter((n) => {
+        if (n.resource_type !== "source") return false;
+        const sourceName = n.id.split(".")[2] ?? "";
+        return re.test(sourceName) || re.test(`${sourceName}.${n.name}`);
+      })
+      .map((n) => n.id);
+  }
   if (method === "unused") {
     // unused:sources — sources with NO downstream consumers at all (defined
     // in a .yml but never referenced by staging/int/mart models). Composes
