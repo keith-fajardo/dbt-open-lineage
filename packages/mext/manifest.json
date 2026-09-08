@@ -15,6 +15,7 @@
     "dbt.columnLineage",
     "dbt.modelSql",
     "dbt.run",
-    "dbt.cancel"
+    "dbt.cancel",
+    "dbt.ls"
   ]
 }
