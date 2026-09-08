@@ -45,6 +45,11 @@ describe("parseLsUniqueIds", () => {
       "", "not json", '{"no_id": 1}', '{"unique_id": "model.proj.a"}',
     ])).toEqual(["model.proj.a"]);
   });
+  it("accepts ANSI-colored JSON emitted by dbt on interactive Windows setups", () => {
+    expect(parseLsUniqueIds([
+      '\u001b[32m{"unique_id": "model.proj.a"}\u001b[0m',
+    ])).toEqual(["model.proj.a"]);
+  });
 });
 
 describe("runDbtLs", () => {
@@ -75,5 +80,20 @@ describe("runDbtLs", () => {
     child.emit("close", 2);
 
     await expect(p).rejects.toThrow(/no manifest found in missing\//);
+  });
+
+  it("falls back to dbt's stdout error when stderr is empty", async () => {
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    const deps: RunDeps = { spawn: vi.fn(() => child as never) };
+
+    const p = runDbtLs("C:/wrong", "state:modified+", "C:/proj/target/prod", deps);
+    child.stdout.emit("data", Buffer.from(JSON.stringify({
+      info: { msg: "No dbt_project.yml found at expected path C:/wrong/dbt_project.yml" },
+    }) + "\n"));
+    child.emit("close", 2);
+
+    await expect(p).rejects.toThrow(/No dbt_project\.yml found.*C:\/wrong/);
   });
 });

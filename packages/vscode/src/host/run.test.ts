@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
-import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, startDbtRun, startDbtRunWithSeed, spawnDbtToCompletion } from "./run";
+import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, createRunDeps, startDbtRun, startDbtRunWithSeed, spawnDbtToCompletion } from "./run";
 
 describe("LineBuffer", () => {
   it("splits complete lines and carries a partial one across pushes", () => {
@@ -16,6 +16,22 @@ describe("LineBuffer", () => {
     b.push("partial");
     expect(b.flush()).toEqual(["partial"]);
     expect(b.flush()).toEqual([]); // draining is a one-shot
+  });
+});
+
+describe("createRunDeps", () => {
+  it("spawns the explicitly configured dbt executable", () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => child as unknown as ChildProcess);
+    const deps = createRunDeps("C:\\Python\\Scripts\\dbt.exe", spawnImpl);
+
+    deps.spawn("C:\\proj", ["ls", "--select", "state:modified"]);
+
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "C:\\Python\\Scripts\\dbt.exe",
+      ["ls", "--select", "state:modified"],
+      expect.objectContaining({ cwd: "C:\\proj" }),
+    );
   });
 });
 

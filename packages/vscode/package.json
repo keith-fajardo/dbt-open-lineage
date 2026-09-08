@@ -2,7 +2,7 @@
   "name": "dbt-open-lineage",
   "displayName": "dbt Open Lineage",
   "description": "Interactive dbt model lineage graph with dbt node-selection filtering.",
-  "version": "0.4.77",
+  "version": "0.4.78",
   "publisher": "keithfajardo",
   "icon": "images/icon.png",
   "engines": {
@@ -95,6 +95,11 @@
           "type": "string",
           "default": "",
           "description": "Absolute path to the dbt project root (contains dbt_project.yml). Empty = auto-detect."
+        },
+        "dbt-open-lineage.dbtPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the dbt executable used by Compile, Run, Recompile, and state: selector resolution. Empty = resolve dbt from PATH."
         },
         "dbt-open-lineage.columnLineage.inspectionTarget": {
           "type": "string",

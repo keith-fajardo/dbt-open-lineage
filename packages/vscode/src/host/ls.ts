@@ -1,5 +1,24 @@
 import { LineBuffer, defaultDeps, type RunDeps } from "./run";
 
+const ANSI_ESCAPE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+
+function cleanLine(line: string): string {
+  return line.replace(ANSI_ESCAPE, "").trim();
+}
+
+/** dbt frequently writes structured log events to stdout, including fatal
+ * parse/profile errors. Convert those records back to their human message so
+ * a failed state selector explains itself in the compact toolbar error. */
+function readableLine(line: string): string {
+  const clean = cleanLine(line);
+  if (!clean) return "";
+  try {
+    const obj = JSON.parse(clean) as { info?: { msg?: unknown } };
+    if (typeof obj.info?.msg === "string") return obj.info.msg;
+  } catch { /* plain-text dbt output */ }
+  return clean;
+}
+
 /** `dbt ls --select <expr> --state <dir>` restricted to the four resource
  * types the DAG shows, emitting one JSON object per matched node with just its
  * unique_id (which maps directly onto graph node ids). `select` may still
@@ -30,9 +49,10 @@ export function buildLsArgs(select: string, state: string): string[] {
 export function parseLsUniqueIds(lines: string[]): string[] {
   const ids: string[] = [];
   for (const line of lines) {
-    if (!line.trim()) continue;
+    const clean = cleanLine(line);
+    if (!clean) continue;
     try {
-      const obj = JSON.parse(line) as { unique_id?: unknown };
+      const obj = JSON.parse(clean) as { unique_id?: unknown };
       if (typeof obj.unique_id === "string") ids.push(obj.unique_id);
     } catch { /* non-JSON line — ignore */ }
   }
@@ -61,7 +81,11 @@ export function runDbtLs(
       for (const l of out.flush()) outLines.push(l);
       for (const l of err.flush()) errLines.push(l);
       if ((code ?? -1) === 0) { resolve(parseLsUniqueIds(outLines)); return; }
-      const tail = errLines.filter((l) => l.trim()).slice(-3).join(" ").trim();
+      // Click/dbt writes several runtime and usage failures to stdout rather
+      // than stderr. Prefer stderr when present, otherwise surface stdout;
+      // never reduce a useful dbt error to only "exit 2" again.
+      const source = errLines.some((l) => cleanLine(l)) ? errLines : outLines;
+      const tail = source.map(readableLine).filter(Boolean).slice(-6).join(" ").trim();
       reject(new Error(tail || `dbt ls failed (exit ${code ?? -1})`));
     });
     child.on("error", (e: Error) => { if (done) return; done = true; reject(e); });

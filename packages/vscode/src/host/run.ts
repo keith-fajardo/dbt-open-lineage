@@ -126,13 +126,29 @@ export interface RunDeps {
   platform?: NodeJS.Platform;
 }
 
-export const defaultDeps: RunDeps = {
+/** Build dbt process dependencies, optionally pinning the exact executable.
+ * VS Code's extension host does not inherit virtual-environment changes made
+ * later inside an integrated terminal, so Windows users in particular need a
+ * way to point host commands at the same dbt.exe that succeeds there. */
+export function createRunDeps(
+  dbtPath?: string,
+  spawnImpl: typeof nodeSpawn = nodeSpawn,
+): RunDeps {
+  const configured = dbtPath?.trim();
+  return {
   // No shell: args stay discrete argv tokens (same injection-safety rationale
   // as compileSelectArgs). resolveBin avoids the GUI-launch PATH problem
   // gist.ts already had to solve for `claude` — child_process.spawn, unlike
   // vscode.Task's ShellExecution, never goes through a login shell.
-  spawn: (cwd, args) => nodeSpawn(resolveBin("dbt"), args, { cwd, detached: process.platform !== "win32" }),
-};
+    spawn: (cwd, args) => spawnImpl(
+      configured || resolveBin("dbt"),
+      args,
+      { cwd, detached: process.platform !== "win32" },
+    ),
+  };
+}
+
+export const defaultDeps: RunDeps = createRunDeps();
 
 export interface RunController { cancel(): void }
 
