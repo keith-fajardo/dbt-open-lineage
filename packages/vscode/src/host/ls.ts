@@ -2,13 +2,26 @@ import { LineBuffer, defaultDeps, type RunDeps } from "./run";
 
 /** `dbt ls --select <expr> --state <dir>` restricted to the four resource
  * types the DAG shows, emitting one JSON object per matched node with just its
- * unique_id (which maps directly onto graph node ids). */
+ * unique_id (which maps directly onto graph node ids). `select` may still
+ * contain an embedded `--exclude <expr>` clause (parseRunFlags only strips
+ * --full-refresh/--defer/--state, not --exclude); dbt space-splits a
+ * --select value into selector specs, so leaving --exclude inline would turn
+ * the exclusion into a UNION instead. Mirrors resolveSelector in
+ * packages/core/src/selector.ts: split on --exclude, union any remaining
+ * chunks (dropping blanks, e.g. a bare trailing --exclude) into one discrete
+ * --exclude arg. */
 export function buildLsArgs(select: string, state: string): string[] {
-  return [
-    "ls", "--select", select, "--state", state,
+  const chunks = select.split(/\s*--exclude\b\s*/);
+  const include = chunks[0].trim();
+  const exclude = chunks.slice(1).map((c) => c.trim()).filter(Boolean).join(" ");
+  const args = ["ls", "--select", include];
+  if (exclude) args.push("--exclude", exclude);
+  args.push(
+    "--state", state,
     "--resource-type", "model", "snapshot", "seed", "source",
     "--output", "json", "--output-keys", "unique_id",
-  ];
+  );
+  return args;
 }
 
 /** Parse `dbt ls --output json --output-keys unique_id` stdout lines into node

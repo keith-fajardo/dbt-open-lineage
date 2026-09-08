@@ -11,6 +11,26 @@ describe("buildLsArgs", () => {
       "--output", "json", "--output-keys", "unique_id",
     ]);
   });
+
+  it("splits an embedded --exclude into a discrete CLI arg", () => {
+    expect(buildLsArgs("state:modified+ --exclude tag:wip", "target/prod/")).toEqual([
+      "ls", "--select", "state:modified+", "--exclude", "tag:wip", "--state", "target/prod/",
+      "--resource-type", "model", "snapshot", "seed", "source",
+      "--output", "json", "--output-keys", "unique_id",
+    ]);
+  });
+
+  it("unions multiple --exclude clauses into one --exclude arg", () => {
+    const args = buildLsArgs("state:modified+ --exclude tag:wip --exclude tag:weekly", "d/");
+    expect(args[args.indexOf("--select") + 1]).toBe("state:modified+");
+    expect(args[args.indexOf("--exclude") + 1]).toBe("tag:wip tag:weekly");
+  });
+
+  it("drops a trailing/blank --exclude clause instead of emitting an empty --exclude arg", () => {
+    expect(buildLsArgs("state:modified+ --exclude", "d/")).toEqual(
+      buildLsArgs("state:modified+", "d/"),
+    );
+  });
 });
 
 describe("parseLsUniqueIds", () => {
