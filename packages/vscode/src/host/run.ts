@@ -1,5 +1,6 @@
-import { spawn as nodeSpawn, type ChildProcess } from "child_process";
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "child_process";
 import { resolveBin } from "./gist";
+import { resolveDbtEnvironment } from "./dbtEnv";
 import type { RunEvent, Status } from "@dbt-open-lineage/core/src/runStatus";
 
 /** dbt run modifiers the user typed into the selector box, extracted upstream
@@ -126,13 +127,16 @@ export interface RunDeps {
   platform?: NodeJS.Platform;
 }
 
+type SpawnImpl = (command: string, args: string[], options?: SpawnOptions) => ChildProcess;
+
 /** Build dbt process dependencies, optionally pinning the exact executable.
  * VS Code's extension host does not inherit virtual-environment changes made
  * later inside an integrated terminal, so Windows users in particular need a
  * way to point host commands at the same dbt.exe that succeeds there. */
 export function createRunDeps(
   dbtPath?: string,
-  spawnImpl: typeof nodeSpawn = nodeSpawn,
+  spawnImpl: SpawnImpl = nodeSpawn as unknown as SpawnImpl,
+  env?: NodeJS.ProcessEnv,
 ): RunDeps {
   const configured = dbtPath?.trim();
   return {
@@ -143,10 +147,12 @@ export function createRunDeps(
     spawn: (cwd, args) => spawnImpl(
       configured || resolveBin("dbt"),
       args,
-      { cwd, detached: process.platform !== "win32" },
+      { cwd, detached: process.platform !== "win32", ...(env ? { env } : {}) },
     ),
   };
 }
+
+export { resolveDbtEnvironment } from "./dbtEnv";
 
 export const defaultDeps: RunDeps = createRunDeps();
 

@@ -190,11 +190,29 @@ warehouse metadata. You can also generate a catalog manually as a fallback:
 | Setting | Default | Description |
 |---|---:|---|
 | `dbt-open-lineage.projectRoot` | `""` | Absolute path to the dbt project root. Empty means auto-detect from the current workspace or file. |
+| `dbt-open-lineage.dbtPath` | `""` | Optional absolute path to the dbt executable. Empty means resolve dbt from the inherited/login-shell PATH. |
 | `dbt-open-lineage.columnLineage.refreshCatalog` | `true` | Refresh current warehouse columns with `dbt docs generate` before tracing. |
 | `dbt-open-lineage.columnLineage.inspectionTarget` | `""` | Dedicated dbt target for optional zero-row inspection builds. Empty means no warehouse mutation. |
 | `dbt-open-lineage.columnLineage.autoBuild` | `true` | Build missing/divergent persistent models with `--empty` when an inspection target is configured. |
 | `dbt-open-lineage.ai.provider` | `claude-code` | AI CLI preset for the gist generation button. |
 | `dbt-open-lineage.ai.command` | `claude -p "{prompt}"` | Command template used to draft a model gist. |
+
+### dbt environment variables
+
+The extension runs dbt from the VS Code extension host, not from an integrated
+terminal. To make environment variables such as `DBT_BASE_SCHEMA` work when
+VS Code was opened from the GUI, the extension automatically combines:
+
+1. Variables inherited by VS Code (highest precedence).
+2. Variables printed by the platform login shell (`.zshrc`/`.bashrc`, including
+   Git Bash on Windows).
+3. Optional project `.env` and `.env.local` files (lowest precedence).
+
+After changing a shell profile, reload the VS Code window so the extension can
+discover the new environment. If a shell is unavailable or its startup script
+fails, set the variable as a Windows/macOS/Linux user environment variable or
+launch VS Code from the configured shell. Secret values should not be committed
+to `.env` files.
 
 ## AI Gist Generation
 

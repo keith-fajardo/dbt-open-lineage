@@ -2,6 +2,14 @@ import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
 import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, createRunDeps, startDbtRun, startDbtRunWithSeed, spawnDbtToCompletion } from "./run";
+import { parseNullEnvironment } from "./dbtEnv";
+
+describe("dbt environment discovery", () => {
+  it("parses null-delimited shell output and ignores banners", () => {
+    expect(parseNullEnvironment("Welcome\nDBT_BASE_SCHEMA=analytics\0PATH=/bin\0\0"))
+      .toEqual({ DBT_BASE_SCHEMA: "analytics", PATH: "/bin" });
+  });
+});
 
 describe("LineBuffer", () => {
   it("splits complete lines and carries a partial one across pushes", () => {

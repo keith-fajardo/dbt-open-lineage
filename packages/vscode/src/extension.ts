@@ -6,7 +6,7 @@ import { parseManifest } from "./host/manifest";
 import { nodeForFile, resolveProjectRoot } from "./host/projectRoot";
 import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
-import { createRunDeps, startDbtRunWithSeed, spawnDbtToCompletion, type RunController } from "./host/run";
+import { createRunDeps, resolveDbtEnvironment, startDbtRunWithSeed, spawnDbtToCompletion, type RunController } from "./host/run";
 import { runDbtLs } from "./host/ls";
 import { readCompiledSql, readModelSql, compiledDocUri, parseCompiledDocQuery, analysisNodeFromManifest } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
@@ -73,9 +73,9 @@ function getRunOutputChannel(): vscode.OutputChannel {
 /** Use an explicitly configured dbt executable when supplied. This keeps host
  * commands aligned with a terminal's venv/global Python even though terminal
  * activation cannot mutate the already-running VS Code extension process. */
-function configuredDbtDeps() {
+function configuredDbtDeps(root?: string) {
   const dbtPath = vscode.workspace.getConfiguration("dbt-open-lineage").get<string>("dbtPath");
-  return createRunDeps(dbtPath);
+  return createRunDeps(dbtPath, undefined, resolveDbtEnvironment(root));
 }
 
 const COMPILED_SCHEME = "dbt-compiled";
@@ -236,7 +236,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         channel.appendLine("> dbt compile");
         // Silent: spawn (no Task, no Terminal). Output goes to the "dbt Open
         // Lineage" channel; never .show() it — a compile must not yank focus.
-        const code = await spawnDbtToCompletion(projectRoot, ["compile"], (l) => channel.appendLine(l), configuredDbtDeps());
+        const code = await spawnDbtToCompletion(projectRoot, ["compile"], (l) => channel.appendLine(l), configuredDbtDeps(projectRoot));
         if (code !== 0) throw new Error(`dbt compile failed (exit ${code})`);
         const p = path.join(projectRoot, "target", "manifest.json");
         const graph: Graph = await readStableArtifact(p, parseManifest);
@@ -286,7 +286,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
             view?.postMessage({ evt: "run", event });
             if (event.type === "done") activeRun = undefined;
           },
-        }, configuredDbtDeps());
+        }, configuredDbtDeps(root));
         reply({ ok: true, result: true });
         break;
       }
@@ -297,7 +297,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const state = typeof msg.args.state === "string" ? msg.args.state : "";
         if (!select.trim()) throw new Error("dbt.ls: missing select expression");
         if (!state.trim()) throw new Error("state: selectors need --state <dir>");
-        const ids = await runDbtLs(projectRoot, select, state, configuredDbtDeps());
+        const ids = await runDbtLs(projectRoot, select, state, configuredDbtDeps(projectRoot));
         reply({ ok: true, result: ids });
         break;
       }
@@ -506,7 +506,7 @@ export function activate(context: vscode.ExtensionContext) {
       channel.appendLine(`> dbt ${args.join(" ")}`);
       const code = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Recompiling ${name}…`, cancellable: false },
-        () => spawnDbtToCompletion(root, args, (l) => channel.appendLine(l), configuredDbtDeps()),
+        () => spawnDbtToCompletion(root, args, (l) => channel.appendLine(l), configuredDbtDeps(root)),
       );
       if (code !== 0) { void vscode.window.showErrorMessage(`dbt compile failed (exit ${code})`); return; }
       const { sql, compiled } = readCompiledSql(root, id);
