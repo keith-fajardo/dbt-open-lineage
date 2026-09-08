@@ -7,6 +7,7 @@ import { nodeForFile, resolveProjectRoot } from "./host/projectRoot";
 import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
 import { startDbtRunWithSeed, spawnDbtToCompletion, type RunController } from "./host/run";
+import { runDbtLs } from "./host/ls";
 import { readCompiledSql, readModelSql, compiledDocUri, parseCompiledDocQuery, analysisNodeFromManifest } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
@@ -279,6 +280,17 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
           },
         });
         reply({ ok: true, result: true });
+        break;
+      }
+      case "dbt.ls": {
+        projectRoot = resolveRoot();
+        if (!projectRoot) throw new Error("no dbt project found (dbt_project.yml)");
+        const select = String(msg.args.select ?? "");
+        const state = typeof msg.args.state === "string" ? msg.args.state : "";
+        if (!select.trim()) throw new Error("dbt.ls: missing select expression");
+        if (!state.trim()) throw new Error("state: selectors need --state <dir>");
+        const ids = await runDbtLs(projectRoot, select, state);
+        reply({ ok: true, result: ids });
         break;
       }
       case "dbt.cancel": {

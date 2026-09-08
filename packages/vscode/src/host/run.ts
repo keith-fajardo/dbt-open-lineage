@@ -126,7 +126,7 @@ export interface RunDeps {
   platform?: NodeJS.Platform;
 }
 
-const defaultDeps: RunDeps = {
+export const defaultDeps: RunDeps = {
   // No shell: args stay discrete argv tokens (same injection-safety rationale
   // as compileSelectArgs). resolveBin avoids the GUI-launch PATH problem
   // gist.ts already had to solve for `claude` — child_process.spawn, unlike

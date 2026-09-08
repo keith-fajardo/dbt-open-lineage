@@ -8,7 +8,7 @@ import { toPng, toSvg } from "html-to-image";
 import type { Graph, GraphNode, ResourceSummary } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde, onManifestChanged } from "./bridge";
 import { layoutGraph, computeExportBounds } from "./layout";
-import { resolveSelector, focalName, buildSelector } from "./selector";
+import { resolveSelector, focalName, buildSelector, hasStateSelector } from "./selector";
 import { isLineageLocked, shouldConfirmSwitch } from "./lock";
 import { parseRunFlags } from "./runFlags";
 import type { RunDisplayStatus, RunEvent } from "./runStatus";
@@ -67,6 +67,15 @@ const EMPTY_STYLES: Map<string, { name: string; color: string }> = new Map();
 
 /** Shared empty endpoint-key set — stable identity for the no-selection case. */
 const EMPTY_KEYS: ReadonlySet<string> = new Set<string>();
+
+/** Shared empty matched-id set — stable identity for the "no async result yet"
+ * state-mode fallback. A fresh `new Set()` on every render would change
+ * `matched`'s identity each time even though its content never differs,
+ * which cascades into `visibleGraph`/`positioned`'s useMemo deps and the
+ * `setStrokes([])` effect keyed on `positioned` — an unstable ref there
+ * retriggers that effect every commit, an infinite loop (caught as React's
+ * "too many re-renders" during TDD of the state: selector feature). */
+const EMPTY_MATCHED: Set<string> = new Set<string>();
 
 /** A quiet ⓘ affordance next to an editor header. Focusable and labelled;
  * reveals a short explanation on hover, focus, or click. No native `title`
@@ -525,6 +534,39 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // a useMemo body — that risks "cannot update state during render") so an
   // invalid pattern surfaces as part of one atomic derived value.
   const [regexMode, setRegexMode] = useState(false);
+
+  // state: selectors can't resolve in-node — they need dbt to diff the current
+  // manifest against the one in --state <dir>. When the committed selector has
+  // a state: term (and we're not in regex mode, where selector syntax doesn't
+  // apply), resolve the WHOLE expression via the dbt.ls host command instead of
+  // the synchronous engine. Single-flight (mirrors columnLineageReq): a resolve
+  // only commits if it's still the newest when it settles.
+  const stateMode = !regexMode && !!cleanedSelector.trim() && hasStateSelector(cleanedSelector);
+  const [asyncMatched, setAsyncMatched] = useState<Set<string> | null>(null);
+  const [matchBusy, setMatchBusy] = useState(false);
+  const [matchError, setMatchError] = useState<string | null>(null);
+  const matchReq = useRef(0);
+  useEffect(() => {
+    if (!graph) return;
+    if (!stateMode) { ++matchReq.current; setAsyncMatched(null); setMatchError(null); setMatchBusy(false); return; }
+    if (!runFlags.state) { ++matchReq.current; setAsyncMatched(null); setMatchError("state: selectors need --state <dir>"); setMatchBusy(false); return; }
+    const myReq = ++matchReq.current;
+    setMatchBusy(true); setMatchError(null);
+    const known = new Set(graph.nodes.map((n) => n.id));
+    void invoke<string[]>("dbt.ls", { select: cleanedSelector, state: runFlags.state })
+      .then((ids) => {
+        if (myReq !== matchReq.current) return;               // superseded — drop
+        setAsyncMatched(new Set(ids.filter((id) => known.has(id))));
+      })
+      .catch((e) => {
+        if (myReq !== matchReq.current) return;               // superseded — drop
+        setAsyncMatched(new Set());
+        setMatchError(String((e as Error).message ?? e));
+      })
+      .finally(() => { if (myReq === matchReq.current) setMatchBusy(false); });
+    // cleanedSelector/runFlags.state/stateMode capture everything the resolve depends on
+  }, [graph, stateMode, cleanedSelector, runFlags.state]);
+
   const [columnLineageMode, setColumnLineageMode] = useState(false);
   const [columnLineage, setColumnLineage] = useState<ColumnLineagePayload | null>(null);
   const [columnLineageBusy, setColumnLineageBusy] = useState(false);
@@ -592,7 +634,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // resolveSelector's own "empty = all" convention still holds for other
   // callers; we gate it here. Mode-independent: an empty box behaves the
   // same whether regex mode is on or off.
-  const { matched, regexError } = useMemo(() => {
+  const { matched: syncMatched, regexError } = useMemo(() => {
     if (!graph) return { matched: new Set<string>(), regexError: null as string | null };
     if (!cleanedSelector.trim()) {
       if (showAll) return { matched: new Set(graph.nodes.map((n) => n.id)), regexError: null };
@@ -611,6 +653,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     }
     return { matched: resolveSelector(graph, cleanedSelector), regexError: null };
   }, [graph, cleanedSelector, showAll, regexMode]);
+
+  // In state-mode the matched set comes from the async dbt.ls resolve (empty
+  // until it lands); otherwise it's the synchronous engine result.
+  const matched = stateMode ? (asyncMatched ?? EMPTY_MATCHED) : syncMatched;
 
   // Unfiltered view: layout runs ONCE per graph (positions keyed on graph
   // identity only — typing a selector just dims, never re-lays-out). With the
@@ -1681,6 +1727,12 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
             >.*</button>
             {regexMode && regexError && (
               <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{regexError}</span>
+            )}
+            {matchBusy && (
+              <span aria-label="resolving state selector" style={{ color: "#93c5fd", fontSize: 12, whiteSpace: "nowrap" }}>resolving…</span>
+            )}
+            {!matchBusy && matchError && (
+              <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{matchError}</span>
             )}
             <button
               onClick={() => setFocus((v) => !v)}
