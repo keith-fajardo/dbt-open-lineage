@@ -59,12 +59,14 @@ if [ "$VSCODE" = 1 ]; then
 
   if [ "$PACK" = 1 ]; then
     VSVER=$(node -p "require('./packages/vscode/package.json').version")
-    say "vscode pack   →  packages/vscode/dbt-open-lineage-$VSVER.vsix"
+    VSTARGET=$(node -p "process.platform + '-' + process.arch")
+    VSIX="packages/vscode/dbt-open-lineage-$VSVER-$VSTARGET.vsix"
+    say "vscode pack   →  $VSIX"
     # Clear stale .vsix from older versions — an install-from-disk otherwise
     # picks up whichever old file the user clicks (this bit us: 0.3.4 lingered).
     rm -f packages/vscode/dbt-open-lineage-*.vsix
     npm run package -w packages/vscode
-    [ -f "packages/vscode/dbt-open-lineage-$VSVER.vsix" ] || fail "vscode package produced no dbt-open-lineage-$VSVER.vsix"
+    [ -f "$VSIX" ] || fail "vscode package produced no $(basename "$VSIX")"
   fi
 fi
 
@@ -83,7 +85,7 @@ fi
 if [ "$VSCODE" = 1 ]; then
   echo "  vscode host   : packages/vscode/out/extension.js"
   echo "  vscode webview: packages/vscode/media/"
-  [ "$PACK" = 1 ] && echo "  vscode vsix    : packages/vscode/dbt-open-lineage-$(node -p "require('./packages/vscode/package.json').version").vsix"
+  [ "$PACK" = 1 ] && echo "  vscode vsix    : packages/vscode/dbt-open-lineage-$(node -p "require('./packages/vscode/package.json').version")-$(node -p "process.platform + '-' + process.arch").vsix"
 fi
 if [ "$CLI" = 1 ]; then
   echo "  cli bin       : packages/cli/out/cli.js"

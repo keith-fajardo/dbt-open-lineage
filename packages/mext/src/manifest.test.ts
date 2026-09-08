@@ -14,3 +14,15 @@ describe("mext manifest host_perms", () => {
     expect(manifest.host_perms).toContain("dbt.ls");
   });
 });
+
+describe("mext manifest version", () => {
+  it("matches the package version used for the release", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(__dirname, "..", "manifest.json"), "utf8"),
+    );
+    const pkg = JSON.parse(
+      readFileSync(join(__dirname, "..", "package.json"), "utf8"),
+    );
+    expect(manifest.version).toBe(pkg.version);
+  });
+});
