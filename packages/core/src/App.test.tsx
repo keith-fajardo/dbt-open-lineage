@@ -47,6 +47,7 @@ let manifestChangedCb: (() => void) | null = null;
 let runEventCb: ((e: import("./runStatus").RunEvent) => void) | null = null;
 let manifestGraph: Graph | Error = g;
 let columnLineageResult: unknown = { nodes: {}, edges: [] };
+let lsResult: string[] | Error = [];
 const saveExport = vi.fn(async () => true);
 const openInIde = vi.fn(async () => true);
 const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) => {
@@ -58,6 +59,10 @@ const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) =>
   if (cmd === "fs.writeText") return true;
   if (cmd === "dbt.gist") return "AI gist";
   if (cmd === "dbt.modelSql") return { raw: "select 1 raw", compiled: "select 1 compiled" };
+  if (cmd === "dbt.ls") {
+    if (lsResult instanceof Error) throw lsResult;
+    return lsResult;
+  }
   if (cmd === "dbt.columnLineage") {
     // Tests that need to control RESOLUTION ORDER (independent of call
     // order) set columnLineageResult to a function that hands back a
@@ -110,6 +115,7 @@ beforeEach(() => {
   layoutSpy.mockClear(); invokeMock.mockClear(); manifestGraph = g;
   lastCalloutHeights = undefined; runEventCb = null; manifestChangedCb = null;
   columnLineageResult = { nodes: {}, edges: [] };
+  lsResult = [];
 });
 afterEach(cleanup);
 
@@ -1976,5 +1982,30 @@ describe("in-node column expand/collapse + selection", () => {
     // Deselecting collapses the trace — b's auto row disappears; no stray state survives.
     fireEvent.click(screen.getAllByText("id")[0]); // same row again → toggles selection off
     await waitFor(() => expect(screen.getAllByText("id").length).toBe(1));
+  });
+});
+
+describe("state: selector resolution", () => {
+  it("delegates a state: selector to dbt.ls with the --state dir", async () => {
+    lsResult = ["b"];
+    render(<App projectPath="/proj" debounceMs={0} />);
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "state:modified+ --state target/prod/" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.ls", {
+        select: "state:modified+", state: "target/prod/",
+      }));
+  });
+
+  it("shows an error and does not call dbt.ls when --state is missing", async () => {
+    render(<App projectPath="/proj" debounceMs={0} />);
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "state:modified+" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await screen.findByText(/state: selectors need --state/i);
+    expect(invokeMock).not.toHaveBeenCalledWith("dbt.ls", expect.anything());
   });
 });
