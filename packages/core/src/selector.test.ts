@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveSelector, focalName, buildSelector } from "./selector";
+import { resolveSelector, focalName, buildSelector, hasStateSelector } from "./selector";
 import type { Graph } from "./graphTypes";
 
 // a → b → c → d   (linear chain by name), with method-selector metadata:
@@ -288,6 +288,33 @@ describe("unused:intermediate", () => {
     expect(iids("unused:intermediate")).not.toContain("id_"));
   it("--exclude unused:intermediate subtracts the unused intermediate set", () =>
     expect(iids("int_orphan int_used mart_x --exclude unused:intermediate")).toEqual(["i2", "m"]));
+});
+
+describe("hasStateSelector", () => {
+  it("detects a bare state term", () => {
+    expect(hasStateSelector("state:modified")).toBe(true);
+  });
+  it("detects state with hop operators", () => {
+    expect(hasStateSelector("state:modified+")).toBe(true);
+    expect(hasStateSelector("+state:modified")).toBe(true);
+    expect(hasStateSelector("2+state:modified+3")).toBe(true);
+  });
+  it("detects state inside a union or comma-intersection", () => {
+    expect(hasStateSelector("tag:mart state:new")).toBe(true);
+    expect(hasStateSelector("state:modified,tag:mart")).toBe(true);
+  });
+  it("detects the dotted state sub-methods", () => {
+    expect(hasStateSelector("state:modified.body")).toBe(true);
+  });
+  it("is false when no state term is present", () => {
+    expect(hasStateSelector("tag:mart+")).toBe(false);
+    expect(hasStateSelector("my_model")).toBe(false);
+    expect(hasStateSelector("")).toBe(false);
+  });
+  it("does not match a model literally named to contain state", () => {
+    expect(hasStateSelector("stg_state_registry")).toBe(false);
+    expect(hasStateSelector("upstream:foo")).toBe(false);
+  });
 });
 
 describe("unused:snapshot", () => {

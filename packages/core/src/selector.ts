@@ -220,6 +220,22 @@ export function focalName(query: string): string {
   return m ? m[1] : "";
 }
 
+/** True if any term of `expr` selects by dbt's `state:` method (which needs a
+ * `--state` manifest to diff against, hence async host resolution). Splits on
+ * whitespace (union) and commas (intersection) exactly like resolveTerms, then
+ * strips the up/down hop operators the same way parseTerm does before checking
+ * the method. A model literally named "state" is unaffected — a bare name has
+ * no ":" so its method is empty. */
+export function hasStateSelector(expr: string): boolean {
+  for (const tok of expr.trim().split(/\s+/)) {
+    for (const part of tok.split(",")) {
+      const { name } = parseTerm(part);
+      if (name.startsWith("state:")) return true;
+    }
+  }
+  return false;
+}
+
 export function resolveSelector(g: Graph, query: string): Set<string> {
   const q = query.trim();
   if (!q) return new Set(g.nodes.map((n) => n.id));
