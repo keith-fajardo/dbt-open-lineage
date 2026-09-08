@@ -548,8 +548,8 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   const matchReq = useRef(0);
   useEffect(() => {
     if (!graph) return;
-    if (!stateMode) { setAsyncMatched(null); setMatchError(null); setMatchBusy(false); return; }
-    if (!runFlags.state) { setAsyncMatched(null); setMatchError("state: selectors need --state <dir>"); return; }
+    if (!stateMode) { ++matchReq.current; setAsyncMatched(null); setMatchError(null); setMatchBusy(false); return; }
+    if (!runFlags.state) { ++matchReq.current; setAsyncMatched(null); setMatchError("state: selectors need --state <dir>"); setMatchBusy(false); return; }
     const myReq = ++matchReq.current;
     setMatchBusy(true); setMatchError(null);
     const known = new Set(graph.nodes.map((n) => n.id));
@@ -1727,6 +1727,9 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
             >.*</button>
             {regexMode && regexError && (
               <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{regexError}</span>
+            )}
+            {matchBusy && (
+              <span aria-label="resolving state selector" style={{ color: "#93c5fd", fontSize: 12, whiteSpace: "nowrap" }}>resolving…</span>
             )}
             {!matchBusy && matchError && (
               <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{matchError}</span>

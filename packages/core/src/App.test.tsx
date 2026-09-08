@@ -47,7 +47,10 @@ let manifestChangedCb: (() => void) | null = null;
 let runEventCb: ((e: import("./runStatus").RunEvent) => void) | null = null;
 let manifestGraph: Graph | Error = g;
 let columnLineageResult: unknown = { nodes: {}, edges: [] };
-let lsResult: string[] | Error = [];
+// Tests that need to control resolution timing (e.g. asserting a busy
+// indicator while dbt.ls is in flight) set lsResult to a function that
+// hands back a deferred promise, mirroring columnLineageResult below.
+let lsResult: string[] | Error | (() => unknown) = [];
 const saveExport = vi.fn(async () => true);
 const openInIde = vi.fn(async () => true);
 const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) => {
@@ -60,6 +63,7 @@ const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) =>
   if (cmd === "dbt.gist") return "AI gist";
   if (cmd === "dbt.modelSql") return { raw: "select 1 raw", compiled: "select 1 compiled" };
   if (cmd === "dbt.ls") {
+    if (typeof lsResult === "function") return (lsResult as () => unknown)();
     if (lsResult instanceof Error) throw lsResult;
     return lsResult;
   }
@@ -2007,5 +2011,18 @@ describe("state: selector resolution", () => {
 
     await screen.findByText(/state: selectors need --state/i);
     expect(invokeMock).not.toHaveBeenCalledWith("dbt.ls", expect.anything());
+  });
+
+  it("shows a busy indicator while a state: resolve is in flight", async () => {
+    let release!: (ids: string[]) => void;
+    lsResult = () => new Promise<string[]>((r) => { release = r; });
+    render(<App projectPath="/proj" debounceMs={0} />);
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "state:modified+ --state target/prod/" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await screen.findByLabelText(/resolving state selector/i);
+    release(["b"]);
+    await waitFor(() => expect(screen.queryByLabelText(/resolving state selector/i)).toBeNull());
   });
 });
