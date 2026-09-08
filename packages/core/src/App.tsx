@@ -10,7 +10,7 @@ import { invoke, onContext, onRunEvent, saveExport, openInIde, onManifestChanged
 import { layoutGraph, computeExportBounds } from "./layout";
 import { resolveSelector, focalName, buildSelector } from "./selector";
 import { isLineageLocked, shouldConfirmSwitch } from "./lock";
-import { hasFullRefreshFlag, stripFullRefreshFlag } from "./runFlags";
+import { parseRunFlags } from "./runFlags";
 import type { RunDisplayStatus, RunEvent } from "./runStatus";
 import { nodeTypes, isDimmed, type DagNodeData } from "./nodes";
 import { ViewContext, type ViewState } from "./viewContext";
@@ -503,8 +503,13 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // before the debounce settles. The token is stripped before the text
   // reaches resolveSelector; it isn't real dbt selector syntax and would
   // otherwise silently match nothing as an unrecognized term.
-  const hasFullRefresh = useMemo(() => hasFullRefreshFlag(selector), [selector]);
-  const cleanedSelector = useMemo(() => stripFullRefreshFlag(selector), [selector]);
+  // Run flags (`--full-refresh`, `--defer`, `--state <dir>`) aren't real
+  // selector syntax — they're pulled out here so `cleanedSelector` (what the
+  // DAG resolves/highlights against) is pure selector text, and ride to the
+  // host as their own run args instead.
+  const runFlags = useMemo(() => parseRunFlags(selector), [selector]);
+  const hasFullRefresh = runFlags.fullRefresh;
+  const cleanedSelector = runFlags.selector;
 
   // The selector is committed ONLY on an explicit Enter (see the box's
   // onKeyDown). Typing used to auto-commit on a debounce, but on a large
@@ -1315,7 +1320,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     setRunLogs(new Map());
     setRunActive(command);
     try {
-      await invoke<boolean>("dbt.run", { command, selector: runSelector, hasSeed, hasFullRefresh });
+      await invoke<boolean>("dbt.run", { command, selector: runSelector, hasSeed, hasFullRefresh, defer: runFlags.defer, state: runFlags.state });
     } catch (e) {
       setRunActive(null);
       setRunErr(String((e as Error).message ?? e));

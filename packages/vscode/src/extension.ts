@@ -246,6 +246,10 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const selector = String(msg.args.selector ?? "");
         const hasSeed = msg.args.hasSeed === true;
         const hasFullRefresh = msg.args.hasFullRefresh === true;
+        // --defer / --state <dir>: run modifiers the webview extracted from the
+        // selector box (parseRunFlags) and forwarded alongside the selector.
+        const defer = msg.args.defer === true;
+        const state = typeof msg.args.state === "string" ? msg.args.state : undefined;
         if (!selector.trim()) throw new Error("no runnable models in current view");
         const channel = getRunOutputChannel();
         // Fresh view per run (a stale prior run's output doesn't linger).
@@ -264,7 +268,7 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         // once diagnosed.
         console.log("[dbt-open-lineage] output channel:", `> dbt ${command} --select ${selector}`);
         channel.appendLine(`> dbt ${command} --select ${selector}`);
-        activeRun = startDbtRunWithSeed(root, command, selector, hasSeed, hasFullRefresh, {
+        activeRun = startDbtRunWithSeed(root, command, selector, hasSeed, { fullRefresh: hasFullRefresh, defer, state }, {
           onWrite: (text) => {
             console.log("[dbt-open-lineage] output channel:", text);
             channel.appendLine(text);

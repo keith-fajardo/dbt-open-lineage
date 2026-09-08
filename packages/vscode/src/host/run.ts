@@ -2,11 +2,24 @@ import { spawn as nodeSpawn, type ChildProcess } from "child_process";
 import { resolveBin } from "./gist";
 import type { RunEvent, Status } from "@dbt-open-lineage/core/src/runStatus";
 
-export function buildRunArgs(command: "run" | "build" | "test", selector: string, fullRefresh: boolean): string[] {
+/** dbt run modifiers the user typed into the selector box, extracted upstream
+ * by the webview's parseRunFlags and forwarded as their own args. */
+export interface RunFlagArgs {
+  fullRefresh?: boolean;
+  defer?: boolean;
+  /** `--state <dir>` artifacts path (for --defer, or a state: selector). */
+  state?: string;
+}
+
+export function buildRunArgs(command: "run" | "build" | "test", selector: string, flags: RunFlagArgs = {}): string[] {
   const args = [command, "--select", selector, "--log-format", "json"];
   // A test run materializes nothing, so --full-refresh is meaningless there —
   // silently dropped rather than passed through to a command that ignores it.
-  if (fullRefresh && command !== "test") args.push("--full-refresh");
+  if (flags.fullRefresh && command !== "test") args.push("--full-refresh");
+  // --defer / --state pass straight through to any command (defer needs a
+  // state dir; dbt itself errors if --defer is given without one).
+  if (flags.defer) args.push("--defer");
+  if (flags.state) args.push("--state", flags.state);
   return args;
 }
 
@@ -130,10 +143,10 @@ export interface RunController { cancel(): void }
  * carries node status, turned into a `RunEvent` (via `cb.onEvent`). Emits a
  * final `{type:"done"}` event when the process exits or fails to spawn. */
 export function startDbtRun(
-  projectRoot: string, command: "run" | "build" | "test", selector: string, fullRefresh: boolean,
+  projectRoot: string, command: "run" | "build" | "test", selector: string, flags: RunFlagArgs,
   cb: RunCallbacks, deps: RunDeps = defaultDeps,
 ): RunController {
-  const child = deps.spawn(projectRoot, buildRunArgs(command, selector, fullRefresh));
+  const child = deps.spawn(projectRoot, buildRunArgs(command, selector, flags));
   const platform = deps.platform ?? process.platform;
   const out = new LineBuffer();
   const err = new LineBuffer();
@@ -208,17 +221,17 @@ export function startDbtRun(
  * `hasSeed === false` bypasses this entirely and behaves identically to
  * calling `startDbtRun` directly. */
 export function startDbtRunWithSeed(
-  projectRoot: string, command: "run" | "build" | "test", selector: string, hasSeed: boolean, fullRefresh: boolean,
+  projectRoot: string, command: "run" | "build" | "test", selector: string, hasSeed: boolean, flags: RunFlagArgs,
   cb: RunCallbacks, deps: RunDeps = defaultDeps,
 ): RunController {
-  if (!hasSeed) return startDbtRun(projectRoot, command, selector, fullRefresh, cb, deps);
+  if (!hasSeed) return startDbtRun(projectRoot, command, selector, flags, cb, deps);
 
   // Reassigned once the main phase starts, so cancel() always delegates to
-  // whichever phase is currently in flight. The SAME fullRefresh boolean
-  // reaches both phases — "full refresh" means the whole two-phase
-  // operation, not half of it; buildRunArgs's own command!=="test" check
-  // still governs whether it's actually appended per phase.
-  let current: RunController = startDbtRun(projectRoot, "seed" as "run" | "build" | "test", selector, fullRefresh, {
+  // whichever phase is currently in flight. The SAME flags reach both phases
+  // — "full refresh" / "defer" mean the whole two-phase operation, not half
+  // of it; buildRunArgs's own command!=="test" check still governs whether
+  // --full-refresh is actually appended per phase.
+  let current: RunController = startDbtRun(projectRoot, "seed" as "run" | "build" | "test", selector, flags, {
     onWrite: cb.onWrite,
     onEvent: (event) => {
       // Forward everything except the seed phase's own `done` — that one
@@ -226,7 +239,7 @@ export function startDbtRunWithSeed(
       // this wrapper's own `done` contract covers the WHOLE two-phase run.
       if (event.type !== "done") { cb.onEvent(event); return; }
       if (event.exitCode !== 0) { cb.onEvent({ type: "done", exitCode: event.exitCode }); return; }
-      current = startDbtRun(projectRoot, command, selector, fullRefresh, cb, deps);
+      current = startDbtRun(projectRoot, command, selector, flags, cb, deps);
     },
   }, deps);
 

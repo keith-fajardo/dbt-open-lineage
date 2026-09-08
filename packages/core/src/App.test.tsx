@@ -1240,7 +1240,7 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false, defer: false, state: undefined }),
     );
   });
 
@@ -1256,7 +1256,7 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("uses_seed").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "my_seed uses_seed", hasSeed: true, hasFullRefresh: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "my_seed uses_seed", hasSeed: true, hasFullRefresh: false, defer: false, state: undefined }),
     );
   });
 
@@ -1265,7 +1265,7 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false, defer: false, state: undefined }),
     );
   });
 
@@ -1282,7 +1282,7 @@ describe("run/build/test button", () => {
     await waitFor(() => expect(screen.getAllByText("selected_model").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "selected_model", hasSeed: false, hasFullRefresh: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "selected_model", hasSeed: false, hasFullRefresh: false, defer: false, state: undefined }),
     );
   });
 
@@ -1292,7 +1292,7 @@ describe("run/build/test button", () => {
     fireEvent.click(screen.getByLabelText("run command menu"));
     fireEvent.click(screen.getByRole("menuitem", { name: "build" }));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "build", selector: "a b c d", hasSeed: false, hasFullRefresh: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "build", selector: "a b c d", hasSeed: false, hasFullRefresh: false, defer: false, state: undefined }),
     );
   });
 
@@ -1517,7 +1517,7 @@ describe("run/build/test button", () => {
     fireEvent.click(screen.getByRole("button", { name: /favorites/i })); // filtered = {b}
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "b", hasSeed: false, hasFullRefresh: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "b", hasSeed: false, hasFullRefresh: false, defer: false, state: undefined }),
     );
   });
 
@@ -1602,7 +1602,7 @@ describe("regex selector mode", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a c", hasSeed: false, hasFullRefresh: true }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a c", hasSeed: false, hasFullRefresh: true, defer: false, state: undefined }),
     );
   });
 
@@ -1715,7 +1715,7 @@ describe("--full-refresh flag", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: true }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: true, defer: false, state: undefined }),
     );
   });
 
@@ -1724,7 +1724,7 @@ describe("--full-refresh flag", () => {
     await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("▶ Run"));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false }),
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false, defer: false, state: undefined }),
     );
   });
 
@@ -1733,6 +1733,17 @@ describe("--full-refresh flag", () => {
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
     expect(screen.queryByText("a")).not.toBeInTheDocument();
     expect(screen.getByText("▶ Run")).toBeDisabled();
+  });
+});
+
+describe("--defer / --state flags", () => {
+  it("forwards defer:true and the --state path to dbt.run, stripping both from the resolved selector", async () => {
+    render(<App projectPath="/proj" initialSelector="a b c d --defer --state target/prod/" debounceMs={0} canRun />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("▶ Run"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("dbt.run", { command: "run", selector: "a b c d", hasSeed: false, hasFullRefresh: false, defer: true, state: "target/prod/" }),
+    );
   });
 });
 

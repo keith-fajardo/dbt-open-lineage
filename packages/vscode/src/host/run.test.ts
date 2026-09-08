@@ -171,25 +171,50 @@ describe("parseDbtLogLine", () => {
 
 describe("buildRunArgs", () => {
   it("builds run/build/test argv with --log-format json", () => {
-    expect(buildRunArgs("run", "stg_orders int_orders", false)).toEqual(
+    expect(buildRunArgs("run", "stg_orders int_orders", {})).toEqual(
       ["run", "--select", "stg_orders int_orders", "--log-format", "json"],
     );
-    expect(buildRunArgs("build", "x", false)).toEqual(["build", "--select", "x", "--log-format", "json"]);
-    expect(buildRunArgs("test", "x", false)).toEqual(["test", "--select", "x", "--log-format", "json"]);
+    expect(buildRunArgs("build", "x", {})).toEqual(["build", "--select", "x", "--log-format", "json"]);
+    expect(buildRunArgs("test", "x", {})).toEqual(["test", "--select", "x", "--log-format", "json"]);
+  });
+
+  it("defaults to no extra flags when the flags arg is omitted", () => {
+    expect(buildRunArgs("run", "x")).toEqual(["run", "--select", "x", "--log-format", "json"]);
   });
 
   it("appends --full-refresh for run/build when fullRefresh is true", () => {
-    expect(buildRunArgs("run", "x", true)).toEqual(
+    expect(buildRunArgs("run", "x", { fullRefresh: true })).toEqual(
       ["run", "--select", "x", "--log-format", "json", "--full-refresh"],
     );
-    expect(buildRunArgs("build", "x", true)).toEqual(
+    expect(buildRunArgs("build", "x", { fullRefresh: true })).toEqual(
       ["build", "--select", "x", "--log-format", "json", "--full-refresh"],
     );
   });
 
   it("never appends --full-refresh for test, even when fullRefresh is true", () => {
-    expect(buildRunArgs("test", "x", true)).toEqual(
+    expect(buildRunArgs("test", "x", { fullRefresh: true })).toEqual(
       ["test", "--select", "x", "--log-format", "json"],
+    );
+  });
+
+  it("appends --defer for any command when defer is true", () => {
+    expect(buildRunArgs("run", "x", { defer: true })).toEqual(
+      ["run", "--select", "x", "--log-format", "json", "--defer"],
+    );
+    expect(buildRunArgs("test", "x", { defer: true })).toEqual(
+      ["test", "--select", "x", "--log-format", "json", "--defer"],
+    );
+  });
+
+  it("appends --state <dir> as two args when a state path is given", () => {
+    expect(buildRunArgs("run", "x", { state: "target/prod/" })).toEqual(
+      ["run", "--select", "x", "--log-format", "json", "--state", "target/prod/"],
+    );
+  });
+
+  it("emits all requested flags together, in a stable order", () => {
+    expect(buildRunArgs("run", "state:modified+", { fullRefresh: true, defer: true, state: "target/prod/" })).toEqual(
+      ["run", "--select", "state:modified+", "--log-format", "json", "--full-refresh", "--defer", "--state", "target/prod/"],
     );
   });
 });
@@ -212,7 +237,7 @@ describe("startDbtRun", () => {
     const spawnSpy = vi.fn(() => proc as unknown as ChildProcess);
     const written: string[] = [];
     const events: unknown[] = [];
-    startDbtRun("/proj", "run", "stg_orders", false, { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) }, { spawn: spawnSpy });
+    startDbtRun("/proj", "run", "stg_orders", {}, { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) }, { spawn: spawnSpy });
 
     expect(spawnSpy).toHaveBeenCalledWith("/proj", ["run", "--select", "stg_orders", "--log-format", "json"]);
 
@@ -238,7 +263,7 @@ describe("startDbtRun", () => {
   it("flushes a trailing partial line (no final newline) before emitting done", () => {
     const proc = fakeChild();
     const written: string[] = [];
-    startDbtRun("/proj", "run", "x", false, { onWrite: (t) => written.push(t), onEvent: () => {} }, { spawn: () => proc as unknown as ChildProcess });
+    startDbtRun("/proj", "run", "x", {}, { onWrite: (t) => written.push(t), onEvent: () => {} }, { spawn: () => proc as unknown as ChildProcess });
     proc.stdout.emit("data", Buffer.from("no trailing newline"));
     proc.emit("close", 0);
     expect(written).toEqual(["no trailing newline"]);
@@ -248,7 +273,7 @@ describe("startDbtRun", () => {
     const proc = fakeChild();
     const written: string[] = [];
     const events: unknown[] = [];
-    startDbtRun("/proj", "run", "x", false, { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) }, { spawn: () => proc as unknown as ChildProcess });
+    startDbtRun("/proj", "run", "x", {}, { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) }, { spawn: () => proc as unknown as ChildProcess });
     proc.emit("error", new Error("ENOENT"));
     expect(written[0]).toContain("ENOENT");
     expect(events).toEqual([{ type: "done", exitCode: -1 }]);
@@ -258,7 +283,7 @@ describe("startDbtRun", () => {
     const proc = fakeChild();
     const written: string[] = [];
     const events: unknown[] = [];
-    startDbtRun("/proj", "run", "x", false, { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) }, { spawn: () => proc as unknown as ChildProcess });
+    startDbtRun("/proj", "run", "x", {}, { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) }, { spawn: () => proc as unknown as ChildProcess });
     proc.emit("error", new Error("ENOENT"));
     proc.emit("close", null);
     expect(events).toEqual([{ type: "done", exitCode: -1 }]);
@@ -267,7 +292,7 @@ describe("startDbtRun", () => {
   it("cancel() sends SIGTERM to the process group (negative pid) on POSIX", () => {
     const proc = fakeChild();
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const controller = startDbtRun("/proj", "run", "x", false, { onWrite: () => {}, onEvent: () => {} }, { spawn: () => proc as unknown as ChildProcess, platform: "darwin" });
+    const controller = startDbtRun("/proj", "run", "x", {}, { onWrite: () => {}, onEvent: () => {} }, { spawn: () => proc as unknown as ChildProcess, platform: "darwin" });
     controller.cancel();
     expect(killSpy).toHaveBeenCalledWith(-4242, "SIGTERM");
     killSpy.mockRestore();
@@ -276,7 +301,7 @@ describe("startDbtRun", () => {
   it("passes fullRefresh through to the spawned argv", () => {
     const proc = fakeChild();
     const spawnSpy = vi.fn(() => proc as unknown as ChildProcess);
-    startDbtRun("/proj", "run", "x", true, { onWrite: () => {}, onEvent: () => {} }, { spawn: spawnSpy });
+    startDbtRun("/proj", "run", "x", { fullRefresh: true }, { onWrite: () => {}, onEvent: () => {} }, { spawn: spawnSpy });
     expect(spawnSpy).toHaveBeenCalledWith("/proj", ["run", "--select", "x", "--log-format", "json", "--full-refresh"]);
   });
 });
@@ -287,7 +312,7 @@ describe("startDbtRunWithSeed", () => {
     const spawnSpy = vi.fn(() => proc as unknown as ChildProcess);
     const events: unknown[] = [];
     startDbtRunWithSeed(
-      "/proj", "run", "stg_orders", false, false,
+      "/proj", "run", "stg_orders", false, {},
       { onWrite: () => {}, onEvent: (e) => events.push(e) },
       { spawn: spawnSpy },
     );
@@ -305,7 +330,7 @@ describe("startDbtRunWithSeed", () => {
     const written: string[] = [];
     const events: unknown[] = [];
     startDbtRunWithSeed(
-      "/proj", "run", "stg_orders", true, false,
+      "/proj", "run", "stg_orders", true, {},
       { onWrite: (t) => written.push(t), onEvent: (e) => events.push(e) },
       { spawn: spawnSpy },
     );
@@ -354,7 +379,7 @@ describe("startDbtRunWithSeed", () => {
     const spawnSpy = vi.fn(() => seedProc as unknown as ChildProcess);
     const events: unknown[] = [];
     startDbtRunWithSeed(
-      "/proj", "run", "x", true, false,
+      "/proj", "run", "x", true, {},
       { onWrite: () => {}, onEvent: (e) => events.push(e) },
       { spawn: spawnSpy },
     );
@@ -369,7 +394,7 @@ describe("startDbtRunWithSeed", () => {
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const events: unknown[] = [];
     const controller = startDbtRunWithSeed(
-      "/proj", "run", "x", true, false,
+      "/proj", "run", "x", true, {},
       { onWrite: () => {}, onEvent: (e) => events.push(e) },
       { spawn: spawnSpy, platform: "darwin" },
     );
@@ -390,7 +415,7 @@ describe("startDbtRunWithSeed", () => {
     const spawnSpy = vi.fn(() => (call++ === 0 ? seedProc : mainProc) as unknown as ChildProcess);
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const controller = startDbtRunWithSeed(
-      "/proj", "run", "x", true, false,
+      "/proj", "run", "x", true, {},
       { onWrite: () => {}, onEvent: () => {} },
       { spawn: spawnSpy, platform: "darwin" },
     );
@@ -407,7 +432,7 @@ describe("startDbtRunWithSeed", () => {
     let call = 0;
     const spawnSpy = vi.fn(() => (call++ === 0 ? seedProc : mainProc) as unknown as ChildProcess);
     startDbtRunWithSeed(
-      "/proj", "run", "stg_orders", true, true,
+      "/proj", "run", "stg_orders", true, { fullRefresh: true },
       { onWrite: () => {}, onEvent: () => {} },
       { spawn: spawnSpy },
     );
@@ -420,7 +445,7 @@ describe("startDbtRunWithSeed", () => {
     const proc = fakeChild();
     const spawnSpy = vi.fn(() => proc as unknown as ChildProcess);
     startDbtRunWithSeed(
-      "/proj", "test", "x", false, true,
+      "/proj", "test", "x", false, { fullRefresh: true },
       { onWrite: () => {}, onEvent: () => {} },
       { spawn: spawnSpy },
     );
