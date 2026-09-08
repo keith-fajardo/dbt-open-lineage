@@ -15,6 +15,16 @@ export function parseNullEnvironment(output: string): NodeJS.ProcessEnv {
   return env;
 }
 
+/** Parse one KEY=VALUE entry per line, as emitted by PowerShell. */
+export function parseLineEnvironment(output: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
+    if (match) env[match[1]] = match[2];
+  }
+  return env;
+}
+
 function parseDotEnv(contents: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const raw of contents.split(/\r?\n/)) {
@@ -32,17 +42,31 @@ function parseDotEnv(contents: string): NodeJS.ProcessEnv {
   return env;
 }
 
-function shellCandidates(platform: NodeJS.Platform, baseEnv: NodeJS.ProcessEnv): string[] {
+type ShellCommand = { file: string; args: string[]; parse: (output: string) => NodeJS.ProcessEnv };
+
+function shellCandidates(platform: NodeJS.Platform, baseEnv: NodeJS.ProcessEnv): ShellCommand[] {
   if (platform === "win32") {
     const programFiles = baseEnv.ProgramW6432 || baseEnv.ProgramFiles || "C:\\Program Files";
     const programFilesX86 = baseEnv["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+    const bash = (file: string): ShellCommand => ({ file, args: ["-ilc", "env -0"], parse: parseNullEnvironment });
+    const powershell = (file: string): ShellCommand => ({
+      file,
+      args: ["-NoLogo", "-Command", "[Environment]::GetEnvironmentVariables().GetEnumerator() | ForEach-Object { '{0}={1}' -f $_.Key, $_.Value }"],
+      parse: parseLineEnvironment,
+    });
     return [
-      "bash.exe",
-      path.join(programFiles, "Git", "bin", "bash.exe"),
-      path.join(programFilesX86, "Git", "bin", "bash.exe"),
+      bash("bash.exe"),
+      bash(path.join(programFiles, "Git", "bin", "bash.exe")),
+      bash(path.join(programFilesX86, "Git", "bin", "bash.exe")),
+      powershell("pwsh.exe"),
+      powershell("powershell.exe"),
     ];
   }
-  return [baseEnv.SHELL || (platform === "darwin" ? "/bin/zsh" : "/bin/sh")];
+  return [{
+    file: baseEnv.SHELL || (platform === "darwin" ? "/bin/zsh" : "/bin/sh"),
+    args: ["-ilc", "env -0"],
+    parse: parseNullEnvironment,
+  }];
 }
 
 const shellEnvironmentCache = new Map<string, NodeJS.ProcessEnv>();
@@ -60,14 +84,14 @@ export function discoverLoginShellEnvironment(
   if (cached) return cached;
   for (const shell of shellCandidates(platform, baseEnv)) {
     try {
-      const output = execFileSync(shell, ["-ilc", "env -0"], {
+      const output = execFileSync(shell.file, shell.args, {
         env: baseEnv,
         encoding: "utf8",
         timeout: 5000,
         windowsHide: true,
         stdio: ["ignore", "pipe", "ignore"],
       });
-      const discovered = parseNullEnvironment(output as string);
+      const discovered = shell.parse(output as string);
       shellEnvironmentCache.set(cacheKey, discovered);
       return discovered;
     } catch { /* try the next shell candidate */ }

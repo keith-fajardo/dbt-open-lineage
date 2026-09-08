@@ -204,8 +204,8 @@ terminal. To make environment variables such as `DBT_BASE_SCHEMA` work when
 VS Code was opened from the GUI, the extension automatically combines:
 
 1. Variables inherited by VS Code (highest precedence).
-2. Variables printed by the platform login shell (`.zshrc`/`.bashrc`, including
-   Git Bash on Windows).
+2. Variables printed by the platform login shell (`.zshrc`/`.bashrc`; on
+   Windows, Git Bash or PowerShell profiles are supported).
 3. Optional project `.env` and `.env.local` files (lowest precedence).
 
 After changing a shell profile, reload the VS Code window so the extension can

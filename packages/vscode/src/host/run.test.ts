@@ -2,12 +2,17 @@ import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
 import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, createRunDeps, startDbtRun, startDbtRunWithSeed, spawnDbtToCompletion } from "./run";
-import { parseNullEnvironment } from "./dbtEnv";
+import { parseLineEnvironment, parseNullEnvironment } from "./dbtEnv";
 
 describe("dbt environment discovery", () => {
   it("parses null-delimited shell output and ignores banners", () => {
     expect(parseNullEnvironment("Welcome\nDBT_BASE_SCHEMA=analytics\0PATH=/bin\0\0"))
       .toEqual({ DBT_BASE_SCHEMA: "analytics", PATH: "/bin" });
+  });
+
+  it("parses PowerShell's line-delimited environment output", () => {
+    expect(parseLineEnvironment("PowerShell banner\nDBT_BASE_SCHEMA=analytics\r\nPATH=C:\\bin\r\n"))
+      .toEqual({ DBT_BASE_SCHEMA: "analytics", PATH: "C:\\bin" });
   });
 });
 
