@@ -301,8 +301,10 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         channel.clear();
         channel.appendLine(`> dbt ls --select ${select} --state ${state}`);
         channel.appendLine("Resolving state selector…");
+        const timeoutSeconds = vscode.workspace.getConfiguration("dbt-open-lineage")
+          .get<number>("dbtLsTimeoutSeconds", 600);
         const ids = await runDbtLs(
-          projectRoot, select, state, configuredDbtDeps(projectRoot), undefined,
+          projectRoot, select, state, configuredDbtDeps(projectRoot), Math.max(30, timeoutSeconds) * 1000,
           (line) => channel.appendLine(line),
         );
         channel.appendLine(`Resolved ${ids.length} matching node${ids.length === 1 ? "" : "s"}.`);

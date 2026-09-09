@@ -216,7 +216,7 @@ fails, set the variable as a Windows/macOS/Linux user environment variable or
 launch VS Code from the configured shell. Secret values should not be committed
 to `.env` files.
 
-State-selector resolution has a two-minute safety timeout. If `dbt ls` does not
+State-selector resolution has a ten-minute safety timeout by default. If `dbt ls` does not
 finish, the extension terminates it and displays a diagnostic pointing to dbt
 profiles, credentials, and environment variables instead of remaining on
 “resolving…” indefinitely.

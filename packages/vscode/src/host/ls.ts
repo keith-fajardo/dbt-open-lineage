@@ -2,7 +2,7 @@ import { LineBuffer, defaultDeps, type RunDeps } from "./run";
 
 /** A selector resolution should never leave the webview stuck forever if a
  * dbt adapter, profile hook, or credential prompt blocks in the background. */
-export const DEFAULT_LS_TIMEOUT_MS = 120_000;
+export const DEFAULT_LS_TIMEOUT_MS = 600_000;
 
 const ANSI_ESCAPE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 
