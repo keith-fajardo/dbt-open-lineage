@@ -193,6 +193,7 @@ warehouse metadata. You can also generate a catalog manually as a fallback:
 |---|---:|---|
 | `dbt-open-lineage.projectRoot` | `""` | Absolute path to the dbt project root. Empty means auto-detect from the current workspace or file. |
 | `dbt-open-lineage.dbtPath` | `""` | Optional absolute path to the dbt executable. Empty means resolve dbt from the inherited/login-shell PATH. |
+| `dbt-open-lineage.dbtLsTimeoutSeconds` | `600` | Maximum time allowed for an advanced state selector that must fall back to `dbt ls`. |
 | `dbt-open-lineage.columnLineage.refreshCatalog` | `true` | Refresh current warehouse columns with `dbt docs generate` before tracing. |
 | `dbt-open-lineage.columnLineage.inspectionTarget` | `""` | Dedicated dbt target for optional zero-row inspection builds. Empty means no warehouse mutation. |
 | `dbt-open-lineage.columnLineage.autoBuild` | `true` | Build missing/divergent persistent models with `--empty` when an inspection target is configured. |
@@ -216,15 +217,25 @@ fails, set the variable as a Windows/macOS/Linux user environment variable or
 launch VS Code from the configured shell. Secret values should not be committed
 to `.env` files.
 
-State-selector resolution has a ten-minute safety timeout by default. If `dbt ls` does not
-finish, the extension terminates it and displays a diagnostic pointing to dbt
-profiles, credentials, and environment variables instead of remaining on
-“resolving…” indefinitely.
+For the usual selector — for example, `state:modified+ --defer --state
+target/prod/` — the extension compares `target/manifest.json` and
+`target/prod/manifest.json` itself. It detects new or changed models, seeds,
+snapshots, and sources, accounts for changed macros used by those resources,
+and expands `+` through the current manifest DAG. This is fast and does not
+start dbt, connect to a warehouse, or depend on whether VS Code uses Bash,
+PowerShell, or another terminal.
 
-While a state selector is resolving, its `dbt ls` command and live output are
-written to the **dbt Open Lineage** channel under VS Code's **Output** tab. The
-channel is updated without stealing focus from the lineage panel; choose
-`dbt Open Lineage` from the Output-channel picker when you want to inspect it.
+More specialised dbt selector grammar, such as `state:modified.body`, comma
+intersections, or `--exclude`, falls back to `dbt ls` so dbt remains the
+authority for those exact semantics. That fallback has a ten-minute safety
+timeout by default. If it does not finish, the extension terminates it and
+displays a diagnostic instead of remaining on “resolving…” indefinitely.
+
+State resolution writes its mode and result to the **dbt Open Lineage** channel
+under VS Code's **Output** tab. For the dbt fallback, it also streams live dbt
+output. The channel is updated without stealing focus from the lineage panel;
+choose `dbt Open Lineage` from the Output-channel picker when you want to
+inspect it.
 
 For support, report reproducible issues in the
 [GitHub issue tracker](https://github.com/keith-fajardo/dbt-open-lineage/issues)

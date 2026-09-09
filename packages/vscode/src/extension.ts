@@ -8,6 +8,7 @@ import { contextValueForEditor } from "./host/context";
 import { saveExport } from "./host/exportSave";
 import { createRunDeps, resolveDbtEnvironment, startDbtRunWithSeed, spawnDbtToCompletion, type RunController } from "./host/run";
 import { runDbtLs } from "./host/ls";
+import { resolveLocalStateModifiedFromArtifacts } from "./host/stateManifest";
 import { readCompiledSql, readModelSql, compiledDocUri, parseCompiledDocQuery, analysisNodeFromManifest } from "./host/compiledSql";
 import { tokenizeCommand, buildGistPrompt, runGist } from "./host/gist";
 import { resolveInProject } from "./host/projectFs";
@@ -299,15 +300,24 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         if (!state.trim()) throw new Error("state: selectors need --state <dir>");
         const channel = getRunOutputChannel();
         channel.clear();
-        channel.appendLine(`> dbt ls --select ${select} --state ${state}`);
-        channel.appendLine("Resolving state selector…");
-        const timeoutSeconds = vscode.workspace.getConfiguration("dbt-open-lineage")
-          .get<number>("dbtLsTimeoutSeconds", 600);
-        const ids = await runDbtLs(
-          projectRoot, select, state, configuredDbtDeps(projectRoot), Math.max(30, timeoutSeconds) * 1000,
-          (line) => channel.appendLine(line),
-        );
-        channel.appendLine(`Resolved ${ids.length} matching node${ids.length === 1 ? "" : "s"}.`);
+        const local = resolveLocalStateModifiedFromArtifacts(projectRoot, state, select);
+        let ids: string[];
+        if (local) {
+          channel.appendLine(`> local manifest diff --select ${select} --state ${state}`);
+          channel.appendLine(`Compared target/manifest.json with ${state}/manifest.json.`);
+          channel.appendLine(`Found ${local.modifiedCount} modified resource${local.modifiedCount === 1 ? "" : "s"}; resolved ${local.ids.length} graph node${local.ids.length === 1 ? "" : "s"}.`);
+          ids = local.ids;
+        } else {
+          channel.appendLine(`> dbt ls --select ${select} --state ${state}`);
+          channel.appendLine("Resolving state selector with dbt…");
+          const timeoutSeconds = vscode.workspace.getConfiguration("dbt-open-lineage")
+            .get<number>("dbtLsTimeoutSeconds", 600);
+          ids = await runDbtLs(
+            projectRoot, select, state, configuredDbtDeps(projectRoot), Math.max(30, timeoutSeconds) * 1000,
+            (line) => channel.appendLine(line),
+          );
+          channel.appendLine(`Resolved ${ids.length} matching node${ids.length === 1 ? "" : "s"} with dbt.`);
+        }
         reply({ ok: true, result: ids });
         break;
       }
