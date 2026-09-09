@@ -216,6 +216,11 @@ fails, set the variable as a Windows/macOS/Linux user environment variable or
 launch VS Code from the configured shell. Secret values should not be committed
 to `.env` files.
 
+State-selector resolution has a two-minute safety timeout. If `dbt ls` does not
+finish, the extension terminates it and displays a diagnostic pointing to dbt
+profiles, credentials, and environment variables instead of remaining on
+“resolving…” indefinitely.
+
 For support, report reproducible issues in the
 [GitHub issue tracker](https://github.com/keith-fajardo/dbt-open-lineage/issues)
 with the dbt version, operating system, and extension error message.

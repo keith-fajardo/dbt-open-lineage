@@ -96,4 +96,20 @@ describe("runDbtLs", () => {
 
     await expect(p).rejects.toThrow(/No dbt_project\.yml found.*C:\/wrong/);
   });
+
+  it("times out and terminates a dbt process that never exits", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: ReturnType<typeof vi.fn> };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+      const p = runDbtLs("/proj", "state:modified+", "target/prod/", { spawn: vi.fn(() => child as never) }, 1000);
+      vi.advanceTimersByTime(1000);
+      await expect(p).rejects.toThrow(/timed out after 1 seconds/);
+      expect(child.kill).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

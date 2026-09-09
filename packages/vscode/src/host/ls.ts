@@ -1,5 +1,9 @@
 import { LineBuffer, defaultDeps, type RunDeps } from "./run";
 
+/** A selector resolution should never leave the webview stuck forever if a
+ * dbt adapter, profile hook, or credential prompt blocks in the background. */
+export const DEFAULT_LS_TIMEOUT_MS = 120_000;
+
 const ANSI_ESCAPE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 
 function cleanLine(line: string): string {
@@ -65,6 +69,7 @@ export function parseLsUniqueIds(lines: string[]): string[] {
  * dir or absent prior manifest. */
 export function runDbtLs(
   projectRoot: string, select: string, state: string, deps: RunDeps = defaultDeps,
+  timeoutMs = DEFAULT_LS_TIMEOUT_MS,
 ): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
     const child = deps.spawn(projectRoot, buildLsArgs(select, state));
@@ -73,11 +78,18 @@ export function runDbtLs(
     const outLines: string[] = [];
     const errLines: string[] = [];
     let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      try { child.kill(); } catch { /* already exited */ }
+      reject(new Error(`dbt ls timed out after ${Math.round(timeoutMs / 1000)} seconds; check dbt profile, credentials, and environment variables`));
+    }, timeoutMs);
 
     child.stdout?.on("data", (c: Buffer) => { for (const l of out.push(c.toString("utf8"))) outLines.push(l); });
     child.stderr?.on("data", (c: Buffer) => { for (const l of err.push(c.toString("utf8"))) errLines.push(l); });
     child.on("close", (code: number | null) => {
       if (done) return; done = true;
+      clearTimeout(timer);
       for (const l of out.flush()) outLines.push(l);
       for (const l of err.flush()) errLines.push(l);
       if ((code ?? -1) === 0) { resolve(parseLsUniqueIds(outLines)); return; }
@@ -88,6 +100,6 @@ export function runDbtLs(
       const tail = source.map(readableLine).filter(Boolean).slice(-6).join(" ").trim();
       reject(new Error(tail || `dbt ls failed (exit ${code ?? -1})`));
     });
-    child.on("error", (e: Error) => { if (done) return; done = true; reject(e); });
+    child.on("error", (e: Error) => { if (done) return; done = true; clearTimeout(timer); reject(e); });
   });
 }
