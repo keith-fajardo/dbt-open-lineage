@@ -1729,7 +1729,14 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
               <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{regexError}</span>
             )}
             {matchBusy && (
-              <span aria-label="resolving state selector" style={{ color: "#93c5fd", fontSize: 12, whiteSpace: "nowrap" }}>resolving…</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                <progress
+                  aria-label="state selector progress"
+                  max={1}
+                  style={{ width: 72, height: 8, accentColor: "#38bdf8" }}
+                />
+                <span aria-label="resolving state selector" style={{ color: "#93c5fd", fontSize: 12 }}>resolving…</span>
+              </span>
             )}
             {!matchBusy && matchError && (
               <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{matchError}</span>

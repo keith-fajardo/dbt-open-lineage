@@ -2022,6 +2022,7 @@ describe("state: selector resolution", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     await screen.findByLabelText(/resolving state selector/i);
+    expect(screen.getByRole("progressbar", { name: /state selector progress/i })).toBeInTheDocument();
     release(["b"]);
     await waitFor(() => expect(screen.queryByLabelText(/resolving state selector/i)).toBeNull());
   });
