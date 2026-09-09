@@ -62,6 +62,12 @@ const TOGGLE_PILL: React.CSSProperties = {
 const sameList = (a: string[], b: string[]) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
+function formatDuration(milliseconds: number): string {
+  const seconds = Math.floor(milliseconds / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
 /** Stable empty style map — tags carry no custom name/colour, so their
  * ChipEditor renders keys verbatim with the fallback grey dot. */
 const EMPTY_STYLES: Map<string, { name: string; color: string }> = new Map();
@@ -546,7 +552,15 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   const [asyncMatched, setAsyncMatched] = useState<Set<string> | null>(null);
   const [matchBusy, setMatchBusy] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
+  const [matchElapsedMs, setMatchElapsedMs] = useState(0);
   const matchReq = useRef(0);
+  useEffect(() => {
+    if (!matchBusy) { setMatchElapsedMs(0); return; }
+    const started = Date.now();
+    setMatchElapsedMs(0);
+    const timer = window.setInterval(() => setMatchElapsedMs(Date.now() - started), 1000);
+    return () => window.clearInterval(timer);
+  }, [matchBusy]);
   useEffect(() => {
     if (!graph) return;
     if (!stateMode) { ++matchReq.current; setAsyncMatched(null); setMatchError(null); setMatchBusy(false); return; }
@@ -1749,7 +1763,33 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
                   max={1}
                   style={{ width: 72, height: 8, accentColor: "#38bdf8" }}
                 />
-                <span aria-label="resolving state selector" style={{ color: "#93c5fd", fontSize: 12 }}>resolving…</span>
+                <span
+                  aria-label="resolving state selector"
+                  title="dbt ls is running; open the dbt Open Lineage output channel for dbt output"
+                  style={{ color: "#93c5fd", fontSize: 12 }}
+                >
+                  dbt ls running · {formatDuration(matchElapsedMs)}
+                  {matchElapsedMs >= 10_000 ? " · waiting for dbt output" : ""}
+                </span>
+              </span>
+            )}
+            {!matchBusy && tooManyNodes && (
+              <span
+                role="status"
+                aria-label="large render status"
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", color: "#fbbf24", fontSize: 12 }}
+              >
+                {visibleCount.toLocaleString()} nodes ready; rendering paused
+                <button
+                  type="button"
+                  aria-label={`Continue rendering ${visibleCount.toLocaleString()} nodes`}
+                  onClick={() => setAckLargeRender(true)}
+                  style={{
+                    padding: "4px 8px", borderRadius: 6, border: "1px solid #b45309",
+                    background: "#78350f", color: "#fde68a", cursor: "pointer",
+                    fontFamily: "inherit", fontSize: 11,
+                  }}
+                >Show anyway</button>
               </span>
             )}
             {!matchBusy && matchError && (
@@ -2088,7 +2128,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
                 {visibleCount.toLocaleString()} models would be shown
               </div>
               <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 440, lineHeight: 1.5 }}>
-                Drawing {LARGE_RENDER_LIMIT.toLocaleString()}+ nodes can be slow and may freeze
+                Rendering is paused until you confirm. Drawing {LARGE_RENDER_LIMIT.toLocaleString()}+ nodes can be slow and may freeze
                 the editor. Narrow the view with hops (<code style={{ color: "#cbd5e1" }}>+model+</code>),
                 a <code style={{ color: "#cbd5e1" }}>tag:</code> or{" "}
                 <code style={{ color: "#cbd5e1" }}>resource_type:</code> filter, or show it anyway.

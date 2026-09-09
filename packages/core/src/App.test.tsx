@@ -1903,6 +1903,16 @@ describe("large-render warning", () => {
     expect(document.querySelectorAll('[data-large-node="compact"]')).toHaveLength(4000);
   });
 
+  it("exposes the large-render confirmation after a state selector resolves", async () => {
+    manifestGraph = bigGraph(4000);
+    lsResult = manifestGraph.nodes.map((node) => node.id);
+    render(<App projectPath="/proj" initialSelector="state:modified --state target/prod/" debounceMs={0} />);
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("status", { name: "large render status" })).toHaveTextContent("4,000 nodes ready; rendering paused");
+    expect(screen.getByRole("button", { name: /Continue rendering 4,000 nodes/ })).toBeInTheDocument();
+  });
+
   it("does not warn just under the limit", async () => {
     manifestGraph = bigGraph(3999);
     render(<App projectPath="/proj" initialSelector="resource_type:model" debounceMs={0} />);
@@ -2063,6 +2073,7 @@ describe("state: selector resolution", () => {
 
     await screen.findByLabelText(/resolving state selector/i);
     expect(screen.getByRole("progressbar", { name: /state selector progress/i })).toBeInTheDocument();
+    expect(screen.getByText(/dbt ls running · 0s/i)).toBeInTheDocument();
     release(["b"]);
     await waitFor(() => expect(screen.queryByLabelText(/resolving state selector/i)).toBeNull());
   });
