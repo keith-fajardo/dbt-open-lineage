@@ -25,10 +25,11 @@ export interface LocalStateResolution {
 interface StateTerm {
   up: number;
   down: number;
+  body: boolean;
 }
 
 /**
- * Return a local resolver only for the uncomplicated state:modified form.
+ * Return a local resolver for state:modified and state:modified.body forms.
  * Other dbt selector methods/subselectors intentionally return undefined so
  * the caller can delegate to dbt, preserving dbt's exact behaviour rather
  * than silently approximating a selector we do not fully implement.
@@ -41,14 +42,15 @@ function parseLocalStateTerms(select: string): StateTerm[] | undefined {
   if (!rawTerms.length) return undefined;
   const terms: StateTerm[] = [];
   for (const raw of rawTerms) {
-    // dbt union is whitespace-delimited; comma intersections, subselectors
-    // such as state:modified.body, and non-state terms are intentionally
-    // delegated to dbt because they have more nuanced semantics.
-    const m = raw.match(/^(\d*\+)?state:modified(\+\d*)?$/);
+    // dbt union is whitespace-delimited; comma intersections and non-state
+    // terms are intentionally delegated to dbt because they have more nuanced
+    // semantics. Both the full state:modified and body-only subselector can be
+    // compared from manifest artifacts locally.
+    const m = raw.match(/^(\d*\+)?state:modified(\.body)?(\+\d*)?$/);
     if (!m) return undefined;
     const up = m[1] ? (m[1] === "+" ? Infinity : Number.parseInt(m[1], 10)) : 0;
-    const down = m[2] ? (m[2] === "+" ? Infinity : Number.parseInt(m[2].slice(1), 10)) : 0;
-    terms.push({ up, down });
+    const down = m[3] ? (m[3] === "+" ? Infinity : Number.parseInt(m[3].slice(1), 10)) : 0;
+    terms.push({ up, down, body: m[2] === ".body" });
   }
   return terms;
 }
@@ -75,7 +77,7 @@ function canonical(value: unknown): unknown {
   return Object.fromEntries(Object.keys(record).sort().map((key) => [key, canonical(record[key])]));
 }
 
-function signature(resource: JsonRecord, macro = false): string {
+function signature(resource: JsonRecord, macro = false, bodyOnly = false): string {
   // These are the parsed-manifest fields which determine a node/macro's
   // definition. Deliberately omit generated execution fields such as
   // compiled_code and compiled_path: recompiling the same project must not
@@ -89,6 +91,11 @@ function signature(resource: JsonRecord, macro = false): string {
       package_name: resource.package_name,
       path: resource.path,
       original_file_path: resource.original_file_path,
+    }
+    : bodyOnly
+    ? {
+      checksum: resource.checksum,
+      raw_code: resource.raw_code ?? resource.raw_sql,
     }
     : {
       checksum: resource.checksum,
@@ -150,15 +157,17 @@ function changedMacroIds(current: StateManifest, previous: StateManifest): Set<s
   return changed;
 }
 
-function directModifiedIds(current: StateManifest, previous: StateManifest): Set<string> {
+function directModifiedIds(current: StateManifest, previous: StateManifest, bodyOnly = false): Set<string> {
   const currentResources = resourceMap(current);
   const previousResources = resourceMap(previous);
   const changed = new Set<string>();
   for (const [id, resource] of Object.entries(currentResources)) {
     const prior = previousResources[id];
-    if (!prior || signature(resource) !== signature(prior)) changed.add(id);
+    if (!prior || signature(resource, false, bodyOnly) !== signature(prior, false, bodyOnly)) changed.add(id);
   }
-  const changedMacros = changedMacroIds(current, previous);
+  // Macro changes are part of generic state:modified, but not the body-only
+  // subselector. A body selector asks whether the model SQL itself changed.
+  const changedMacros = bodyOnly ? new Set<string>() : changedMacroIds(current, previous);
   if (changedMacros.size) {
     for (const [id, resource] of Object.entries(currentResources)) {
       if (macroDependencies(resource).some((macro) => changedMacros.has(macro))) changed.add(id);
@@ -203,11 +212,13 @@ export function resolveLocalStateModified(
 ): LocalStateResolution | undefined {
   const terms = parseLocalStateTerms(select);
   if (!terms) return undefined;
-  const changed = directModifiedIds(current, previous);
   const visible = new Set<string>();
+  const modified = new Set<string>();
   const childMap = current.child_map ?? {};
   for (const term of terms) {
+    const changed = directModifiedIds(current, previous, term.body);
     for (const id of changed) {
+      modified.add(id);
       visible.add(id);
       for (const ancestor of walk(id, childMap, "up", term.up)) visible.add(ancestor);
       for (const descendant of walk(id, childMap, "down", term.down)) visible.add(descendant);
@@ -217,7 +228,7 @@ export function resolveLocalStateModified(
   // A current manifest can contain test nodes in child_map, so enforce that
   // same restriction after walking the graph.
   const resources = resourceMap(current);
-  return { ids: [...visible].filter((id) => id in resources).sort(), modifiedCount: changed.size };
+  return { ids: [...visible].filter((id) => id in resources).sort(), modifiedCount: modified.size };
 }
 
 function readManifest(file: string, label: string): StateManifest {

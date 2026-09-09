@@ -300,6 +300,9 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         if (!state.trim()) throw new Error("state: selectors need --state <dir>");
         const channel = getRunOutputChannel();
         channel.clear();
+        channel.show(true);
+        channel.appendLine(`> state selector --select ${select} --state ${state}`);
+        channel.appendLine("Resolving state selector…");
         const local = resolveLocalStateModifiedFromArtifacts(projectRoot, state, select);
         let ids: string[];
         if (local) {

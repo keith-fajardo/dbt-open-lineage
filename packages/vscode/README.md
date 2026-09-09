@@ -217,19 +217,20 @@ fails, set the variable as a Windows/macOS/Linux user environment variable or
 launch VS Code from the configured shell. Secret values should not be committed
 to `.env` files.
 
-For the usual selector — for example, `state:modified+ --defer --state
-target/prod/` — the extension compares `target/manifest.json` and
-`target/prod/manifest.json` itself. It detects new or changed models, seeds,
-snapshots, and sources, accounts for changed macros used by those resources,
-and expands `+` through the current manifest DAG. This is fast and does not
-start dbt, connect to a warehouse, or depend on whether VS Code uses Bash,
-PowerShell, or another terminal.
+For the usual selectors — for example, `state:modified+ --defer --state
+target/prod/` or `state:modified.body+ --defer --state target/prod/` — the
+extension compares `target/manifest.json` and `target/prod/manifest.json`
+itself. It detects new or changed models, seeds, snapshots, and sources,
+accounts for changed macros for the full selector, and expands `+` through the
+current manifest DAG. This is fast and does not start dbt, connect to a
+warehouse, or depend on whether VS Code uses Bash, PowerShell, or another
+terminal.
 
-More specialised dbt selector grammar, such as `state:modified.body`, comma
-intersections, or `--exclude`, falls back to `dbt ls` so dbt remains the
-authority for those exact semantics. That fallback has a ten-minute safety
-timeout by default. If it does not finish, the extension terminates it and
-displays a diagnostic instead of remaining on “resolving…” indefinitely.
+More specialised dbt selector grammar, such as comma intersections or
+`--exclude`, falls back to `dbt ls` so dbt remains the authority for those
+exact semantics. That fallback has a ten-minute safety timeout by default. If
+it does not finish, the extension terminates it and displays a diagnostic
+instead of remaining on “resolving…” indefinitely.
 
 State resolution writes its mode and result to the **dbt Open Lineage** channel
 under VS Code's **Output** tab. For the dbt fallback, it also streams live dbt

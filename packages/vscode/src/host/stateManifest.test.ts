@@ -78,10 +78,25 @@ describe("resolveLocalStateModified", () => {
     });
   });
 
+  it("resolves body-only changes locally and ignores config and macro changes", () => {
+    const { previous, current } = manifests();
+    current.nodes["model.proj.stg_orders"].config = { materialized: "table" };
+    current.macros["macro.proj.normalise"].macro_sql = "{% macro normalise() %} upper(x) {% endmacro %}";
+    expect(resolveLocalStateModified(current, previous, "state:modified.body+")).toEqual({
+      modifiedCount: 0,
+      ids: [],
+    });
+
+    current.nodes["model.proj.stg_orders"].raw_code = "select id from source('raw', 'orders')";
+    expect(resolveLocalStateModified(current, previous, "state:modified.body")).toEqual({
+      modifiedCount: 1,
+      ids: ["model.proj.stg_orders"],
+    });
+  });
+
   it("defers richer selector grammar to dbt", () => {
     const { previous, current } = manifests();
     expect(resolveLocalStateModified(current, previous, "state:modified+ --exclude tag:wip")).toBeUndefined();
-    expect(resolveLocalStateModified(current, previous, "state:modified.body")).toBeUndefined();
     expect(resolveLocalStateModified(current, previous, "state:modified+,tag:mart")).toBeUndefined();
   });
 });
