@@ -219,26 +219,23 @@ fails, set the variable as a Windows/macOS/Linux user environment variable or
 launch VS Code from the configured shell. Secret values should not be committed
 to `.env` files.
 
-For the usual selectors — for example, `state:modified+ --defer --state
-target/prod/` or `state:modified.body+ --defer --state target/prod/` — the
-extension compares `target/manifest.json` and `target/prod/manifest.json`
-itself. It detects new or changed models, seeds, snapshots, and sources,
-accounts for changed macros for the full selector, and expands `+` through the
-current manifest DAG. This is fast and does not start dbt, connect to a
-warehouse, or depend on whether VS Code uses Bash, PowerShell, or another
-terminal. Target-rendered database/schema/relation names are ignored during
-the comparison, so a developer target schema does not make every model look
-modified against production state.
+State selectors — for example, `state:modified+ --defer --state target/prod/`
+or `state:modified.body+ --defer --state target/prod/` — are always delegated
+to `dbt ls`. dbt therefore remains the authority for state comparison,
+including unrendered configuration, macro dependencies, deleted resources,
+resource-type behavior, and `+` expansion. The extension requests the graph's
+model, snapshot, seed, and source nodes and uses their `unique_id` values to
+build the lineage view; dbt tests are not rendered as lineage nodes.
 
-More specialised dbt selector grammar, such as comma intersections or
-`--exclude`, falls back to `dbt ls` so dbt remains the authority for those
-exact semantics. That fallback has a ten-minute safety timeout by default. If
-it does not finish, the extension terminates it and displays a diagnostic
-instead of remaining on “resolving…” indefinitely.
+The command has a ten-minute safety timeout by default. If it does not finish,
+the extension terminates it and displays a diagnostic instead of remaining on
+“resolving…” indefinitely. dbt is run from the detected project root with the
+extension's resolved project environment, including shell and `.env` values,
+so required project variables such as `DBT_BASE_SCHEMA` are available.
 
 State resolution writes its mode and result to the **dbt Open Lineage** channel
-under VS Code's **Output** tab. For the dbt fallback, it also streams live dbt
-output. The channel is updated without stealing focus from the lineage panel;
+under VS Code's **Output** tab and streams live dbt output. The channel is
+updated without stealing focus from the lineage panel;
 choose `dbt Open Lineage` from the Output-channel picker when you want to
 inspect it.
 
