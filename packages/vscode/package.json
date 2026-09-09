@@ -15,7 +15,10 @@
   "main": "./out/extension.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/keithfajardo/dbt-open-lineage-vscode"
+    "url": "https://github.com/keith-fajardo/dbt-open-lineage"
+  },
+  "bugs": {
+    "url": "https://github.com/keith-fajardo/dbt-open-lineage/issues"
   },
   "activationEvents": [
     "onCommand:dbt-open-lineage.open",

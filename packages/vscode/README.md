@@ -2,6 +2,8 @@
 
 Interactive dbt lineage exploration inside VS Code.
 
+[Source code and issue tracker](https://github.com/keith-fajardo/dbt-open-lineage)
+
 dbt Open Lineage reads your dbt project's `target/manifest.json` and turns it into a navigable model graph. It is built for analytics engineers and data teams who want to understand upstream and downstream dependencies without leaving their editor.
 
 ## What It Helps You Do
@@ -213,6 +215,10 @@ discover the new environment. If a shell is unavailable or its startup script
 fails, set the variable as a Windows/macOS/Linux user environment variable or
 launch VS Code from the configured shell. Secret values should not be committed
 to `.env` files.
+
+For support, report reproducible issues in the
+[GitHub issue tracker](https://github.com/keith-fajardo/dbt-open-lineage/issues)
+with the dbt version, operating system, and extension error message.
 
 ## AI Gist Generation
 
