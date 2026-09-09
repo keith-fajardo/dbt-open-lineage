@@ -238,6 +238,14 @@ output. The channel is updated without stealing focus from the lineage panel;
 choose `dbt Open Lineage` from the Output-channel picker when you want to
 inspect it.
 
+The lineage panel protects the editor from accidental project-wide renders. If
+the selected view contains 4,000 or more nodes, it shows the count and waits
+for an explicit **Show anyway** click. An acknowledged large view uses a
+linear layout, compact node cards, and React Flow viewport culling; labels,
+selection, panning, and model-level edges remain available while decorative
+badges are reduced. Narrowing the selector is still recommended when you only
+need one model's lineage.
+
 For support, report reproducible issues in the
 [GitHub issue tracker](https://github.com/keith-fajardo/dbt-open-lineage/issues)
 with the dbt version, operating system, and extension error message.

@@ -93,6 +93,10 @@ export interface DagNodeData {
   /** Box size from estimateColumnNodeSize (column mode). */
   width?: number;
   height?: number;
+  /** Large-render mode uses a deliberately small DOM footprint. Rich chrome
+   * (favorites, status marble, badges and labels) is useful at normal scale,
+   * but thousands of copies can make the editor unresponsive. */
+  compact?: boolean;
   [key: string]: unknown;
 }
 
@@ -168,6 +172,43 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   // The Prev/Next "current" hit gets a visibly stronger ring than the other
   // (still-amber) matches, so stepping reads as a spotlight, not just a count.
   const isCurrentHit = view.currentHit != null && view.currentHit === id;
+  // The large-render acknowledgement deliberately trades decorative chrome
+  // for responsiveness. Keep the label, selection affordance, and model-level
+  // handles so the graph remains navigable while reducing each node to a
+  // handful of DOM elements. The regular path below is unchanged.
+  if (data.compact) {
+    return (
+      <div
+        title={active ? `${data.label} (open)` : data.label}
+        data-large-node="compact"
+        style={{
+          width: 180, height: 44, borderRadius: 8,
+          border: active ? "2px solid #e5e7eb" : `2px solid ${color}`,
+          boxShadow: active
+            ? `0 0 0 3px #e5e7eb, 0 0 18px 3px ${color}`
+            : selected
+              ? "0 0 0 2px #e5e7eb"
+              : emphasize
+                ? `0 0 0 2px ${color}`
+                : searchHit
+                  ? (isCurrentHit ? "0 0 0 3px #fbbf24" : "0 0 0 2px #fbbf24")
+                  : "none",
+          background: active ? "#111c30" : "#0b1220", color: "#e5e7eb",
+          opacity: dim ? 0.18 : 1,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 11, lineHeight: 1.2, textAlign: "center",
+          padding: "2px 8px", boxSizing: "border-box", position: "relative",
+          transition: "opacity 120ms",
+        }}
+      >
+        <Handle type="target" position={Position.Left} />
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
+          {highlightLabel(data.label, view.search)}
+        </span>
+        <Handle type="source" position={Position.Right} />
+      </div>
+    );
+  }
   // The chrome shared by both the normal fixed box and the column-mode
   // header: run-status marble, favorite star, label stripes, name, corner
   // badges, and the two node-level handles. Moved verbatim — no styling or

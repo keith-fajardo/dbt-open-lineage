@@ -691,6 +691,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // render a warning until the user clicks "Show anyway" (ackLargeRender).
   const visibleCount = visibleGraph ? visibleGraph.nodes.length : 0;
   const tooManyNodes = visibleCount >= LARGE_RENDER_LIMIT && !ackLargeRender;
+  // Once acknowledged, use the fast layout and compact node renderer. This is
+  // deliberately separate from `tooManyNodes`: the warning still owns the
+  // pre-acknowledgement state, while the large graph remains fully navigable.
+  const largeGraphMode = visibleCount >= LARGE_RENDER_LIMIT && ackLargeRender;
 
   // Project-wide resource inventory for the summary panel. Prefer the
   // manifest-derived counts (include semantic models / metrics / exposures,
@@ -820,6 +824,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
           layer: n.layer,
           materialized: n.materialized ?? "",
           testCount: n.tests?.length ?? 0,
+          compact: largeGraphMode,
           labelColors: nodeLabels(n)
             .map((l) => labelStyles.get(l)?.color)
             .filter((c): c is string => !!c),
@@ -843,8 +848,8 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // (label colors live in node data). A drag never changes either, so this
   // never rebuilds mid-drag — preserving node identity for React Flow.
   const nodeBuildKey = useMemo(
-    () => ({ positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes }),
-    [positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes],
+    () => ({ positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes, largeGraphMode }),
+    [positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes, largeGraphMode],
   );
   const [nodeState, setNodeState] = useState<{ base: unknown; nodes: Node<DagNodeData>[] }>(
     { base: null, nodes: [] },
@@ -2097,9 +2102,12 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
             nodes={rfNodes}
             edges={rfEdges}
             nodeTypes={nodeTypes}
-            /* No onlyRenderVisibleElements: viewport virtualization culls
-               nodes mid-drag (the whole graph "disappears" while dragging),
-               and a few hundred nodes render fine without it. */
+            /* Keep ordinary graphs fully rendered (virtualization can cull
+               nodes at the edge of a drag in WKWebView), but enable React
+               Flow's viewport culling for the explicit large-graph path.
+               Together with compact nodes this keeps a 4,000+ node view
+               interactive instead of mounting every rich card at once. */
+            onlyRenderVisibleElements={largeGraphMode}
             nodesDraggable={drawMode === "off"}
             panOnDrag={drawMode === "off" || spaceHeld}
             elementsSelectable={drawMode === "off"}

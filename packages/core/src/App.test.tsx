@@ -1861,6 +1861,9 @@ describe("large-render warning", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Show anyway/ }));
     await waitFor(() => expect(layoutSpy).toHaveBeenCalledWith(4000));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // The acknowledged path uses compact nodes so React Flow does not mount
+    // the full favorite/status/badge card 4,000 times.
+    expect(document.querySelectorAll('[data-large-node="compact"]')).toHaveLength(4000);
   });
 
   it("does not warn just under the limit", async () => {

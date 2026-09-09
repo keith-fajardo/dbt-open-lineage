@@ -6,6 +6,14 @@ export const NODE_H = 44;
 const COL_GAP = 80;
 const ROW_GAP = 24;
 
+/** Above this size, Dagre's crossing-minimisation pass costs more than the
+ * useful geometry it produces. The large-render acknowledgement in App.tsx
+ * switches to this deterministic linear layout instead. Keeping the
+ * threshold below the UI guard means a user who clicks "Show anyway" never
+ * enters an O(V·E) layout pass for a project-sized graph. */
+export const LARGE_LAYOUT_LIMIT = 1000;
+const LARGE_LAYOUT_MAX_ROWS = 80;
+
 /** Only the raw/input layers get column-locked so each lines up vertically;
  * everything downstream (staging, intermediate, marts, reports, …) keeps a
  * topology-driven dagre flow — chains step rightward naturally. Sources and
@@ -14,6 +22,83 @@ const ROW_GAP = 24;
  * locked — it flows with the free subgraph like the rest of the model layers. */
 const COLUMN_GROUPS: string[][] = [["source", "seed"]];
 const LOCKED_LAYERS = COLUMN_GROUPS.flat();
+
+/**
+ * Fast layout for very large graphs.
+ *
+ * Dagre is excellent for a few hundred nodes, but its crossing-minimisation
+ * pass becomes noticeably expensive once a manifest contains thousands. For
+ * the explicit "Show anyway" path we only need stable, non-overlapping
+ * coordinates. A Kahn pass gives each acyclic node a left-to-right rank; each
+ * rank is then packed into short columns of at most LARGE_LAYOUT_MAX_ROWS.
+ * Cycles (which dbt permits in partially-built manifests) are placed in rank
+ * zero, still deterministically, rather than blocking the whole layout.
+ *
+ * Callout/column heights are intentionally ignored here: large graphs render
+ * compact nodes (see DagNodeData.compact), and reserving rich callout boxes
+ * would defeat the purpose of the fast path. The regular Dagre path remains
+ * byte-compatible for graphs below LARGE_LAYOUT_LIMIT.
+ */
+function layoutLargeGraph(graph: Graph): Map<string, { x: number; y: number }> {
+  const ids = new Set(graph.nodes.map((n) => n.id));
+  const rank = new Map<string, number>();
+  const indegree = new Map<string, number>();
+  const outgoing = new Map<string, string[]>();
+  for (const n of graph.nodes) {
+    rank.set(n.id, 0);
+    indegree.set(n.id, 0);
+    outgoing.set(n.id, []);
+  }
+  for (const e of graph.edges) {
+    if (!ids.has(e.from) || !ids.has(e.to)) continue;
+    outgoing.get(e.from)!.push(e.to);
+    indegree.set(e.to, indegree.get(e.to)! + 1);
+  }
+
+  // Stable queue order makes repeated renders use identical coordinates.
+  const queue = graph.nodes
+    .filter((n) => indegree.get(n.id) === 0)
+    .map((n) => n.id)
+    .sort();
+  let head = 0;
+  const processed = new Set<string>();
+  while (head < queue.length) {
+    const id = queue[head++];
+    if (processed.has(id)) continue;
+    processed.add(id);
+    for (const child of outgoing.get(id) ?? []) {
+      rank.set(child, Math.max(rank.get(child) ?? 0, (rank.get(id) ?? 0) + 1));
+      const next = indegree.get(child)! - 1;
+      indegree.set(child, next);
+      if (next === 0) queue.push(child);
+    }
+  }
+
+  const byRank = new Map<number, typeof graph.nodes>();
+  for (const n of graph.nodes) {
+    const r = processed.has(n.id) ? (rank.get(n.id) ?? 0) : 0;
+    if (!byRank.has(r)) byRank.set(r, []);
+    byRank.get(r)!.push(n);
+  }
+
+  const pos = new Map<string, { x: number; y: number }>();
+  let x = 0;
+  for (const r of [...byRank.keys()].sort((a, b) => a - b)) {
+    const rows = byRank.get(r)!;
+    rows.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    const columns = Math.max(1, Math.ceil(rows.length / LARGE_LAYOUT_MAX_ROWS));
+    for (let i = 0; i < rows.length; i++) {
+      const column = Math.floor(i / LARGE_LAYOUT_MAX_ROWS);
+      const row = i % LARGE_LAYOUT_MAX_ROWS;
+      pos.set(rows[i].id, {
+        x: x + column * (NODE_W + COL_GAP),
+        y: row * (NODE_H + ROW_GAP),
+      });
+    }
+    x += columns * (NODE_W + COL_GAP);
+  }
+  return pos;
+}
 
 /** Compute a left→right layout once. The free (non-locked) subgraph gets its
  * OWN dagre pass, so its vertical extent is compact — laying out the full
@@ -27,6 +112,7 @@ export function layoutGraph(
   calloutHeights?: Map<string, number>,
   sizes?: Map<string, { w: number; h: number }>,
 ): Map<string, { x: number; y: number }> {
+  if (graph.nodes.length >= LARGE_LAYOUT_LIMIT) return layoutLargeGraph(graph);
   const isLocked = (layer: string) => LOCKED_LAYERS.includes(layer);
   const free = graph.nodes.filter((n) => !isLocked(n.layer));
   const freeIds = new Set(free.map((n) => n.id));

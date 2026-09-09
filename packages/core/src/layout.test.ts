@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { layoutGraph, computeExportBounds, NODE_W, NODE_H } from "./layout";
+import { layoutGraph, computeExportBounds, NODE_W, NODE_H, LARGE_LAYOUT_LIMIT } from "./layout";
 import type { Graph } from "./graphTypes";
 
 const node = (id: string, layer: string) => ({
@@ -12,6 +12,32 @@ const g: Graph = {
 };
 
 describe("layoutGraph", () => {
+  it("uses the linear layout for large graphs and keeps coordinates deterministic", () => {
+    const large: Graph = {
+      nodes: Array.from({ length: LARGE_LAYOUT_LIMIT }, (_, i) => node(`m${String(i).padStart(4, "0")}`, "staging")),
+      edges: [],
+    };
+    const a = layoutGraph(large);
+    const b = layoutGraph(large);
+    expect(a.size).toBe(LARGE_LAYOUT_LIMIT);
+    expect([...a.entries()]).toEqual([...b.entries()]);
+    // Disconnected nodes are packed into short columns instead of one
+    // 1,000-row strip, so fitting the graph does not collapse it to a sliver.
+    expect(a.get("m0000")!.x).toBe(0);
+    expect(a.get("m0080")!.x).toBe(NODE_W + 80);
+    expect(a.get("m0079")!.y).toBe((NODE_H + 24) * 79);
+  });
+
+  it("ranks a large acyclic chain left-to-right without invoking Dagre", () => {
+    const large: Graph = {
+      nodes: Array.from({ length: LARGE_LAYOUT_LIMIT }, (_, i) => node(`m${String(i).padStart(4, "0")}`, "staging")),
+      edges: Array.from({ length: LARGE_LAYOUT_LIMIT - 1 }, (_, i) => ({ from: `m${String(i).padStart(4, "0")}`, to: `m${String(i + 1).padStart(4, "0")}` })),
+    };
+    const pos = layoutGraph(large);
+    expect(pos.get("m0999")!.x).toBeGreaterThan(pos.get("m0998")!.x);
+    expect(pos.get("m0000")!.y).toBe(0);
+  });
+
   it("assigns a position to every node", () => {
     const pos = layoutGraph(g);
     expect(pos.size).toBe(2);
