@@ -300,7 +300,8 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         if (!state.trim()) throw new Error("state: selectors need --state <dir>");
         const channel = getRunOutputChannel();
         channel.clear();
-        channel.show(true);
+        // Keep the user's current editor or lineage view visible. The logs
+        // remain available in the Output channel without revealing it.
         channel.appendLine(`> state selector --select ${select} --state ${state}`);
         channel.appendLine("Resolving state selector…");
         const local = resolveLocalStateModifiedFromArtifacts(projectRoot, state, select);
