@@ -297,7 +297,15 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         const state = typeof msg.args.state === "string" ? msg.args.state : "";
         if (!select.trim()) throw new Error("dbt.ls: missing select expression");
         if (!state.trim()) throw new Error("state: selectors need --state <dir>");
-        const ids = await runDbtLs(projectRoot, select, state, configuredDbtDeps(projectRoot));
+        const channel = getRunOutputChannel();
+        channel.clear();
+        channel.appendLine(`> dbt ls --select ${select} --state ${state}`);
+        channel.appendLine("Resolving state selector…");
+        const ids = await runDbtLs(
+          projectRoot, select, state, configuredDbtDeps(projectRoot), undefined,
+          (line) => channel.appendLine(line),
+        );
+        channel.appendLine(`Resolved ${ids.length} matching node${ids.length === 1 ? "" : "s"}.`);
         reply({ ok: true, result: ids });
         break;
       }

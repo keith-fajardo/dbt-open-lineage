@@ -221,6 +221,11 @@ finish, the extension terminates it and displays a diagnostic pointing to dbt
 profiles, credentials, and environment variables instead of remaining on
 “resolving…” indefinitely.
 
+While a state selector is resolving, its `dbt ls` command and live output are
+written to the **dbt Open Lineage** channel under VS Code's **Output** tab. The
+channel is updated without stealing focus from the lineage panel; choose
+`dbt Open Lineage` from the Output-channel picker when you want to inspect it.
+
 For support, report reproducible issues in the
 [GitHub issue tracker](https://github.com/keith-fajardo/dbt-open-lineage/issues)
 with the dbt version, operating system, and extension error message.

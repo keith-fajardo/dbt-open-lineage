@@ -70,6 +70,7 @@ export function parseLsUniqueIds(lines: string[]): string[] {
 export function runDbtLs(
   projectRoot: string, select: string, state: string, deps: RunDeps = defaultDeps,
   timeoutMs = DEFAULT_LS_TIMEOUT_MS,
+  onOutput?: (line: string) => void,
 ): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
     const child = deps.spawn(projectRoot, buildLsArgs(select, state));
@@ -78,6 +79,12 @@ export function runDbtLs(
     const outLines: string[] = [];
     const errLines: string[] = [];
     let done = false;
+    const stream = (lines: string[]) => {
+      for (const line of lines) {
+        const readable = readableLine(line);
+        if (readable) onOutput?.(readable);
+      }
+    };
     const timer = setTimeout(() => {
       if (done) return;
       done = true;
@@ -85,13 +92,13 @@ export function runDbtLs(
       reject(new Error(`dbt ls timed out after ${Math.round(timeoutMs / 1000)} seconds; check dbt profile, credentials, and environment variables`));
     }, timeoutMs);
 
-    child.stdout?.on("data", (c: Buffer) => { for (const l of out.push(c.toString("utf8"))) outLines.push(l); });
-    child.stderr?.on("data", (c: Buffer) => { for (const l of err.push(c.toString("utf8"))) errLines.push(l); });
+    child.stdout?.on("data", (c: Buffer) => { const lines = out.push(c.toString("utf8")); outLines.push(...lines); stream(lines); });
+    child.stderr?.on("data", (c: Buffer) => { const lines = err.push(c.toString("utf8")); errLines.push(...lines); stream(lines); });
     child.on("close", (code: number | null) => {
       if (done) return; done = true;
       clearTimeout(timer);
-      for (const l of out.flush()) outLines.push(l);
-      for (const l of err.flush()) errLines.push(l);
+      const outTail = out.flush(); outLines.push(...outTail); stream(outTail);
+      const errTail = err.flush(); errLines.push(...errTail); stream(errTail);
       if ((code ?? -1) === 0) { resolve(parseLsUniqueIds(outLines)); return; }
       // Click/dbt writes several runtime and usage failures to stdout rather
       // than stderr. Prefer stderr when present, otherwise surface stdout;

@@ -112,4 +112,17 @@ describe("runDbtLs", () => {
       vi.useRealTimers();
     }
   });
+
+  it("streams dbt output lines to the optional callback", async () => {
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: () => void };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    const output: string[] = [];
+    const p = runDbtLs("/proj", "state:modified+", "target/prod/", { spawn: vi.fn(() => child as never) }, 1000, (line) => output.push(line));
+    child.stdout.emit("data", Buffer.from(JSON.stringify({ info: { msg: "Parsing project" } }) + "\n"));
+    child.emit("close", 0);
+    await expect(p).resolves.toEqual([]);
+    expect(output).toEqual(["Parsing project"]);
+  });
 });
