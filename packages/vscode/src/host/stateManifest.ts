@@ -77,6 +77,14 @@ function canonical(value: unknown): unknown {
   return Object.fromEntries(Object.keys(record).sort().map((key) => [key, canonical(record[key])]));
 }
 
+/** Fields used by dbt's state comparison are based on the unrendered config.
+ * Comparing rendered database/schema/relation values makes every model look
+ * modified when the current target uses a developer schema and the state
+ * manifest came from production. */
+function unrenderedConfig(resource: JsonRecord): unknown {
+  return resource.unrendered_config ?? resource.config;
+}
+
 function signature(resource: JsonRecord, macro = false, bodyOnly = false): string {
   // These are the parsed-manifest fields which determine a node/macro's
   // definition. Deliberately omit generated execution fields such as
@@ -94,18 +102,15 @@ function signature(resource: JsonRecord, macro = false, bodyOnly = false): strin
     }
     : bodyOnly
     ? {
-      checksum: resource.checksum,
       raw_code: resource.raw_code ?? resource.raw_sql,
     }
     : {
-      checksum: resource.checksum,
       raw_code: resource.raw_code ?? resource.raw_sql,
-      config: resource.config,
-      unrendered_config: resource.unrendered_config,
-      database: resource.database,
-      schema: resource.schema,
-      alias: resource.alias,
-      relation_name: resource.relation_name,
+      // Use the user-authored config representation. The rendered database,
+      // schema, and relation_name are target-dependent and are intentionally
+      // ignored (dbt's same_database_representation does the same).
+      unrendered_config: unrenderedConfig(resource),
+      fqn: resource.fqn,
       description: resource.description,
       columns: resource.columns,
       depends_on: resource.depends_on,

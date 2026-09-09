@@ -30,6 +30,7 @@ import { loadFavorites, saveFavorites } from "./favorites";
 import { computeFiltered } from "./filters";
 import { TagChips } from "./TagChips";
 import { DrawLayer, type DrawMode } from "./DrawLayer";
+import { SpacePanLayer } from "./SpacePanLayer";
 import { type Stroke } from "./drawing";
 import { ModelSqlSection } from "./ModelSqlSection";
 
@@ -2119,11 +2120,12 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
                Together with compact nodes this keeps a 4,000+ node view
                interactive instead of mounting every rich card at once. */
             onlyRenderVisibleElements={largeGraphMode}
-            // Space is a temporary viewport-navigation mode. Removing the
-            // node's draggable/nopan state is what allows a drag that starts
-            // over a node to reach React Flow's pane pan handler.
+            // Space is handled by SpacePanLayer below. Disable React Flow's
+            // built-in Space activation so the dedicated surface owns the
+            // gesture even when the pointer starts on a zoomed node.
             nodesDraggable={drawMode === "off" && !spaceHeld}
-            panOnDrag={drawMode === "off" || spaceHeld}
+            panActivationKeyCode={null}
+            panOnDrag={drawMode === "off" && !spaceHeld}
             elementsSelectable={drawMode === "off" && !spaceHeld}
             /* No auto-pan while dragging nodes: in the sandboxed WKWebView
                iframe the pointerup can be lost at the frame boundary, and a
@@ -2177,6 +2179,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
               onStrokesChange={setStrokes}
               paused={spaceHeld}
             />
+            <SpacePanLayer active={spaceHeld} />
           </ReactFlow>
           </ViewContext.Provider>
           )}

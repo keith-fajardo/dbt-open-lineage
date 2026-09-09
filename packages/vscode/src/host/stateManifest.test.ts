@@ -29,6 +29,16 @@ function manifests() {
 }
 
 describe("resolveLocalStateModified", () => {
+  it("keeps state:modified to direct changes without downstream expansion", () => {
+    const { previous, current } = manifests();
+    current.nodes["model.proj.stg_orders"].raw_code = "select id from source('raw', 'orders')";
+
+    expect(resolveLocalStateModified(current, previous, "state:modified")).toEqual({
+      modifiedCount: 1,
+      ids: ["model.proj.stg_orders"],
+    });
+  });
+
   it("finds a changed model and its downstream graph nodes for state:modified+", () => {
     const { previous, current } = manifests();
     current.nodes["model.proj.stg_orders"].raw_code = "select id from source('raw', 'orders')";
@@ -71,6 +81,25 @@ describe("resolveLocalStateModified", () => {
   it("does not treat generated compiled SQL as a modification", () => {
     const { previous, current } = manifests();
     current.nodes["model.proj.stg_orders"].compiled_code = "select * from db.raw.orders";
+
+    expect(resolveLocalStateModified(current, previous, "state:modified")).toEqual({
+      modifiedCount: 0,
+      ids: [],
+    });
+  });
+
+  it("ignores target-specific rendered relation fields", () => {
+    const { previous, current } = manifests();
+    const prior = previous.nodes["model.proj.stg_orders"];
+    const now = current.nodes["model.proj.stg_orders"];
+    prior.database = "warehouse";
+    prior.schema = "prod_staging";
+    prior.relation_name = "warehouse.prod_staging.stg_orders";
+    prior.unrendered_config = { schema: "staging", materialized: "view" };
+    now.database = "warehouse";
+    now.schema = "dev_staging";
+    now.relation_name = "warehouse.dev_staging.stg_orders";
+    now.unrendered_config = { schema: "staging", materialized: "view" };
 
     expect(resolveLocalStateModified(current, previous, "state:modified")).toEqual({
       modifiedCount: 0,

@@ -694,6 +694,30 @@ describe("draggable nodes", () => {
   });
 });
 
+describe("Filter dropdowns", () => {
+  it("filters by subject area and label from their dropdown controls", async () => {
+    manifestGraph = {
+      nodes: [
+        { ...g.nodes[0], meta: { subject_areas: ["orders"], labels: ["core"] } },
+        { ...g.nodes[1], meta: { subject_areas: ["finance"], labels: ["pii"] } },
+      ],
+      edges: [],
+    };
+    render(<App projectPath="/proj" initialSelector="a b" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("a").length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("button", { name: /subject areas/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "orders" }));
+    await waitFor(() => expect(screen.getAllByText("a")[0].parentElement).toHaveStyle({ opacity: "1" }));
+    expect(screen.getAllByText("b")[0].parentElement).toHaveStyle({ opacity: "0.18" });
+
+    fireEvent.click(screen.getByRole("button", { name: /labels/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "core" }));
+    await waitFor(() => expect(screen.getAllByText("a")[0].parentElement).toHaveStyle({ opacity: "1" }));
+    expect(screen.getAllByText("b")[0].parentElement).toHaveStyle({ opacity: "0.18" });
+  });
+});
+
 describe("search bar", () => {
   it("highlights matching node labels live and shows the match count", async () => {
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);

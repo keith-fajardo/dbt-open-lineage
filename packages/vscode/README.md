@@ -226,7 +226,9 @@ itself. It detects new or changed models, seeds, snapshots, and sources,
 accounts for changed macros for the full selector, and expands `+` through the
 current manifest DAG. This is fast and does not start dbt, connect to a
 warehouse, or depend on whether VS Code uses Bash, PowerShell, or another
-terminal.
+terminal. Target-rendered database/schema/relation names are ignored during
+the comparison, so a developer target schema does not make every model look
+modified against production state.
 
 More specialised dbt selector grammar, such as comma intersections or
 `--exclude`, falls back to `dbt ls` so dbt remains the authority for those
