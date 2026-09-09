@@ -130,6 +130,19 @@ describe("dbt DAG App", () => {
     expect(layoutSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("holds Space for viewport panning without selecting a node", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    const node = await waitFor(() => screen.getByTestId("rf__node-a"));
+
+    fireEvent.keyDown(window, { code: "Space", key: " " });
+    fireEvent.click(node);
+    expect(screen.queryByRole("complementary", { name: "node details" })).not.toBeInTheDocument();
+
+    fireEvent.keyUp(window, { code: "Space", key: " " });
+    fireEvent.click(node);
+    await waitFor(() => expect(screen.getByRole("complementary", { name: "node details" })).toBeInTheDocument());
+  });
+
   it("changing the selector does NOT re-run layout (no-freeze)", async () => {
     render(<App projectPath="/proj" debounceMs={0} />);
     const input = screen.getByPlaceholderText(/select/i);

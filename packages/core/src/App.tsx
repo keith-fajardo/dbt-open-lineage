@@ -770,11 +770,12 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // change → new `positioned`), the nodes move out from under it, so clear it.
   useEffect(() => { setStrokes([]); }, [positioned]);
 
-  // While drawing, hold Space to temporarily pan (like design tools). Only
-  // active in draw mode; ignored while typing so Space still types a space.
+  // Hold Space to temporarily pan (like design tools). The key state is also
+  // used to turn off node dragging/selection for the duration of the gesture,
+  // which lets a pan start directly over a node without moving or selecting it.
+  // Ignore editable controls so Space still types a space.
   const [spaceHeld, setSpaceHeld] = useState(false);
   useEffect(() => {
-    if (drawMode === "off") { setSpaceHeld(false); return; }
     const typing = (t: EventTarget | null) => {
       const el = t as HTMLElement | null;
       return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -783,17 +784,20 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
       if (typing(e.target)) return; // let text inputs keep Space / Cmd-Z
       if (e.code === "Space") { e.preventDefault(); setSpaceHeld(true); }
       // Cmd/Ctrl+Z → undo the last pen stroke.
-      else if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z") && !e.shiftKey) {
+      else if (drawMode !== "off" && (e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z") && !e.shiftKey) {
         e.preventDefault();
         setStrokes((prev) => prev.slice(0, -1));
       }
     };
     const up = (e: KeyboardEvent) => { if (e.code === "Space") setSpaceHeld(false); };
+    const clear = () => setSpaceHeld(false);
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    window.addEventListener("blur", clear);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", clear);
       setSpaceHeld(false);
     };
   }, [drawMode]);
@@ -1528,10 +1532,14 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, matched, focus, selected, lineage, view, cleanedSelector, showAll, pruned, columnLineageMode, columnLineage, selectedColumn]);
 
-  const onNodeClick: NodeMouseHandler = (_, n) => setSelected(n.id);
+  const onNodeClick: NodeMouseHandler = (_, n) => {
+    if (spaceHeld) return;
+    setSelected(n.id);
+  };
   // Double-click a node → open its model/source file in the IDE editor
   // (no-op in the standalone window, which has no editor to open into).
   const onNodeDoubleClick: NodeMouseHandler = (_, n) => {
+    if (spaceHeld) return;
     const target = graph?.nodes.find((x) => x.id === n.id);
     if (!target?.path) return;
     const open = () => { allowNextRetargetRef.current = true; void openInIde(target.path).catch(() => {/* standalone window */}); };
@@ -1938,6 +1946,9 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
             <label style={TOGGLE_PILL}>
               <input type="checkbox" checked={showCallouts} onChange={(e) => setShowCallouts(e.target.checked)} /> Callouts
             </label>
+            <span title="Hold Space and drag anywhere in the graph to pan" style={{ color: "#64748b", fontSize: 11 }}>
+              Space + drag to pan
+            </span>
             {!readOnly && (
               <>
                 <span style={SECTION_LABEL}>Draw</span>
@@ -2108,9 +2119,12 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
                Together with compact nodes this keeps a 4,000+ node view
                interactive instead of mounting every rich card at once. */
             onlyRenderVisibleElements={largeGraphMode}
-            nodesDraggable={drawMode === "off"}
+            // Space is a temporary viewport-navigation mode. Removing the
+            // node's draggable/nopan state is what allows a drag that starts
+            // over a node to reach React Flow's pane pan handler.
+            nodesDraggable={drawMode === "off" && !spaceHeld}
             panOnDrag={drawMode === "off" || spaceHeld}
-            elementsSelectable={drawMode === "off"}
+            elementsSelectable={drawMode === "off" && !spaceHeld}
             /* No auto-pan while dragging nodes: in the sandboxed WKWebView
                iframe the pointerup can be lost at the frame boundary, and a
                drag near the pane edge then pans the viewport away forever —
@@ -2124,6 +2138,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
             onNodeDoubleClick={onNodeDoubleClick}
             /* Double-click means "open in editor" here, not zoom. */
             zoomOnDoubleClick={false}
+            style={{ cursor: spaceHeld ? "grab" : undefined }}
             onPaneClick={() => { setSelected(null); setSelectedColumn(null); }}
             fitView
             proOptions={{ hideAttribution: true }}

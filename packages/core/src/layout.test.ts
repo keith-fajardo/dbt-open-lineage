@@ -38,6 +38,22 @@ describe("layoutGraph", () => {
     expect(pos.get("m0000")!.y).toBe(0);
   });
 
+  it("keeps large-graph sources and seeds in one vertical raw-input column", () => {
+    const large: Graph = {
+      nodes: [
+        ...Array.from({ length: 81 }, (_, i) => node(`src${String(i).padStart(3, "0")}`, "source")),
+        ...Array.from({ length: LARGE_LAYOUT_LIMIT - 81 }, (_, i) => node(`m${String(i).padStart(4, "0")}`, "staging")),
+      ],
+      edges: [],
+    };
+    const pos = layoutGraph(large);
+    const rawX = new Set(Array.from({ length: 81 }, (_, i) => pos.get(`src${String(i).padStart(3, "0")}`)!.x));
+
+    expect(rawX).toEqual(new Set([0]));
+    expect(pos.get("src080")!.y).toBe((NODE_H + 24) * 80);
+    expect(pos.get("m0000")!.x).toBe(NODE_W + 80);
+  });
+
   it("assigns a position to every node", () => {
     const pos = layoutGraph(g);
     expect(pos.size).toBe(2);

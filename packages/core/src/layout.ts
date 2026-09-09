@@ -31,8 +31,11 @@ const LOCKED_LAYERS = COLUMN_GROUPS.flat();
  * the explicit "Show anyway" path we only need stable, non-overlapping
  * coordinates. A Kahn pass gives each acyclic node a left-to-right rank; each
  * rank is then packed into short columns of at most LARGE_LAYOUT_MAX_ROWS.
- * Cycles (which dbt permits in partially-built manifests) are placed in rank
- * zero, still deterministically, rather than blocking the whole layout.
+ * Raw inputs (sources and seeds) are kept in one dedicated vertical column so
+ * they remain visually identifiable even when rank zero contains many other
+ * disconnected roots. Cycles (which dbt permits in partially-built manifests)
+ * are placed in rank zero, still deterministically, rather than blocking the
+ * whole layout.
  *
  * Callout/column heights are intentionally ignored here: large graphs render
  * compact nodes (see DagNodeData.compact), and reserving rich callout boxes
@@ -74,15 +77,23 @@ function layoutLargeGraph(graph: Graph): Map<string, { x: number; y: number }> {
     }
   }
 
+  const rawNodes = graph.nodes
+    .filter((n) => LOCKED_LAYERS.includes(n.layer))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const rawIds = new Set(rawNodes.map((n) => n.id));
   const byRank = new Map<number, typeof graph.nodes>();
   for (const n of graph.nodes) {
+    if (rawIds.has(n.id)) continue;
     const r = processed.has(n.id) ? (rank.get(n.id) ?? 0) : 0;
     if (!byRank.has(r)) byRank.set(r, []);
     byRank.get(r)!.push(n);
   }
 
   const pos = new Map<string, { x: number; y: number }>();
-  let x = 0;
+  for (let i = 0; i < rawNodes.length; i++) {
+    pos.set(rawNodes[i].id, { x: 0, y: i * (NODE_H + ROW_GAP) });
+  }
+  let x = rawNodes.length ? NODE_W + COL_GAP : 0;
   for (const r of [...byRank.keys()].sort((a, b) => a - b)) {
     const rows = byRank.get(r)!;
     rows.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));

@@ -25,6 +25,8 @@ Use these sections to present the extension on the VS Code Marketplace.
 
 The main panel renders a left-to-right dbt DAG with sources, seeds, models, and their dependencies. Selecting a node highlights its lineage cone so you can quickly see what feeds it and what it feeds.
 
+Hold **Space** and drag to pan the graph, including when the drag starts over a node.
+
 ### Column-Level Lineage
 
 Toggle **Columns** in the toolbar to expand nodes into their columns and trace lineage at the column level. Click a column to highlight its upstream sources and downstream consumers across models — following a single field end-to-end through the DAG.
