@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
-import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, createRunDeps, startDbtRun, startDbtRunWithSeed, spawnDbtToCompletion } from "./run";
+import { LineBuffer, parseDbtLogLine, mapNodeStatus, buildRunArgs, createRunDeps, startDbtRun, startDbtRunWithSeed, spawnDbtToCompletion, killProcessTree } from "./run";
 import { parseLineEnvironment, parseNullEnvironment } from "./dbtEnv";
 
 describe("dbt environment discovery", () => {
@@ -259,6 +259,22 @@ function fakeChild(pid = 4242) {
   proc.pid = pid;
   return proc;
 }
+
+describe("killProcessTree", () => {
+  it("SIGTERMs the negative pid (whole group) on POSIX", () => {
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    killProcessTree(4242, "darwin");
+    expect(killSpy).toHaveBeenCalledWith(-4242, "SIGTERM");
+    killSpy.mockRestore();
+  });
+
+  it("is a no-op when the pid is undefined (process never spawned)", () => {
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    killProcessTree(undefined, "darwin");
+    expect(killSpy).not.toHaveBeenCalled();
+    killSpy.mockRestore();
+  });
+});
 
 describe("startDbtRun", () => {
   it("parses stdout lines into onWrite/onEvent calls (both status AND log), then emits done on close", () => {

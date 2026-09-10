@@ -1841,6 +1841,25 @@ describe("show-all confirmation on blank Enter", () => {
   });
 });
 
+describe("dbt output logs", () => {
+  it("reveals the host output channel when View logs is clicked during a state resolve", async () => {
+    lsResult = () => new Promise<string[]>(() => {}); // in-flight — pill is showing
+    render(<App projectPath="/proj" initialSelector="state:modified+ --state target/prod/" debounceMs={0} />);
+    const btn = await screen.findByRole("button", { name: /view dbt logs/i });
+    fireEvent.click(btn);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.showLogs", expect.anything()));
+  });
+
+  it("offers View logs when a state resolve fails, so the dbt error is reachable", async () => {
+    lsResult = new Error("no manifest found in target/prod/");
+    render(<App projectPath="/proj" initialSelector="state:modified+ --state target/prod/" debounceMs={0} />);
+    // Wait for the settled error state (not the transient in-flight pill).
+    await screen.findByText(/no manifest found in target\/prod\//i);
+    fireEvent.click(screen.getByRole("button", { name: /view dbt logs/i }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.showLogs", expect.anything()));
+  });
+});
+
 describe("Clear button", () => {
   it("blanks the DAG and empties the selector", async () => {
     render(<App projectPath="/proj" initialSelector="+b+" debounceMs={0} />);
@@ -1853,6 +1872,24 @@ describe("Clear button", () => {
     expect(screen.queryByText("c")).not.toBeInTheDocument();
     expect(input).toHaveValue("");
     expect(layoutSpy).toHaveBeenLastCalledWith(0);
+  });
+
+  it("cancels an in-flight state selector's dbt ls on the host when cleared", async () => {
+    // A resolve that never settles — mimics a slow `dbt ls` still running when
+    // the user clicks Clear. That's the only case a host cancel is warranted.
+    lsResult = () => new Promise<string[]>(() => {});
+    render(<App projectPath="/proj" initialSelector="state:modified+ --state target/prod/" debounceMs={0} />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.ls", expect.objectContaining({ select: "state:modified+" })));
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.ls.cancel", expect.anything()));
+  });
+
+  it("does not fire a host cancel when clearing a non-state selector (nothing was resolving)", async () => {
+    render(<App projectPath="/proj" initialSelector="+b+" debounceMs={0} />);
+    await waitFor(() => expect(screen.getAllByText("b").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(screen.queryByText("b")).not.toBeInTheDocument());
+    expect(invokeMock).not.toHaveBeenCalledWith("dbt.ls.cancel", expect.anything());
   });
 
   it("is disabled when the DAG is already blank", async () => {

@@ -113,6 +113,29 @@ describe("runDbtLs", () => {
     }
   });
 
+  it("hands back a controller whose cancel() SIGTERMs the whole dbt ls process group on POSIX", () => {
+    vi.useFakeTimers();
+    try {
+      const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; pid: number };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.pid = 4242;
+      const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+      let controller: { cancel(): void } | undefined;
+      // Never closes — a real in-flight `dbt ls` the caller decides to abort.
+      runDbtLs("/proj", "state:modified+", "target/prod/",
+        { spawn: vi.fn(() => child as never), platform: "darwin" }, 1000, undefined,
+        (ctl) => { controller = ctl; },
+      ).catch(() => { /* rejects on the kill-triggered close; irrelevant here */ });
+
+      controller!.cancel();
+      expect(killSpy).toHaveBeenCalledWith(-4242, "SIGTERM");
+      killSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("streams dbt output lines to the optional callback", async () => {
     const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: () => void };
     child.stdout = new EventEmitter();

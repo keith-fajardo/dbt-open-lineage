@@ -158,6 +158,25 @@ export const defaultDeps: RunDeps = createRunDeps();
 
 export interface RunController { cancel(): void }
 
+/** Terminate a spawned dbt process AND its children. `spawn` runs the child
+ * detached on POSIX (its own process group), so a negative pid signals the
+ * whole group — dbt plus any db-adapter subprocess it forked — rather than
+ * just the direct child, which would otherwise be left orphaned. Windows has
+ * no process groups, so fall back to taskkill /T (kill tree). A no-op when the
+ * process never got a pid (spawn failed), and swallows the "already exited"
+ * throw so a late cancel can't crash the extension host. */
+export function killProcessTree(pid: number | undefined, platform: NodeJS.Platform | string): void {
+  if (!pid) return;
+  try {
+    if (platform === "win32") {
+      const killer = nodeSpawn("taskkill", ["/pid", String(pid), "/T", "/F"]);
+      // Best-effort: nothing else can be done if taskkill itself fails to
+      // spawn, but leaving 'error' unhandled would throw and crash the host.
+      killer.on("error", () => {});
+    } else process.kill(-pid, "SIGTERM");
+  } catch { /* already exited */ }
+}
+
 /** Spawn `dbt <command> --select <selector> --log-format json` in
  * `projectRoot`, parsing stdout/stderr line-by-line: every line is written
  * out (via `cb.onWrite`, one line, no trailing newline — the host's own sink
@@ -204,24 +223,7 @@ export function startDbtRun(
     emitDone(-1);
   });
 
-  return {
-    cancel: () => {
-      if (!child.pid) return;
-      try {
-        if (platform === "win32") {
-          const killer = nodeSpawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
-          // Best-effort: nothing else can be done if taskkill itself fails
-          // to spawn, but leaving 'error' unhandled would throw and could
-          // crash the extension host.
-          killer.on("error", () => {});
-        }
-        // Negative pid = signal the whole process GROUP, not just the direct
-        // child — dbt/db-adapter children must die too, or Cancel leaves
-        // orphans running (the class of bug process-group kills exist for).
-        else process.kill(-child.pid, "SIGTERM");
-      } catch { /* already exited */ }
-    },
-  };
+  return { cancel: () => killProcessTree(child.pid, platform) };
 }
 
 /** Like `startDbtRun`, but when `hasSeed` is true, runs `dbt seed --select

@@ -1,4 +1,4 @@
-import { LineBuffer, defaultDeps, type RunDeps } from "./run";
+import { LineBuffer, defaultDeps, killProcessTree, type RunDeps, type RunController } from "./run";
 
 /** A selector resolution should never leave the webview stuck forever if a
  * dbt adapter, profile hook, or credential prompt blocks in the background. */
@@ -71,9 +71,16 @@ export function runDbtLs(
   projectRoot: string, select: string, state: string, deps: RunDeps = defaultDeps,
   timeoutMs = DEFAULT_LS_TIMEOUT_MS,
   onOutput?: (line: string) => void,
+  onController?: (controller: RunController) => void,
 ): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
     const child = deps.spawn(projectRoot, buildLsArgs(select, state));
+    // Hand the caller a cancel handle so it can single-flight overlapping
+    // resolves: an unfinished `dbt ls` is expensive (it parses the whole
+    // project + state-diffs) and several in parallel starve each other. On
+    // cancel the process-group kill triggers `close`, which settles this
+    // promise via the reject path below — no separate settling needed here.
+    onController?.({ cancel: () => killProcessTree(child.pid, deps.platform ?? process.platform) });
     const out = new LineBuffer();
     const err = new LineBuffer();
     const outLines: string[] = [];

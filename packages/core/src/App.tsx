@@ -554,6 +554,13 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   const [matchError, setMatchError] = useState<string | null>(null);
   const [matchElapsedMs, setMatchElapsedMs] = useState(0);
   const matchReq = useRef(0);
+  // True while a host dbt.ls resolve is genuinely running. When the selector
+  // leaves state-mode (cleared, or replaced by a non-state selector) there's
+  // no follow-up dbt.ls to supersede that resolve on the host, so we tell the
+  // host to cancel it — otherwise the killed-off resolve keeps parsing the
+  // whole project in the background. Gated by this ref so a plain non-state
+  // selector (or the initial blank render) doesn't fire a pointless cancel.
+  const lsInFlight = useRef(false);
   useEffect(() => {
     if (!matchBusy) { setMatchElapsedMs(0); return; }
     const started = Date.now();
@@ -563,10 +570,17 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   }, [matchBusy]);
   useEffect(() => {
     if (!graph) return;
-    if (!stateMode) { ++matchReq.current; setAsyncMatched(null); setMatchError(null); setMatchBusy(false); return; }
-    if (!runFlags.state) { ++matchReq.current; setAsyncMatched(null); setMatchError("state: selectors need --state <dir>"); setMatchBusy(false); return; }
+    // Leaving state-mode (cleared, or a non-state selector committed): abort a
+    // still-running host resolve, since nothing else will supersede it there.
+    const cancelStaleLs = () => {
+      if (!lsInFlight.current) return;
+      lsInFlight.current = false;
+      void invoke<boolean>("dbt.ls.cancel", {}).catch(() => { /* best-effort */ });
+    };
+    if (!stateMode) { ++matchReq.current; cancelStaleLs(); setAsyncMatched(null); setMatchError(null); setMatchBusy(false); return; }
+    if (!runFlags.state) { ++matchReq.current; cancelStaleLs(); setAsyncMatched(null); setMatchError("state: selectors need --state <dir>"); setMatchBusy(false); return; }
     const myReq = ++matchReq.current;
-    setMatchBusy(true); setMatchError(null);
+    setMatchBusy(true); setMatchError(null); lsInFlight.current = true;
     const known = new Set(graph.nodes.map((n) => n.id));
     void invoke<string[]>("dbt.ls", { select: cleanedSelector, state: runFlags.state })
       .then((ids) => {
@@ -578,7 +592,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
         setAsyncMatched(new Set());
         setMatchError(String((e as Error).message ?? e));
       })
-      .finally(() => { if (myReq === matchReq.current) setMatchBusy(false); });
+      .finally(() => { if (myReq === matchReq.current) { setMatchBusy(false); lsInFlight.current = false; } });
     // cleanedSelector/runFlags.state/stateMode capture everything the resolve depends on
   }, [graph, stateMode, cleanedSelector, runFlags.state]);
 
@@ -1406,6 +1420,12 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     catch (e) { setRunErr(String((e as Error).message ?? e)); }
   };
 
+  // Reveal the host's "dbt Open Lineage" output channel. The host never shows
+  // it automatically (a run/compile/resolve must not steal focus), so raw dbt
+  // output was previously unreachable unless the user hunted for the channel
+  // in the Output dropdown. This is the explicit, user-initiated escape hatch.
+  const onShowLogs = () => { void invoke<boolean>("dbt.showLogs", {}).catch(() => { /* best-effort */ }); };
+
   // Endpoint keys of an EXPANDED node's columns whose name matches — only rows
   // shown as the full expanded catalog carry a meaningful amber hit or a
   // Prev/Next jump target. A collapsed node's transient trace-revealed rows are
@@ -1769,12 +1789,22 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
                 />
                 <span
                   aria-label="resolving state selector"
-                  title="dbt ls is running; open the dbt Open Lineage output channel for dbt output"
                   style={{ color: "#93c5fd", fontSize: 12 }}
                 >
                   dbt ls running · {formatDuration(matchElapsedMs)}
                   {matchElapsedMs >= 10_000 ? " · waiting for dbt output" : ""}
                 </span>
+                <button
+                  type="button"
+                  aria-label="View dbt logs"
+                  title="Open the dbt Open Lineage output channel to watch dbt output"
+                  onClick={onShowLogs}
+                  style={{
+                    padding: "3px 8px", borderRadius: 6, border: "1px solid #334155",
+                    background: "#111827", color: "#93c5fd", cursor: "pointer",
+                    fontFamily: "inherit", fontSize: 11, whiteSpace: "nowrap",
+                  }}
+                >View logs</button>
               </span>
             )}
             {!matchBusy && tooManyNodes && (
@@ -1797,7 +1827,20 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
               </span>
             )}
             {!matchBusy && matchError && (
-              <span style={{ color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>{matchError}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "#fca5a5", fontSize: 12, whiteSpace: "nowrap" }}>
+                {matchError}
+                <button
+                  type="button"
+                  aria-label="View dbt logs"
+                  title="Open the dbt Open Lineage output channel for the full dbt error"
+                  onClick={onShowLogs}
+                  style={{
+                    padding: "3px 8px", borderRadius: 6, border: "1px solid #7f1d1d",
+                    background: "#450a0a", color: "#fecaca", cursor: "pointer",
+                    fontFamily: "inherit", fontSize: 11,
+                  }}
+                >View logs</button>
+              </span>
             )}
             <button
               onClick={() => setFocus((v) => !v)}

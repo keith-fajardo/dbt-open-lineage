@@ -21,6 +21,7 @@ let view: vscode.Webview | undefined; // the resolved panel view's webview
 let projectRoot: string | undefined;
 let lastGraph: Graph | undefined;
 let activeRun: RunController | undefined; // set while a dbt.run is in flight; guards against overlapping runs
+let activeLs: RunController | undefined; // set while a dbt.ls (state-selector resolve) is in flight; single-flighted so overlapping resolves can't stack and starve each other
 let runOutputChannel: vscode.OutputChannel | undefined;
 let extensionRoot: string | undefined;
 
@@ -306,16 +307,49 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         channel.appendLine("Resolving state selector with dbt…");
         const timeoutSeconds = vscode.workspace.getConfiguration("dbt-open-lineage")
           .get<number>("dbtLsTimeoutSeconds", 600);
-        const ids = await runDbtLs(
-          projectRoot, select, state, configuredDbtDeps(projectRoot), Math.max(30, timeoutSeconds) * 1000,
-          (line) => channel.appendLine(line),
-        );
-        channel.appendLine(`Resolved ${ids.length} matching node${ids.length === 1 ? "" : "s"} with dbt.`);
-        reply({ ok: true, result: ids });
+        // Single-flight: kill any still-running resolve before starting a new
+        // one. A new selector (or a re-committed one) supersedes the old view,
+        // so the old `dbt ls` is pure waste — and leaving it running starves
+        // the new one (both parse the whole project + state-diff). This is the
+        // fix for state selectors appearing to "hang": overlapping resolves
+        // were stacking, not one slow resolve.
+        activeLs?.cancel();
+        let myLs: RunController | undefined;
+        try {
+          const ids = await runDbtLs(
+            projectRoot, select, state, configuredDbtDeps(projectRoot), Math.max(30, timeoutSeconds) * 1000,
+            (line) => channel.appendLine(line),
+            (ctl) => { myLs = ctl; activeLs = ctl; },
+          );
+          channel.appendLine(`Resolved ${ids.length} matching node${ids.length === 1 ? "" : "s"} with dbt.`);
+          reply({ ok: true, result: ids });
+        } finally {
+          // Only clear the slot if it's still ours — a newer resolve that
+          // arrived (and cancelled us) mid-flight already owns activeLs.
+          if (activeLs === myLs) activeLs = undefined;
+        }
+        break;
+      }
+      case "dbt.ls.cancel": {
+        // Fired by the webview when a state selector is cleared or replaced by
+        // a non-state one — there's no follow-up dbt.ls to supersede the
+        // in-flight resolve, so cancel it explicitly.
+        activeLs?.cancel();
+        activeLs = undefined;
+        reply({ ok: true, result: true });
         break;
       }
       case "dbt.cancel": {
         activeRun?.cancel();
+        reply({ ok: true, result: true });
+        break;
+      }
+      case "dbt.showLogs": {
+        // Reveal the output channel on explicit user request. preserveFocus=true
+        // keeps the caret in the editor/lineage view — the whole reason the
+        // channel is never auto-.show()n is that a run/resolve must not steal
+        // focus; a deliberate click is different.
+        getRunOutputChannel().show(true);
         reply({ ok: true, result: true });
         break;
       }
