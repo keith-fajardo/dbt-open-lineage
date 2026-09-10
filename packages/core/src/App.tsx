@@ -5,7 +5,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { toPng, toSvg } from "html-to-image";
-import type { Graph, GraphNode, ResourceSummary } from "./graphTypes";
+import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde, onManifestChanged } from "./bridge";
 import { layoutGraph, computeExportBounds } from "./layout";
 import { resolveSelector, focalName, buildSelector, hasStateSelector } from "./selector";
@@ -742,25 +742,6 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // pre-acknowledgement state, while the large graph remains fully navigable.
   const largeGraphMode = visibleCount >= LARGE_RENDER_LIMIT && ackLargeRender;
 
-  // Project-wide resource inventory for the summary panel. Prefer the
-  // manifest-derived counts (include semantic models / metrics / exposures,
-  // which are never DAG nodes); fall back to a node-derived tally for graphs
-  // parsed before the summary existed.
-  const resourceSummary = useMemo<ResourceSummary | null>(() => {
-    if (!graph) return null;
-    if (graph.summary) return graph.summary;
-    let sources = 0, models = 0, snapshots = 0, seeds = 0, tests = 0;
-    const tags = new Set<string>();
-    for (const n of graph.nodes) {
-      if (n.resource_type === "source") sources++;
-      else if (n.resource_type === "model") models++;
-      else if (n.resource_type === "snapshot") snapshots++;
-      else if (n.resource_type === "seed") seeds++;
-      tests += n.tests?.length ?? 0;
-      for (const t of n.tags ?? []) tags.add(t);
-    }
-    return { sources, models, snapshots, seeds, tests, semantic_models: 0, metrics: 0, exposures: 0, tags: tags.size };
-  }, [graph]);
   // Reserve layout space for callout bubbles: when callouts are on, a model
   // that actually has a callout gets extra height in dagre (see layout.ts), so
   // its bubble no longer overlaps the row above. Empty when callouts are off →
@@ -911,6 +892,37 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   const onNodesChange = useCallback((changes: NodeChange[]) =>
     setNodeState((prev) => ({ base: prev.base, nodes: applyNodeChanges(changes, prev.nodes) as Node<DagNodeData>[] })),
   []);
+
+  // Resource tally for the summary panel, scoped to what's actually SHOWN in
+  // the lineage right now — the same focus/pruned-filtered id set as
+  // `rfNodes` — not the whole project. Semantic models / metrics / exposures
+  // are never DAG nodes (see manifest.ts's KEEP set), so they can never be
+  // "in the lineage" and have no place here; the project-wide totals still
+  // live on `graph.summary` if a future panel wants them.
+  const visibleSummary = useMemo(() => {
+    if (!graph) return null;
+    const visibleIds = new Set(rfNodes.map((n) => n.id));
+    let sources = 0, models = 0, snapshots = 0, seeds = 0, tests = 0;
+    const tags = new Set<string>();
+    const byMaterialization = new Map<string, number>();
+    for (const n of graph.nodes) {
+      if (!visibleIds.has(n.id)) continue;
+      switch (n.resource_type) {
+        case "source": sources++; break;
+        case "model": {
+          models++;
+          const mat = n.materialized?.trim() || "unknown";
+          byMaterialization.set(mat, (byMaterialization.get(mat) ?? 0) + 1);
+          break;
+        }
+        case "snapshot": snapshots++; break;
+        case "seed": seeds++; break;
+      }
+      tests += n.tests?.length ?? 0;
+      for (const t of n.tags ?? []) tags.add(t);
+    }
+    return { sources, models, snapshots, seeds, tests, tags: tags.size, byMaterialization };
+  }, [graph, rfNodes]);
 
   // Live node positions (reflect hand-drags) for node-anchored overlays like
   // callouts, so a bubble tracks its node instead of staying at the pristine
@@ -2283,18 +2295,19 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
           </ReactFlow>
           </ViewContext.Provider>
           )}
-          {graph && !error && resourceSummary && (() => {
-            const rows: [string, number][] = [];
-            const add = (label: string, v: number) => { if (v > 0) rows.push([label, v]); };
-            add("sources", resourceSummary.sources);
-            add("models", resourceSummary.models);
-            add("snapshots", resourceSummary.snapshots);
-            add("seeds", resourceSummary.seeds);
-            add("tests", resourceSummary.tests);
-            add("semantic", resourceSummary.semantic_models);
-            add("metrics", resourceSummary.metrics);
-            add("exposures", resourceSummary.exposures);
-            add("tags", resourceSummary.tags);
+          {graph && !error && visibleSummary && (() => {
+            const rows: { label: string; value: number; indent?: boolean }[] = [];
+            if (visibleSummary.sources > 0) rows.push({ label: "sources", value: visibleSummary.sources });
+            if (visibleSummary.models > 0) {
+              rows.push({ label: "models", value: visibleSummary.models });
+              for (const [mat, count] of [...visibleSummary.byMaterialization.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+                rows.push({ label: mat, value: count, indent: true });
+              }
+            }
+            if (visibleSummary.snapshots > 0) rows.push({ label: "snapshots", value: visibleSummary.snapshots });
+            if (visibleSummary.seeds > 0) rows.push({ label: "seeds", value: visibleSummary.seeds });
+            if (visibleSummary.tests > 0) rows.push({ label: "tests", value: visibleSummary.tests });
+            if (visibleSummary.tags > 0) rows.push({ label: "tags", value: visibleSummary.tags });
             return (
               <div
                 aria-label="lineage summary"
@@ -2313,11 +2326,14 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
                     <div style={{
                       fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em",
                       color: "#64748b", marginBottom: 4,
-                    }}>Total Resources</div>
-                    {rows.map(([label, v]) => (
-                      <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 14 }}>
-                        <span style={{ color: "#94a3b8" }}>{label}</span>
-                        <span style={{ color: "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>{v.toLocaleString()}</span>
+                    }}>Shown in Lineage</div>
+                    {rows.map((r) => (
+                      <div
+                        key={r.indent ? `materialized:${r.label}` : r.label}
+                        style={{ display: "flex", justifyContent: "space-between", gap: 14, paddingLeft: r.indent ? 10 : 0 }}
+                      >
+                        <span style={{ color: r.indent ? "#64748b" : "#94a3b8" }}>{r.label}</span>
+                        <span style={{ color: r.indent ? "#94a3b8" : "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>{r.value.toLocaleString()}</span>
                       </div>
                     ))}
                   </>

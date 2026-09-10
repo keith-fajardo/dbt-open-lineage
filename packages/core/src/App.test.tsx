@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import type { Graph } from "./graphTypes";
 import { favoritesKey } from "./favorites";
@@ -1959,39 +1959,41 @@ describe("large-render warning", () => {
 });
 
 describe("summary panel", () => {
-  it("shows the nodes-shown count and per-type resource totals", async () => {
+  it("scopes resource counts, and the model materialization breakdown, to what's actually rendered", async () => {
     manifestGraph = {
       nodes: [
-        { id: "a", name: "a", resource_type: "model", layer: "staging", path: "m.sql", description: "" },
-        { id: "b", name: "b", resource_type: "model", layer: "mart", path: "m.sql", description: "" },
+        { id: "src_a", name: "src_a", resource_type: "source", layer: "source", path: "", description: "" },
+        { id: "b", name: "b", resource_type: "model", layer: "staging", path: "m.sql", description: "", materialized: "view" },
+        { id: "c", name: "c", resource_type: "model", layer: "mart", path: "m.sql", description: "", materialized: "table" },
+        { id: "d", name: "d", resource_type: "model", layer: "mart", path: "m.sql", description: "", materialized: "table" },
+        // Outside the rendered selector below — must not count toward the
+        // total or the breakdown, even though it's in the project manifest.
+        { id: "hidden", name: "hidden", resource_type: "model", layer: "mart", path: "m.sql", description: "", materialized: "incremental" },
       ],
-      edges: [{ from: "a", to: "b" }],
-      summary: {
-        sources: 4, models: 3, snapshots: 1, seeds: 0, tests: 2000,
-        semantic_models: 5, metrics: 12, exposures: 0, tags: 30,
-      },
+      edges: [{ from: "src_a", to: "b" }, { from: "b", to: "c" }, { from: "b", to: "d" }],
     };
-    render(<App projectPath="/proj" initialSelector="a b" debounceMs={0} />);
+    render(<App projectPath="/proj" initialSelector="src_a b c d" debounceMs={0} />);
     const panel = await screen.findByLabelText("lineage summary");
-    expect(panel).toHaveTextContent("Nodes shown: 2");
-    expect(panel).toHaveTextContent("Total Resources");
-    expect(within(panel).getByText("sources")).toBeInTheDocument();
-    expect(within(panel).getByText("4")).toBeInTheDocument();   // sources
-    expect(panel).toHaveTextContent("2,000");                    // tests (localized)
-    expect(within(panel).getByText("semantic")).toBeInTheDocument();
-    expect(within(panel).getByText("30")).toBeInTheDocument();   // tags
-    // zero-count types are omitted
-    expect(within(panel).queryByText("seeds")).not.toBeInTheDocument();
-    expect(within(panel).queryByText("exposures")).not.toBeInTheDocument();
+    expect(panel).toHaveTextContent("Nodes shown: 4");
+    expect(panel).toHaveTextContent("Shown in Lineage");
+    expect(panel).toHaveTextContent("sources1");
+    expect(panel).toHaveTextContent("models3");
+    // materialization sub-breakdown, indented under models
+    expect(panel).toHaveTextContent("table2");
+    expect(panel).toHaveTextContent("view1");
+    // the model outside the rendered lineage counts toward neither
+    expect(panel).not.toHaveTextContent("incremental");
   });
 
-  it("falls back to node-derived counts when the graph has no summary", async () => {
-    // `g` (the default fixture) has no summary field → derive from nodes.
+  it("falls back to node-derived counts when the graph has no summary, still scoped to what's shown", async () => {
+    // `g` (the default fixture) has no summary field and 4 model nodes total,
+    // but only "a" is in the rendered selector.
     render(<App projectPath="/proj" initialSelector="a" debounceMs={0} />);
     const panel = await screen.findByLabelText("lineage summary");
     expect(panel).toHaveTextContent("Nodes shown: 1");
-    expect(within(panel).getByText("models")).toBeInTheDocument();
-    expect(within(panel).getByText("4")).toBeInTheDocument(); // 4 model nodes in g
+    expect(panel).toHaveTextContent("models1"); // not 4 — only "a" is rendered
+    expect(panel).toHaveTextContent("table1");  // "a" is materialized "table" in `g`
+    expect(panel).toHaveTextContent("tests2");  // "a" carries 2 attached tests in `g`
   });
 });
 
