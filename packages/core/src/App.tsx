@@ -561,6 +561,17 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // whole project in the background. Gated by this ref so a plain non-state
   // selector (or the initial blank render) doesn't fire a pointless cancel.
   const lsInFlight = useRef(false);
+  // The resolve effect must NOT depend on `graph`'s object identity. `load`
+  // hands back a fresh Graph object on every manifest reload even when the
+  // file is byte-identical, and a state resolve itself causes such a reload
+  // (an external `dbt compile`, or the optimistic setGraph on a doc save, do
+  // too). Keyed on `graph`, the effect would cancel and restart a resolve that
+  // was seconds from finishing, and never settle. Only readiness is a real
+  // dependency; the node-id set is read from a ref when the resolve returns,
+  // which also filters against the freshest graph rather than a stale capture.
+  const graphRef = useRef(graph);
+  useEffect(() => { graphRef.current = graph; }, [graph]);
+  const graphReady = !!graph;
   useEffect(() => {
     if (!matchBusy) { setMatchElapsedMs(0); return; }
     const started = Date.now();
@@ -569,7 +580,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     return () => window.clearInterval(timer);
   }, [matchBusy]);
   useEffect(() => {
-    if (!graph) return;
+    if (!graphReady) return;
     // Leaving state-mode (cleared, or a non-state selector committed): abort a
     // still-running host resolve, since nothing else will supersede it there.
     const cancelStaleLs = () => {
@@ -581,10 +592,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     if (!runFlags.state) { ++matchReq.current; cancelStaleLs(); setAsyncMatched(null); setMatchError("state: selectors need --state <dir>"); setMatchBusy(false); return; }
     const myReq = ++matchReq.current;
     setMatchBusy(true); setMatchError(null); lsInFlight.current = true;
-    const known = new Set(graph.nodes.map((n) => n.id));
     void invoke<string[]>("dbt.ls", { select: cleanedSelector, state: runFlags.state })
       .then((ids) => {
         if (myReq !== matchReq.current) return;               // superseded — drop
+        const known = new Set((graphRef.current?.nodes ?? []).map((n) => n.id));
         setAsyncMatched(new Set(ids.filter((id) => known.has(id))));
       })
       .catch((e) => {
@@ -593,8 +604,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
         setMatchError(String((e as Error).message ?? e));
       })
       .finally(() => { if (myReq === matchReq.current) { setMatchBusy(false); lsInFlight.current = false; } });
-    // cleanedSelector/runFlags.state/stateMode capture everything the resolve depends on
-  }, [graph, stateMode, cleanedSelector, runFlags.state]);
+    // cleanedSelector/runFlags.state/stateMode capture everything the resolve
+    // depends on; graphReady is a boolean so a same-content manifest reload
+    // cannot restart an in-flight resolve.
+  }, [graphReady, stateMode, cleanedSelector, runFlags.state]);
 
   const [columnLineageMode, setColumnLineageMode] = useState(false);
   const [columnLineage, setColumnLineage] = useState<ColumnLineagePayload | null>(null);

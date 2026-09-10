@@ -23,6 +23,21 @@ function readableLine(line: string): string {
   return clean;
 }
 
+/** True for a `--output json` RESULT record (`{"unique_id": "model.x.y"}`).
+ * Those lines are the command's DATA, not progress logs: readableLine finds no
+ * `info.msg` on them and falls through to echoing the raw JSON, which buried
+ * the actual dbt messages under one line per matched node. Filtered out of the
+ * streamed log; parseLsUniqueIds still consumes them from the collected
+ * stdout. */
+export function isResultRecord(line: string): boolean {
+  const clean = cleanLine(line);
+  if (!clean.startsWith("{")) return false;
+  try {
+    const obj = JSON.parse(clean) as { unique_id?: unknown };
+    return typeof obj.unique_id === "string";
+  } catch { return false; }
+}
+
 /** `dbt ls --select <expr> --state <dir>` restricted to the four resource
  * types the DAG shows, emitting one JSON object per matched node with just its
  * unique_id (which maps directly onto graph node ids). `select` may still
@@ -32,12 +47,22 @@ function readableLine(line: string): string {
  * the exclusion into a UNION instead. Mirrors resolveSelector in
  * packages/core/src/selector.ts: split on --exclude, union any remaining
  * chunks (dropping blanks, e.g. a bare trailing --exclude) into one discrete
- * --exclude arg. */
+ * --exclude arg.
+ *
+ * `--no-write-json` is essential, not an optimisation. `dbt ls` is decorated
+ * `@requires.manifest` with `write=True`, so by default it OVERWRITES
+ * target/manifest.json once parsing finishes. The extension watches that exact
+ * file (ensureManifestWatcher), so a default `dbt ls` makes the webview reload
+ * the graph, which re-fires the state-resolve effect, which single-flight
+ * CANCELS this still-running `dbt ls` and starts another — an endless loop in
+ * which no resolve ever reaches its output. Suppressing the write breaks the
+ * cycle at the source. Partial parsing is governed separately by
+ * --partial-parse, so warm-parse speed is unaffected. */
 export function buildLsArgs(select: string, state: string): string[] {
   const chunks = select.split(/\s*--exclude\b\s*/);
   const include = chunks[0].trim();
   const exclude = chunks.slice(1).map((c) => c.trim()).filter(Boolean).join(" ");
-  const args = ["ls", "--select", include];
+  const args = ["ls", "--no-write-json", "--select", include];
   if (exclude) args.push("--exclude", exclude);
   args.push(
     "--state", state,
@@ -88,6 +113,7 @@ export function runDbtLs(
     let done = false;
     const stream = (lines: string[]) => {
       for (const line of lines) {
+        if (isResultRecord(line)) continue;
         const readable = readableLine(line);
         if (readable) onOutput?.(readable);
       }

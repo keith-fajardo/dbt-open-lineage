@@ -2100,6 +2100,61 @@ describe("state: selector resolution", () => {
     expect(invokeMock).not.toHaveBeenCalledWith("dbt.ls", expect.anything());
   });
 
+  // Regression: `dbt ls` rewrites target/manifest.json, which trips the host's
+  // manifest watcher, which reloads the graph. The reload hands back a NEW
+  // Graph object even when the file is unchanged, and the resolve effect used
+  // to depend on that object's identity — so it cancelled and restarted the
+  // still-running resolve, which rewrote the manifest, forever. On a real
+  // project each pass took ~3 minutes and never reached its output.
+  it("does not restart an in-flight dbt ls when the manifest reloads underneath it", async () => {
+    let release!: (ids: string[]) => void;
+    lsResult = () => new Promise<string[]>((r) => { release = r; });
+    render(<App projectPath="/proj" debounceMs={0} />);
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "state:modified state:new --state target/prod/" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.ls", expect.anything()));
+
+    // The watcher fires (twice, as a re-parse plus a partial write would), each
+    // time serving an equal-but-not-identical graph object.
+    manifestGraph = structuredClone(g);
+    act(() => { manifestChangedCb?.(); });
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+    manifestGraph = structuredClone(g);
+    act(() => { manifestChangedCb?.(); });
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter((c) => c[0] === "dbt.manifest").length).toBeGreaterThan(1));
+
+    const lsCalls = invokeMock.mock.calls.filter((c) => c[0] === "dbt.ls").length;
+    expect(lsCalls).toBe(1);
+    expect(invokeMock).not.toHaveBeenCalledWith("dbt.ls.cancel", expect.anything());
+
+    // The original resolve still settles and paints — it was never superseded.
+    release(["b"]);
+    await waitFor(() => expect(screen.queryByLabelText(/resolving state selector/i)).toBeNull());
+  });
+
+  it("filters the resolved ids against the graph reloaded during the resolve", async () => {
+    let release!: (ids: string[]) => void;
+    lsResult = () => new Promise<string[]>((r) => { release = r; });
+    render(<App projectPath="/proj" debounceMs={0} />);
+    const input = screen.getByPlaceholderText(/select/i);
+    fireEvent.change(input, { target: { value: "state:modified+ --state target/prod/" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.ls", expect.anything()));
+
+    // A node dbt is about to return is gone from the reloaded manifest; the
+    // resolve must filter against the FRESH graph, not the one captured when
+    // it started, or it would emphasise an id the DAG no longer contains.
+    manifestGraph = { ...g, nodes: g.nodes.filter((n) => n.id !== "b"), edges: [] };
+    act(() => { manifestChangedCb?.(); });
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("dbt.manifest", expect.anything()));
+
+    release(["b"]);
+    await waitFor(() => expect(screen.queryByLabelText(/resolving state selector/i)).toBeNull());
+    expect(screen.queryByTestId("rf__node-b")).not.toBeInTheDocument();
+  });
+
   it("shows a busy indicator while a state: resolve is in flight", async () => {
     let release!: (ids: string[]) => void;
     lsResult = () => new Promise<string[]>((r) => { release = r; });

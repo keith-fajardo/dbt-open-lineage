@@ -6,7 +6,7 @@ import type { RunDeps } from "./run";
 describe("buildLsArgs", () => {
   it("selects with --state and requests unique_id json output", () => {
     expect(buildLsArgs("state:modified+", "target/prod/")).toEqual([
-      "ls", "--select", "state:modified+", "--state", "target/prod/",
+      "ls", "--no-write-json", "--select", "state:modified+", "--state", "target/prod/",
       "--resource-type", "model", "snapshot", "seed", "source",
       "--output", "json", "--output-keys", "unique_id",
     ]);
@@ -14,7 +14,7 @@ describe("buildLsArgs", () => {
 
   it("splits an embedded --exclude into a discrete CLI arg", () => {
     expect(buildLsArgs("state:modified+ --exclude tag:wip", "target/prod/")).toEqual([
-      "ls", "--select", "state:modified+", "--exclude", "tag:wip", "--state", "target/prod/",
+      "ls", "--no-write-json", "--select", "state:modified+", "--exclude", "tag:wip", "--state", "target/prod/",
       "--resource-type", "model", "snapshot", "seed", "source",
       "--output", "json", "--output-keys", "unique_id",
     ]);
@@ -24,6 +24,13 @@ describe("buildLsArgs", () => {
     const args = buildLsArgs("state:modified+ --exclude tag:wip --exclude tag:weekly", "d/");
     expect(args[args.indexOf("--select") + 1]).toBe("state:modified+");
     expect(args[args.indexOf("--exclude") + 1]).toBe("tag:wip tag:weekly");
+  });
+
+  // Regression: without --no-write-json, `dbt ls` rewrites target/manifest.json,
+  // the manifest watcher fires, the webview reloads the graph, and the
+  // state-resolve effect cancels + restarts this very command — forever.
+  it("suppresses the manifest write so the resolve cannot re-trigger itself", () => {
+    expect(buildLsArgs("state:modified state:new", "target/prod/")).toContain("--no-write-json");
   });
 
   it("drops a trailing/blank --exclude clause instead of emitting an empty --exclude arg", () => {
@@ -147,5 +154,26 @@ describe("runDbtLs", () => {
     child.emit("close", 0);
     await expect(p).resolves.toEqual([]);
     expect(output).toEqual(["Parsing project"]);
+  });
+
+  // Result records carry no info.msg, so readableLine used to fall through and
+  // echo the raw JSON — one log line per matched node, burying dbt's actual
+  // messages under thousands of ids on a large selection.
+  it("keeps --output json result records out of the streamed log", async () => {
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: () => void };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    const output: string[] = [];
+    const p = runDbtLs("/proj", "state:modified+", "target/prod/", { spawn: vi.fn(() => child as never) }, 1000, (line) => output.push(line));
+    child.stdout.emit("data", Buffer.from(
+      JSON.stringify({ info: { msg: "Found 2 models" } }) + "\n" +
+      JSON.stringify({ unique_id: "model.p.a" }) + "\n" +
+      JSON.stringify({ unique_id: "model.p.b" }) + "\n",
+    ));
+    child.emit("close", 0);
+    // Still parsed as results — only the LOG stream is filtered.
+    await expect(p).resolves.toEqual(["model.p.a", "model.p.b"]);
+    expect(output).toEqual(["Found 2 models"]);
   });
 });

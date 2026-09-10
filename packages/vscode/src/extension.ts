@@ -299,7 +299,11 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         if (!select.trim()) throw new Error("dbt.ls: missing select expression");
         if (!state.trim()) throw new Error("state: selectors need --state <dir>");
         const channel = getRunOutputChannel();
-        channel.clear();
+        // Deliberately NOT channel.clear(): wiping the log on every resolve
+        // destroyed the evidence of what the previous one did, which is what
+        // made a repeating resolve look like a single hung one. Keep the
+        // history and separate attempts with a blank line instead.
+        channel.appendLine("");
         // Keep the user's current editor or lineage view visible. The logs
         // remain available in the Output channel without revealing it.
         channel.appendLine(`> state selector --select ${select} --state ${state}`);
@@ -310,9 +314,15 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
         // Single-flight: kill any still-running resolve before starting a new
         // one. A new selector (or a re-committed one) supersedes the old view,
         // so the old `dbt ls` is pure waste — and leaving it running starves
-        // the new one (both parse the whole project + state-diff). This is the
-        // fix for state selectors appearing to "hang": overlapping resolves
-        // were stacking, not one slow resolve.
+        // the new one (both parse the whole project + state-diff).
+        //
+        // This is NOT what made state selectors appear to hang. That was a
+        // feedback loop: `dbt ls` rewrote target/manifest.json, the manifest
+        // watcher reloaded the graph, and the reload re-fired the webview's
+        // resolve effect — so this very cancel killed each near-complete
+        // resolve and restarted it, forever. The real fixes are
+        // --no-write-json in buildLsArgs and the graphReady dependency in
+        // core's resolve effect; keep both when touching this path.
         activeLs?.cancel();
         let myLs: RunController | undefined;
         try {
@@ -323,6 +333,11 @@ async function handleMessage(msg: { id: number; cmd: string; args: Record<string
           );
           channel.appendLine(`Resolved ${ids.length} matching node${ids.length === 1 ? "" : "s"} with dbt.`);
           reply({ ok: true, result: ids });
+        } catch (e) {
+          // Surface the outcome in the channel too. Without this the log just
+          // stops mid-parse on a cancel or failure, which reads as a hang.
+          channel.appendLine(`dbt ls did not complete: ${String((e as Error).message ?? e)}`);
+          throw e;
         } finally {
           // Only clear the slot if it's still ours — a newer resolve that
           // arrived (and cancelled us) mid-flight already owns activeLs.
