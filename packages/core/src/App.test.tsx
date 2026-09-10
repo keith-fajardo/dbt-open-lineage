@@ -2074,6 +2074,7 @@ describe("state: selector resolution", () => {
     await screen.findByLabelText(/resolving state selector/i);
     expect(screen.getByRole("progressbar", { name: /state selector progress/i })).toBeInTheDocument();
     expect(screen.getByText(/dbt ls running · 0s/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("rf__node-b")).not.toBeInTheDocument();
     release(["b"]);
     await waitFor(() => expect(screen.queryByLabelText(/resolving state selector/i)).toBeNull());
   });

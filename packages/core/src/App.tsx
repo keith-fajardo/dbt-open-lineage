@@ -679,6 +679,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // sit compactly together rather than keeping their full-graph positions.
   const visibleGraph = useMemo(() => {
     if (!graph) return graph;
+    // Do not leave a stale/full graph visible while dbt is still resolving a
+    // state selector. The graph shown before the async result arrives is not
+    // the state-selected graph and can make a pending request look complete.
+    if (stateMode && matchBusy) return { nodes: [], edges: [] };
     // Empty selector → empty DAG (no default "show every model"), unless
     // the user confirmed "show all" via the blank-Enter modal.
     if (!cleanedSelector.trim() && !showAll) return { nodes: [], edges: [] };
@@ -693,7 +697,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
       edges: graph.edges.filter((e) =>
         passesFocus(e.from) && passesFocus(e.to) && passesPrune(e.from) && passesPrune(e.to)),
     };
-  }, [graph, focus, matched, cleanedSelector, showAll, pruned]);
+  }, [graph, focus, matched, cleanedSelector, showAll, pruned, stateMode, matchBusy]);
   const visibleNodeIds = useMemo(
     () => visibleGraph?.nodes.map((node) => node.id) ?? [],
     [visibleGraph],
