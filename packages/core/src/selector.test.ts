@@ -156,6 +156,37 @@ describe("source: method — dbt source selector by source group name", () => {
     expect(sq("source:*_2*")).toEqual(["source.p.SALESFORCE_2_PROD.ACCOUNT"]));
 });
 
+describe("path: method — dbt path selector by project-relative file path", () => {
+  const gp: Graph = {
+    nodes: [
+      { id: "s1", name: "stg_orders", resource_type: "model", layer: "staging", path: "models/operational/ODS_IRESSCLASSIC/stg/stg_orders.sql", description: "" },
+      { id: "s2", name: "stg_refunds", resource_type: "model", layer: "staging", path: "models/operational/ODS_IRESSCLASSIC/stg/stg_refunds.sql", description: "" },
+      { id: "i1", name: "int_orders", resource_type: "model", layer: "intermediate", path: "models/operational/ODS_IRESSCLASSIC/int/int_orders.sql", description: "" },
+      { id: "m1", name: "other_model", resource_type: "model", layer: "staging", path: "models/other/other_model.sql", description: "" },
+      { id: "exact", name: "exact_file", resource_type: "model", layer: "staging", path: "models/operational/ODS_IRESSCLASSIC/stg/stg_orders.sql", description: "" },
+    ],
+    edges: [{ from: "s1", to: "i1" }],
+  };
+  const pids = (q: string) => [...resolveSelector(gp, q)].sort();
+
+  it("matches every node under a directory prefix", () =>
+    expect(pids("path:models/operational/ODS_IRESSCLASSIC/stg")).toEqual(["exact", "s1", "s2"]));
+  it("composes with the downstream hop operator", () =>
+    expect(pids("path:models/operational/ODS_IRESSCLASSIC/stg+")).toEqual(["exact", "i1", "s1", "s2"]));
+  it("matches a node whose path is exactly the given value", () =>
+    expect(pids("path:models/operational/ODS_IRESSCLASSIC/stg/stg_orders.sql")).toEqual(["exact", "s1"]));
+  it("does not match a sibling directory sharing the prefix as a substring", () =>
+    expect(pids("path:models/operational/ODS_IRESSCLASSIC/st")).toEqual([]));
+  it("does not match nodes outside the directory", () =>
+    expect(pids("path:models/operational/ODS_IRESSCLASSIC/stg")).not.toContain("m1"));
+  it("globs the path when the value carries a glob metacharacter", () =>
+    expect(pids("path:*/int/*")).toEqual(["i1"]));
+  it("an unmatched path returns an empty set", () =>
+    expect(pids("path:models/nonexistent")).toEqual([]));
+  it("composes with --exclude", () =>
+    expect(pids("+int_orders --exclude path:models/operational/ODS_IRESSCLASSIC/stg")).toEqual(["i1"]));
+});
+
 describe("focalName — the open model behind a +model+ push", () => {
   it("strips the surrounding hop operators", () => {
     expect(focalName("+dim_date+")).toBe("dim_date");

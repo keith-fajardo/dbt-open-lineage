@@ -128,6 +128,24 @@ function matchCore(adj: Adj, core: string): string[] {
       })
       .map((n) => n.id);
   }
+  // path:<dir-or-glob> — dbt's path method, matched against the node's
+  // project-relative file `path`. A plain value (no glob metacharacters) is a
+  // directory prefix: "models/staging" matches that exact path and everything
+  // under it ("models/staging/stg_x.sql"), mirroring dbt's path-parents check.
+  // A value carrying `*`/`?`/`[…]` is matched as a glob against the FULL path
+  // (not anchored to `/` boundaries, dbt's fnmatch semantics — so `*` can
+  // cross directories), reusing the same glob syntax as bare-token globbing.
+  if (method === "path") {
+    if (/[*?[]/.test(value)) {
+      let re: RegExp;
+      try { re = globToRegExp(value); } catch { return []; }
+      return adj.nodes.filter((n) => re.test(n.path)).map((n) => n.id);
+    }
+    const dir = value.replace(/\/+$/, "");
+    return adj.nodes
+      .filter((n) => n.path === dir || n.path.startsWith(dir + "/"))
+      .map((n) => n.id);
+  }
   if (method === "unused") {
     // unused:sources — sources with NO downstream consumers at all (defined
     // in a .yml but never referenced by staging/int/mart models). Composes

@@ -1739,7 +1739,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
               so flexWrap alone never gets the chance to trigger. */}
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
             <input
-              placeholder="select… e.g. stg_orders+  tag:mart  unused:snapshot  --exclude unused:staging  (Enter applies the selection)"
+              placeholder="select… e.g. stg_orders+  tag:mart  path:models/staging+  unused:snapshot  --exclude unused:staging  (Enter applies the selection)"
               value={raw}
               // macOS "smart dashes" in the WKWebView rewrites a typed `--` to a
               // single em-dash (U+2014), which silently breaks `--exclude`. dbt
