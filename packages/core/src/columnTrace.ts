@@ -8,10 +8,18 @@ export interface ColEndpoint {
   column: string;
 }
 
-/** Stable set-membership key for an endpoint. Only ever compared / set-tested,
- * never parsed back — dbt unique_ids use dots and columns are identifiers, so
- * `::` cannot collide. */
+/** Stable set-membership key for an endpoint. Mostly compared / set-tested,
+ * but also parsed back by parseEndpointKey below (e.g. CLI trace output) —
+ * dbt unique_ids use dots and columns are identifiers, so `::` cannot
+ * collide, and exactly one `::` is ever inserted. */
 export const endpointKey = (node: string, column: string): string => `${node}::${column}`;
+
+/** Inverse of endpointKey. Splits on the first `::` — safe because neither a
+ * dbt unique_id nor a column identifier can itself contain `::`. */
+export function parseEndpointKey(key: string): ColEndpoint {
+  const i = key.indexOf("::");
+  return { node: key.slice(0, i), column: key.slice(i + 2) };
+}
 
 /** Multi-hop column trace. An edge is (source,sourceColumn)→(target,targetColumn),
  * so a chain a.x→b.y→c.z is two edges sharing the endpoint (b,y). We match on

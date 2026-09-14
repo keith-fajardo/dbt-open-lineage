@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  endpointKey, traceColumn, columnTraceEdges, estimateColumnNodeSize, toRfTraceEdge,
+  endpointKey, parseEndpointKey, traceColumn, columnTraceEdges, estimateColumnNodeSize, toRfTraceEdge,
   HEADER_H, TOGGLE_H, ROW_H,
 } from "./columnTrace";
 import type { ColumnLineagePayload, ColumnLineageEdge } from "./columnLineage";
@@ -26,6 +26,17 @@ const renamed: ColumnLineagePayload = {
 describe("endpointKey", () => {
   it("joins node and column with a :: separator", () => {
     expect(endpointKey("model.proj.a", "id")).toBe("model.proj.a::id");
+  });
+});
+
+describe("parseEndpointKey", () => {
+  it("is the inverse of endpointKey", () => {
+    expect(parseEndpointKey(endpointKey("model.proj.a", "id"))).toEqual({ node: "model.proj.a", column: "id" });
+  });
+
+  it("splits on the first :: even when the node id contains dots", () => {
+    expect(parseEndpointKey("model.proj.staging.stg_orders::order_id"))
+      .toEqual({ node: "model.proj.staging.stg_orders", column: "order_id" });
   });
 });
 

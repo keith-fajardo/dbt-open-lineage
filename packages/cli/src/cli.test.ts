@@ -28,6 +28,11 @@ describe("parseArgs", () => {
     expect(parseArgs(["--manifest", "a.json", "--out", "./public", "--column-lineage"]))
       .toEqual({ manifest: "a.json", out: "./public", "column-lineage": "true" });
   });
+
+  it("parses trace-column's --json boolean flag without consuming the next token", () => {
+    expect(parseArgs(["--manifest", "a.json", "--catalog", "c.json", "--model", "stg_orders", "--column", "id", "--json"]))
+      .toEqual({ manifest: "a.json", catalog: "c.json", model: "stg_orders", column: "id", json: "true" });
+  });
 });
 
 describe("isMainModule", () => {
