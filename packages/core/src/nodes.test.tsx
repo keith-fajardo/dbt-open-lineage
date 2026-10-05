@@ -44,20 +44,46 @@ describe("DagNode corner badges", () => {
     expect(mat.style.bottom).not.toBe("");
     const badge = screen.getByLabelText("3 tests");
     expect(badge).toHaveTextContent("3");
-    expect(badge).toHaveStyle({ position: "absolute" });
-    expect(badge.style.right).not.toBe(""); // pinned to the RIGHT corner
     expect(badge).toHaveAttribute("title", "3 tests");
+    const corner = badge.parentElement!; // the badge cluster
+    expect(corner).toHaveStyle({ position: "absolute" });
+    expect(corner.style.right).not.toBe(""); // pinned to the RIGHT corner
   });
 
   it("hides both corners when there is nothing to show", () => {
     render(<DagNode id="n1" data={data("m")} />);
     expect(screen.queryByText("table")).toBeNull();
     expect(screen.queryByLabelText(/tests/)).toBeNull();
+    expect(screen.queryByLabelText(/downstream/)).toBeNull();
   });
 
   it("singular test tooltip reads '1 test'", () => {
     render(<DagNode id="n1" data={data("m", { testCount: 1 })} />);
     expect(screen.getByLabelText("1 tests")).toHaveAttribute("title", "1 test");
+  });
+});
+
+describe("DagNode downstream badge", () => {
+  it("shows the direct downstream count next to the test count", () => {
+    render(<DagNode id="n1" data={data("m", { testCount: 3, downstreamCount: 2 })} />);
+    const down = screen.getByLabelText("2 downstream");
+    expect(down).toHaveTextContent("↓2");
+    expect(down).toHaveAttribute("title", "2 direct downstream models");
+    // Same cluster as the test badge, so the two never overlap.
+    expect(down.parentElement).toBe(screen.getByLabelText("3 tests").parentElement);
+  });
+
+  it("shows on its own when the node has no tests", () => {
+    render(<DagNode id="n1" data={data("m", { downstreamCount: 1 })} />);
+    expect(screen.getByLabelText("1 downstream")).toHaveAttribute("title", "1 direct downstream model");
+    expect(screen.queryByLabelText(/tests/)).toBeNull();
+  });
+
+  it("is hidden at 0 or when unset", () => {
+    const { rerender } = render(<DagNode id="n1" data={data("m", { downstreamCount: 0 })} />);
+    expect(screen.queryByLabelText(/downstream/)).toBeNull();
+    rerender(<DagNode id="n1" data={data("m")} />);
+    expect(screen.queryByLabelText(/downstream/)).toBeNull();
   });
 });
 

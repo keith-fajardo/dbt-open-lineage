@@ -1,4 +1,4 @@
-import { useContext } from "react";
+import { useContext, type CSSProperties } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ViewContext, type ViewState } from "./viewContext";
 import { endpointKey } from "./columnTrace";
@@ -77,6 +77,9 @@ export interface DagNodeData {
   materialized: string;
   /** Number of dbt tests attached — bottom-right corner badge (0 hides it). */
   testCount: number;
+  /** Number of models directly downstream of this node — bottom-right corner
+   * badge beside the test count (0 or unset hides it). */
+  downstreamCount?: number;
   /** Resolved colors of this node's labels (meta.labels), left-edge stripes. */
   labelColors?: string[];
   /** Column-lineage mode only. The node's full column catalog. PRESENT (even
@@ -156,8 +159,16 @@ function ExpandToggle({
   );
 }
 
+/** Shared pill look for the bottom-right corner badges (downstream, tests). */
+const BADGE_STYLE: CSSProperties = {
+  minWidth: 12, height: 11, padding: "0 3px", borderRadius: 6,
+  background: "rgba(148, 163, 184, 0.22)", color: "#cbd5e1",
+  fontSize: 8, lineHeight: "11px", textAlign: "center",
+};
+
 export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
   const color = LAYER_COLOR[data.layer] ?? LAYER_COLOR.model;
+  const downstream = data.downstreamCount ?? 0;
   // Selection/emphasis comes from context so drags never rebuild node objects.
   const view = useContext(ViewContext);
   const hasSel = view.selected != null;
@@ -285,7 +296,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
       >
         {highlightLabel(data.label, view.search)}
       </span>
-      {/* Corner metadata: materialization bottom-left, test count bottom-right. */}
+      {/* Corner metadata: materialization bottom-left; downstream + test counts bottom-right. */}
       {data.materialized && (
         <span
           title={`materialized: ${data.materialized}`}
@@ -297,18 +308,26 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           {data.materialized}
         </span>
       )}
-      {data.testCount > 0 && (
-        <span
-          title={`${data.testCount} test${data.testCount === 1 ? "" : "s"}`}
-          aria-label={`${data.testCount} tests`}
-          style={{
-            position: "absolute", right: 4, bottom: 2,
-            minWidth: 12, height: 11, padding: "0 3px", borderRadius: 6,
-            background: "rgba(148, 163, 184, 0.22)", color: "#cbd5e1",
-            fontSize: 8, lineHeight: "11px", textAlign: "center",
-          }}
-        >
-          {data.testCount}
+      {(data.testCount > 0 || downstream > 0) && (
+        <span style={{ position: "absolute", right: 4, bottom: 2, display: "flex", gap: 3 }}>
+          {downstream > 0 && (
+            <span
+              title={`${downstream} direct downstream model${downstream === 1 ? "" : "s"}`}
+              aria-label={`${downstream} downstream`}
+              style={BADGE_STYLE}
+            >
+              ↓{downstream}
+            </span>
+          )}
+          {data.testCount > 0 && (
+            <span
+              title={`${data.testCount} test${data.testCount === 1 ? "" : "s"}`}
+              aria-label={`${data.testCount} tests`}
+              style={BADGE_STYLE}
+            >
+              {data.testCount}
+            </span>
+          )}
         </span>
       )}
       <Handle type="source" position={Position.Right} />

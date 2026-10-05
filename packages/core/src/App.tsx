@@ -254,6 +254,18 @@ export function lineageOf(graph: Graph, id: string | null): Lineage {
   return { up, down };
 }
 
+/** Number of DIRECT downstream models per node id — the distinct `to` ends of
+ * its outgoing edges. Leaves have no entry (callers default to 0). Computed
+ * from the full graph, not the focused/pruned view, so a node's count doesn't
+ * change with the current selector. */
+export function downstreamCounts(graph: Graph): Map<string, number> {
+  const children = new Map<string, Set<string>>();
+  for (const e of graph.edges) {
+    (children.get(e.from) ?? children.set(e.from, new Set()).get(e.from)!).add(e.to);
+  }
+  return new Map([...children].map(([id, kids]) => [id, kids.size]));
+}
+
 /** An edge lies on the selection's lineage exactly when it feeds the upstream
  * cone (its target reaches the selection) or continues the downstream cone
  * (its source is reached from the selection). A direct ancestor→descendant
@@ -453,6 +465,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
 
   const areaStyles = useMemo(() => resolveStyles(annotations.areas, allAreas), [annotations, allAreas]);
   const labelStyles = useMemo(() => resolveStyles(annotations.labels, allLabels), [annotations, allLabels]);
+  const downstreamOf = useMemo(() => (graph ? downstreamCounts(graph) : new Map<string, number>()), [graph]);
 
   const [areaFilter, setAreaFilter] = useState<Set<string>>(new Set());
   const onToggleArea = (area: string) =>
@@ -855,6 +868,7 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
           layer: n.layer,
           materialized: n.materialized ?? "",
           testCount: n.tests?.length ?? 0,
+          downstreamCount: downstreamOf.get(n.id) ?? 0,
           compact: largeGraphMode,
           labelColors: nodeLabels(n)
             .map((l) => labelStyles.get(l)?.color)

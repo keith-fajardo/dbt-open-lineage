@@ -108,7 +108,7 @@ vi.mock("./layout", async (orig) => {
 });
 
 import App, {
-  lineageOf, edgeOnLineage, computeSearchHits, hitKeysSignature, currentHitTarget,
+  lineageOf, downstreamCounts, edgeOnLineage, computeSearchHits, hitKeysSignature, currentHitTarget,
   type SearchHit,
 } from "./App";
 import type { ColumnLineagePayload } from "./columnLineage";
@@ -665,6 +665,42 @@ describe("lineageOf", () => {
     const lin = lineageOf(g, "c");
     expect([...lin.up].sort()).toEqual(["a", "b"]);
     expect(lin.down.size).toBe(0);
+  });
+});
+
+describe("downstreamCounts", () => {
+  it("counts direct children only, not transitive descendants", () => {
+    const counts = downstreamCounts(g);
+    expect(counts.get("a")).toBe(1); // b only — c is a grandchild
+    expect(counts.get("b")).toBe(1);
+  });
+
+  it("omits leaves and disconnected nodes (callers default to 0)", () => {
+    const counts = downstreamCounts(g);
+    expect(counts.has("c")).toBe(false);
+    expect(counts.has("d")).toBe(false);
+  });
+
+  it("counts fan-out and ignores duplicate edges", () => {
+    const fan: Graph = {
+      ...g,
+      edges: [
+        { from: "a", to: "b" }, { from: "a", to: "b" },
+        { from: "a", to: "c" }, { from: "b", to: "c" },
+      ],
+    };
+    const counts = downstreamCounts(fan);
+    expect(counts.get("a")).toBe(2);
+    expect(counts.get("b")).toBe(1);
+  });
+});
+
+describe("downstream badge on rendered nodes", () => {
+  it("shows each node's direct-child count in the lineage", async () => {
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
+    // a→b→c: a and b each have one direct child; c and d have none.
+    expect(await screen.findAllByLabelText("1 downstream")).toHaveLength(2);
   });
 });
 
