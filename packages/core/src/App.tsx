@@ -8,7 +8,7 @@ import { toPng, toSvg } from "html-to-image";
 import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde, onManifestChanged } from "./bridge";
 import { layoutGraph, computeExportBounds, NODE_H } from "./layout";
-import { parseRuntimeCost, RUNTIME_COST_PATH } from "./runtimeCost";
+import { parseRuntimeCost, summarizeCost, formatCost, RUNTIME_COST_PATH } from "./runtimeCost";
 import { resolveSelector, focalName, buildSelector, hasStateSelector } from "./selector";
 import { isLineageLocked, shouldConfirmSwitch } from "./lock";
 import { parseRunFlags } from "./runFlags";
@@ -940,6 +940,9 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
     let sources = 0, models = 0, snapshots = 0, seeds = 0, tests = 0;
     const tags = new Set<string>();
     const byMaterialization = new Map<string, number>();
+    // Cost per materialization — only groups with at least one cost record
+    // get an entry, so a group with no data keeps its bare count.
+    const costByMaterialization = new Map<string, number>();
     for (const n of graph.nodes) {
       if (!visibleIds.has(n.id)) continue;
       switch (n.resource_type) {
@@ -948,6 +951,8 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
           models++;
           const mat = n.materialized?.trim() || "unknown";
           byMaterialization.set(mat, (byMaterialization.get(mat) ?? 0) + 1);
+          const modelCost = runtimeCost.get(n.id)?.costUsd;
+          if (modelCost !== undefined) costByMaterialization.set(mat, (costByMaterialization.get(mat) ?? 0) + modelCost);
           break;
         }
         case "snapshot": snapshots++; break;
@@ -956,8 +961,9 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
       tests += n.tests?.length ?? 0;
       for (const t of n.tags ?? []) tags.add(t);
     }
-    return { sources, models, snapshots, seeds, tests, tags: tags.size, byMaterialization };
-  }, [graph, rfNodes]);
+    const cost = summarizeCost(graph.nodes.filter((n) => visibleIds.has(n.id)), runtimeCost);
+    return { sources, models, snapshots, seeds, tests, tags: tags.size, byMaterialization, costByMaterialization, cost };
+  }, [graph, rfNodes, runtimeCost]);
 
   // Live node positions (reflect hand-drags) for node-anchored overlays like
   // callouts, so a bubble tracks its node instead of staying at the pristine
@@ -2331,18 +2337,19 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
           </ViewContext.Provider>
           )}
           {graph && !error && visibleSummary && (() => {
-            const rows: { label: string; value: number; indent?: boolean }[] = [];
+            const rows: { label: string; value: number; indent?: boolean; cost?: number }[] = [];
             if (visibleSummary.sources > 0) rows.push({ label: "sources", value: visibleSummary.sources });
             if (visibleSummary.models > 0) {
               rows.push({ label: "models", value: visibleSummary.models });
               for (const [mat, count] of [...visibleSummary.byMaterialization.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-                rows.push({ label: mat, value: count, indent: true });
+                rows.push({ label: mat, value: count, indent: true, cost: visibleSummary.costByMaterialization.get(mat) });
               }
             }
             if (visibleSummary.snapshots > 0) rows.push({ label: "snapshots", value: visibleSummary.snapshots });
             if (visibleSummary.seeds > 0) rows.push({ label: "seeds", value: visibleSummary.seeds });
             if (visibleSummary.tests > 0) rows.push({ label: "tests", value: visibleSummary.tests });
             if (visibleSummary.tags > 0) rows.push({ label: "tags", value: visibleSummary.tags });
+            const cost = visibleSummary.cost;
             return (
               <div
                 aria-label="lineage summary"
@@ -2368,10 +2375,39 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
                         style={{ display: "flex", justifyContent: "space-between", gap: 14, paddingLeft: r.indent ? 10 : 0 }}
                       >
                         <span style={{ color: r.indent ? "#64748b" : "#94a3b8" }}>{r.label}</span>
-                        <span style={{ color: r.indent ? "#94a3b8" : "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>{r.value.toLocaleString()}</span>
+                        <span style={{ display: "flex", gap: 8, color: r.indent ? "#94a3b8" : "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>
+                          <span>{r.value.toLocaleString()}</span>
+                          {r.cost !== undefined && <span style={{ color: "#64748b" }}>{formatCost(r.cost)}</span>}
+                        </span>
                       </div>
                     ))}
                   </>
+                )}
+                {cost && (
+                  <div style={{ marginTop: rows.length ? 6 : 0, borderTop: rows.length ? "1px solid #1e293b" : "none", paddingTop: rows.length ? 5 : 0 }}>
+                    {/* Pointer events back on for just these rows, so the
+                        coverage / full-name tooltips work while the rest of the
+                        panel stays click-through to the graph. */}
+                    <div
+                      title={cost.withData < cost.shown ? `Cost of ${cost.withData} of ${cost.shown} shown nodes with data` : undefined}
+                      style={{ display: "flex", justifyContent: "space-between", gap: 14, pointerEvents: "auto" }}
+                    >
+                      <span style={{ color: "#94a3b8" }}>total cost</span>
+                      <span style={{ color: "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>{formatCost(cost.total)}</span>
+                    </div>
+                    {([["priciest", cost.priciest], ["cheapest", cost.cheapest]] as const).map(([label, m]) => m && (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 10, pointerEvents: "auto" }}>
+                        <span style={{ color: "#94a3b8" }}>{label}</span>
+                        <span style={{ display: "flex", gap: 6, minWidth: 0, color: "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>
+                          <span
+                            title={m.name}
+                            style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#94a3b8" }}
+                          >{m.name}</span>
+                          <span>{formatCost(m.costUsd)}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             );

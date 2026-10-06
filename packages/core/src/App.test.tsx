@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import type { Graph } from "./graphTypes";
 import { favoritesKey } from "./favorites";
@@ -716,10 +716,11 @@ describe("runtime and cost badges on rendered nodes", () => {
       { unique_id: "c", runtime_seconds: 2, cost_usd: 1.5 },
     ]);
     render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
-    expect(await screen.findByText("12.3s")).toBeInTheDocument();
-    expect(screen.getByText("$0.04")).toBeInTheDocument();
-    expect(screen.getByText("2.0s")).toBeInTheDocument();
-    expect(screen.getByText("$1.50")).toBeInTheDocument();
+    // Pills are found by aria-label: the summary panel also prints cost text.
+    expect(await screen.findByLabelText("runtime 12.34 seconds")).toHaveTextContent("12.3s");
+    expect(screen.getByLabelText("cost 0.041 US dollars")).toHaveTextContent("$0.04");
+    expect(screen.getByLabelText("runtime 2 seconds")).toHaveTextContent("2.0s");
+    expect(screen.getByLabelText("cost 1.5 US dollars")).toHaveTextContent("$1.50");
     // b and d have no record → exactly two runtime pills in the whole graph.
     expect(screen.getAllByLabelText(/^runtime /)).toHaveLength(2);
     expect(invokeMock).toHaveBeenCalledWith("fs.readText", { path: "target/model_runtime_cost.json" });
@@ -2072,6 +2073,85 @@ describe("summary panel", () => {
     expect(panel).toHaveTextContent("models1"); // not 4 — only "a" is rendered
     expect(panel).toHaveTextContent("table1");  // "a" is materialized "table" in `g`
     expect(panel).toHaveTextContent("tests2");  // "a" carries 2 attached tests in `g`
+  });
+});
+
+describe("summary panel cost", () => {
+  const model = (id: string, name = id) =>
+    ({ id, name, resource_type: "model", layer: "mart", path: "m.sql", description: "", materialized: "table" });
+  const costGraph = (names: Record<string, string> = {}): Graph => ({
+    nodes: ["b", "c", "d", "hidden"].map((id) => model(id, names[id] ?? id)),
+    edges: [{ from: "b", to: "c" }, { from: "b", to: "d" }],
+  });
+  const costs = (rows: Record<string, number>) =>
+    JSON.stringify(Object.entries(rows).map(([unique_id, cost_usd]) => ({ unique_id, cost_usd, runtime_seconds: 1 })));
+
+  it("totals the cost of what's shown and names the priciest and cheapest, excluding zero-cost models", async () => {
+    manifestGraph = costGraph();
+    runtimeCostText = costs({ b: 1.5, c: 0.25, d: 0, hidden: 100 });
+    render(<App projectPath="/proj" initialSelector="b c d" debounceMs={0} />);
+    const panel = await screen.findByLabelText("lineage summary");
+    await waitFor(() => expect(panel).toHaveTextContent("total cost$1.75")); // hidden's $100 is outside the lineage
+    expect(panel).toHaveTextContent("priciestb$1.50");
+    expect(panel).toHaveTextContent("cheapestc$0.25"); // d is free ⇒ not "cheapest"
+  });
+
+  it("shows each materialization's cost beside its count in the breakdown", async () => {
+    manifestGraph = {
+      nodes: [
+        { ...model("b"), materialized: "view" },
+        { ...model("c"), materialized: "table" },
+        { ...model("d"), materialized: "table" },
+        { ...model("e"), materialized: "incremental" }, // no cost record
+        { ...model("hidden"), materialized: "view" },   // outside the selector
+      ],
+      edges: [],
+    };
+    runtimeCostText = costs({ b: 1.5, c: 0.25, d: 0.75, hidden: 50 });
+    render(<App projectPath="/proj" initialSelector="b c d e" debounceMs={0} />);
+    const panel = await screen.findByLabelText("lineage summary");
+    await waitFor(() => expect(panel).toHaveTextContent("view1$1.50"));
+    expect(panel).toHaveTextContent("table2$1.00");
+    // a group with no cost data keeps its bare count
+    expect(panel).toHaveTextContent("incremental1");
+    expect(panel).not.toHaveTextContent("incremental1$");
+  });
+
+  it("shows nothing cost-related when there is no cost file", async () => {
+    manifestGraph = costGraph();
+    render(<App projectPath="/proj" initialSelector="b c d" debounceMs={0} />);
+    const panel = await screen.findByLabelText("lineage summary");
+    await waitFor(() => expect(panel).toHaveTextContent("models3"));
+    expect(panel).not.toHaveTextContent("total cost");
+    expect(panel).not.toHaveTextContent("priciest");
+  });
+
+  it("still shows a $0.00 total, but no priciest/cheapest, when every cost is zero", async () => {
+    manifestGraph = costGraph();
+    runtimeCostText = costs({ b: 0, c: 0 });
+    render(<App projectPath="/proj" initialSelector="b c" debounceMs={0} />);
+    const panel = await screen.findByLabelText("lineage summary");
+    await waitFor(() => expect(panel).toHaveTextContent("total cost$0.00"));
+    expect(panel).not.toHaveTextContent("priciest");
+    expect(panel).not.toHaveTextContent("cheapest");
+  });
+
+  it("flags partial coverage in a tooltip on the total", async () => {
+    manifestGraph = costGraph();
+    runtimeCostText = costs({ b: 1, c: 2 }); // d is shown but has no record
+    render(<App projectPath="/proj" initialSelector="b c d" debounceMs={0} />);
+    expect(await screen.findByTitle("Cost of 2 of 3 shown nodes with data")).toHaveTextContent("total cost$3.00");
+  });
+
+  it("truncates long model names but keeps the full name in a tooltip", async () => {
+    const long = "rpt_unearned_subscription_revenue_rollforward_detail";
+    manifestGraph = costGraph({ b: long });
+    runtimeCostText = costs({ b: 5, c: 1 });
+    render(<App projectPath="/proj" initialSelector="resource_type:model" debounceMs={0} />);
+    const panel = await screen.findByLabelText("lineage summary");
+    const name = await within(panel).findByTitle(long);
+    expect(name).toHaveTextContent(long);
+    expect(name).toHaveStyle({ overflow: "hidden", textOverflow: "ellipsis" });
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRuntimeCost, formatRuntime, formatCost, RUNTIME_COST_PATH } from "./runtimeCost";
+import { parseRuntimeCost, formatRuntime, formatCost, summarizeCost, RUNTIME_COST_PATH, type RuntimeCost } from "./runtimeCost";
 
 describe("parseRuntimeCost", () => {
   it("indexes records by unique_id", () => {
@@ -75,5 +75,52 @@ describe("formatCost", () => {
     expect(formatCost(12.5)).toBe("$12.50");
     expect(formatCost(0.004)).toBe("<$0.01");
     expect(formatCost(1234.567)).toBe("$1,234.57");
+  });
+});
+
+describe("summarizeCost", () => {
+  const costs = (rows: Record<string, number | undefined>) =>
+    new Map<string, RuntimeCost>(Object.entries(rows).map(([id, costUsd]) => [id, { costUsd }]));
+  const node = (id: string, name = id) => ({ id, name });
+
+  it("is null when no shown node has a cost record", () => {
+    expect(summarizeCost([node("a"), node("b")], new Map())).toBeNull();
+    // a record with runtime only carries no cost
+    expect(summarizeCost([node("a")], costs({ a: undefined }))).toBeNull();
+  });
+
+  it("totals only the shown nodes and reports coverage", () => {
+    const s = summarizeCost([node("a"), node("b"), node("c")], costs({ a: 1.5, b: 0.25, zzz: 100 }))!;
+    expect(s.total).toBeCloseTo(1.75);
+    expect(s.withData).toBe(2);
+    expect(s.shown).toBe(3);
+  });
+
+  it("names the priciest and cheapest, ignoring zero-cost models", () => {
+    const s = summarizeCost(
+      [node("a", "fct_a"), node("b", "dim_b"), node("c", "stg_c"), node("d", "free_d")],
+      costs({ a: 8.1, b: 0.3, c: 2, d: 0 }),
+    )!;
+    expect(s.priciest).toEqual({ name: "fct_a", costUsd: 8.1 });
+    expect(s.cheapest).toEqual({ name: "dim_b", costUsd: 0.3 });
+    expect(s.total).toBeCloseTo(10.4); // zero adds nothing but isn't an error
+    expect(s.withData).toBe(4);        // …and still counts as having data
+  });
+
+  it("breaks ties alphabetically by name", () => {
+    const s = summarizeCost([node("1", "b_two"), node("2", "a_one"), node("3", "c_three")], costs({ 1: 2, 2: 2, 3: 2 }))!;
+    expect(s.priciest!.name).toBe("a_one");
+    expect(s.cheapest!.name).toBe("a_one");
+  });
+
+  it("omits priciest/cheapest unless two or more models have a non-zero cost", () => {
+    const zero = summarizeCost([node("a")], costs({ a: 0 }))!;
+    expect(zero.total).toBe(0);
+    expect(zero.priciest).toBeUndefined();
+    expect(zero.cheapest).toBeUndefined();
+    const one = summarizeCost([node("a"), node("b")], costs({ a: 3, b: 0 }))!;
+    expect(one.total).toBe(3);
+    expect(one.priciest).toBeUndefined();
+    expect(one.cheapest).toBeUndefined();
   });
 });

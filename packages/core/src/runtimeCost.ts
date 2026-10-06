@@ -49,3 +49,48 @@ export function formatCost(usd: number): string {
   if (usd > 0 && usd < 0.005) return "<$0.01";
   return `$${USD.format(usd)}`;
 }
+
+export interface CostSummary {
+  /** Sum of the cost of every shown node that has a cost record. */
+  total: number;
+  /** Shown nodes with a cost record / all shown nodes — for a coverage hint. */
+  withData: number;
+  shown: number;
+  /** Highest / lowest non-zero cost among shown nodes. Only set when at least
+   * two nodes have a non-zero cost (one node would be both). Free ($0) models
+   * add nothing to the total and are never named, so "cheapest" means the
+   * cheapest model that actually costs something. */
+  priciest?: { name: string; costUsd: number };
+  cheapest?: { name: string; costUsd: number };
+}
+
+/** Cost rollup over the nodes currently shown; null when none has a cost
+ * record. Ties on cost go to the alphabetically first name, so the panel
+ * doesn't flicker between equal models across redraws. */
+export function summarizeCost(
+  nodes: Iterable<{ id: string; name: string }>,
+  costs: Map<string, RuntimeCost>,
+): CostSummary | null {
+  let shown = 0, withData = 0, total = 0;
+  const paid: { name: string; costUsd: number }[] = [];
+  for (const n of nodes) {
+    shown++;
+    const costUsd = costs.get(n.id)?.costUsd;
+    if (costUsd === undefined) continue;
+    withData++;
+    total += costUsd;
+    if (costUsd > 0) paid.push({ name: n.name, costUsd });
+  }
+  if (withData === 0) return null;
+  const summary: CostSummary = { total, withData, shown };
+  if (paid.length >= 2) {
+    const byCostThenName = (a: { name: string; costUsd: number }, b: { name: string; costUsd: number }) =>
+      a.costUsd - b.costUsd || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    const sorted = [...paid].sort(byCostThenName);
+    summary.cheapest = sorted[0];
+    // Highest cost, but still alphabetical among equals.
+    const top = sorted[sorted.length - 1].costUsd;
+    summary.priciest = sorted.find((p) => p.costUsd === top)!;
+  }
+  return summary;
+}
