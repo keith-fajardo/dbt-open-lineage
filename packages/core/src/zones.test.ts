@@ -51,8 +51,8 @@ describe("boundingBox", () => {
   it("wraps member corners with padding", () => {
     const pos = new Map<string, Pt>([["1", { x: 0, y: 0 }], ["2", { x: 200, y: 100 }]]);
     const box = boundingBox(memberCorners(pos, ["1", "2"]), 10);
-    // corners span x:0..380 (200+180), y:0..144 (100+44); pad 10 each side
-    expect(box).toEqual({ x: -10, y: -10, w: 400, h: 164 });
+    // corners span x:0..380 (200+180), y:0..164 (100+64); pad 10 each side
+    expect(box).toEqual({ x: -10, y: -10, w: 400, h: 184 });
   });
   it("returns null for no corners", () => {
     expect(boundingBox([], 10)).toBeNull();

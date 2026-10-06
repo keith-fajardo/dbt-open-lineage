@@ -51,6 +51,8 @@ let columnLineageResult: unknown = { nodes: {}, edges: [] };
 // indicator while dbt.ls is in flight) set lsResult to a function that
 // hands back a deferred promise, mirroring columnLineageResult below.
 let lsResult: string[] | Error | (() => unknown) = [];
+// Contents of target/model_runtime_cost.json (null = file absent).
+let runtimeCostText: string | null = null;
 const saveExport = vi.fn(async () => true);
 const openInIde = vi.fn(async () => true);
 const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) => {
@@ -58,7 +60,7 @@ const invokeMock = vi.fn(async (cmd: string, _args?: Record<string, unknown>) =>
     if (manifestGraph instanceof Error) throw manifestGraph;
     return manifestGraph;
   }
-  if (cmd === "fs.readText") return null;
+  if (cmd === "fs.readText") return _args?.path === "target/model_runtime_cost.json" ? runtimeCostText : null;
   if (cmd === "fs.writeText") return true;
   if (cmd === "dbt.gist") return "AI gist";
   if (cmd === "dbt.modelSql") return { raw: "select 1 raw", compiled: "select 1 compiled" };
@@ -120,6 +122,7 @@ beforeEach(() => {
   lastCalloutHeights = undefined; runEventCb = null; manifestChangedCb = null;
   columnLineageResult = { nodes: {}, edges: [] };
   lsResult = [];
+  runtimeCostText = null;
 });
 afterEach(cleanup);
 
@@ -701,6 +704,45 @@ describe("downstream badge on rendered nodes", () => {
     await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
     // a→b→c: a and b each have one direct child; c and d have none.
     expect(await screen.findAllByLabelText("1 downstream")).toHaveLength(2);
+  });
+});
+
+describe("runtime and cost badges on rendered nodes", () => {
+  const costFile = (rows: unknown) => JSON.stringify(rows);
+
+  it("shows runtime seconds and USD cost for nodes present in target/model_runtime_cost.json", async () => {
+    runtimeCostText = costFile([
+      { unique_id: "a", runtime_seconds: 12.34, cost_usd: 0.041 },
+      { unique_id: "c", runtime_seconds: 2, cost_usd: 1.5 },
+    ]);
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    expect(await screen.findByText("12.3s")).toBeInTheDocument();
+    expect(screen.getByText("$0.04")).toBeInTheDocument();
+    expect(screen.getByText("2.0s")).toBeInTheDocument();
+    expect(screen.getByText("$1.50")).toBeInTheDocument();
+    // b and d have no record → exactly two runtime pills in the whole graph.
+    expect(screen.getAllByLabelText(/^runtime /)).toHaveLength(2);
+    expect(invokeMock).toHaveBeenCalledWith("fs.readText", { path: "target/model_runtime_cost.json" });
+  });
+
+  it("renders no pills (and no error) when the file is absent or not a record list", async () => {
+    runtimeCostText = "areas:\n  a: {color: '#fff'}\n"; // what the static CLI bridge hands back
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    await waitFor(() => expect(layoutSpy).toHaveBeenCalledTimes(1));
+    await screen.findAllByLabelText("1 downstream");
+    expect(screen.queryByLabelText(/^runtime /)).toBeNull();
+    expect(screen.queryByLabelText(/^cost /)).toBeNull();
+  });
+
+  it("picks up new values when the host pushes manifestChanged", async () => {
+    runtimeCostText = costFile([{ unique_id: "a", runtime_seconds: 1, cost_usd: 0.01 }]);
+    render(<App projectPath="/proj" initialSelector={ALL} debounceMs={0} />);
+    expect(await screen.findByText("1.0s")).toBeInTheDocument();
+
+    runtimeCostText = costFile([{ unique_id: "a", runtime_seconds: 8, cost_usd: 0.5 }]);
+    act(() => { manifestChangedCb?.(); });
+    expect(await screen.findByText("8.0s")).toBeInTheDocument();
+    expect(screen.queryByText("1.0s")).toBeNull();
   });
 });
 

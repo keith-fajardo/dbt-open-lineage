@@ -1,5 +1,5 @@
 import type { Edge } from "@xyflow/react";
-import { NODE_W } from "./layout";
+import { NODE_W, NODE_H } from "./layout";
 import type { ColumnLineagePayload, ColumnLineageEdge } from "./columnLineage";
 
 /** One (node, column) endpoint on the column-lineage graph. */
@@ -139,8 +139,8 @@ export function toRfTraceEdge(e: ColumnLineageEdge, i: number): Edge {
   };
 }
 
-/** Header chrome height (today's fixed 44px box). */
-export const HEADER_H = 44;
+/** Header chrome height — the same fixed box as a plain node. */
+export const HEADER_H = NODE_H;
 /** The expand/collapse control strip ("▸ N columns") under the header. */
 export const TOGGLE_H = 22;
 /** One rendered column row. */

@@ -29,7 +29,7 @@ describe("DagNode label wrapping", () => {
     expect(label.style.webkitLineClamp).toBe("2");
     // The box itself stays at the size dagre laid out (no overlap growth)…
     const box = label.parentElement!;
-    expect(box).toHaveStyle({ width: "180px", height: "44px", boxSizing: "border-box" });
+    expect(box).toHaveStyle({ width: "180px", height: "64px", boxSizing: "border-box" });
     // …and the full name stays reachable via the tooltip.
     expect(box).toHaveAttribute("title", long);
   });
@@ -84,6 +84,44 @@ describe("DagNode downstream badge", () => {
     expect(screen.queryByLabelText(/downstream/)).toBeNull();
     rerender(<DagNode id="n1" data={data("m")} />);
     expect(screen.queryByLabelText(/downstream/)).toBeNull();
+  });
+});
+
+describe("DagNode runtime and cost badges", () => {
+  it("shows runtime in seconds and cost in dollars, with exact-value tooltips", () => {
+    render(<DagNode id="n1" data={data("m", { runtimeSeconds: 12.34, costUsd: 0.041 })} />);
+    const rt = screen.getByLabelText("runtime 12.34 seconds");
+    expect(rt).toHaveTextContent("12.3s");
+    expect(rt).toHaveAttribute("title", "runtime: 12.34 seconds");
+    const cost = screen.getByLabelText("cost 0.041 US dollars");
+    expect(cost).toHaveTextContent("$0.04");
+    expect(cost).toHaveAttribute("title", "cost: $0.041");
+    // Same row, so the two pills sit together under the corner badges.
+    expect(rt.parentElement).toBe(cost.parentElement);
+  });
+
+  it("shows whichever of the two is present", () => {
+    const { rerender } = render(<DagNode id="n1" data={data("m", { runtimeSeconds: 2 })} />);
+    expect(screen.getByLabelText(/runtime/)).toHaveTextContent("2.0s");
+    expect(screen.queryByLabelText(/cost/)).toBeNull();
+    rerender(<DagNode id="n1" data={data("m", { costUsd: 1 })} />);
+    expect(screen.queryByLabelText(/runtime/)).toBeNull();
+    expect(screen.getByLabelText(/cost/)).toHaveTextContent("$1.00");
+  });
+
+  it("shows a zero value (a fast, free model is still data) and hides when unset", () => {
+    const { rerender } = render(<DagNode id="n1" data={data("m", { runtimeSeconds: 0, costUsd: 0 })} />);
+    expect(screen.getByLabelText(/runtime/)).toHaveTextContent("0.0s");
+    expect(screen.getByLabelText(/cost/)).toHaveTextContent("$0.00");
+    rerender(<DagNode id="n1" data={data("m")} />);
+    expect(screen.queryByLabelText(/runtime/)).toBeNull();
+    expect(screen.queryByLabelText(/cost/)).toBeNull();
+  });
+
+  it("is omitted from large-graph compact nodes, like the other badges", () => {
+    render(<DagNode id="n1" data={data("m", { compact: true, runtimeSeconds: 5, costUsd: 1 })} />);
+    expect(screen.queryByLabelText(/runtime/)).toBeNull();
+    expect(screen.queryByLabelText(/cost/)).toBeNull();
   });
 });
 
@@ -335,13 +373,13 @@ describe("DagNode column body (column-lineage mode)", () => {
       { name: "raw_json", hasLineage: false },
     ],
     expanded: false,
-    width: 200, height: 44 + 22, ...over,
+    width: 200, height: 64 + 22, ...over,
   });
 
-  it("normal path is unchanged when data.allColumns is absent (fixed 180×44 box)", () => {
+  it("normal path is unchanged when data.allColumns is absent (fixed 180×64 box)", () => {
     render(<DagNode id="n1" data={{ label: "n", layer: "staging", materialized: "", testCount: 0 }} />);
     const box = screen.getByText("n").parentElement!;
-    expect(box).toHaveStyle({ width: "180px", height: "44px" });
+    expect(box).toHaveStyle({ width: "180px", height: "64px" });
   });
 
   it("a collapsed node with no trace renders zero column rows (just header + toggle)", () => {

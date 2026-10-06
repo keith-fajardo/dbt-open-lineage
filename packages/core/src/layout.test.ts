@@ -92,10 +92,10 @@ describe("layoutGraph", () => {
     expect(pos.get("stg3")!.x).toBeGreaterThan(pos.get("stg2")!.x);
     // Raw inputs still sit left of staging.
     expect(pos.get("src1")!.x).toBeLessThan(pos.get("stg1")!.x);
-    // Stacked raw inputs never overlap (44px tall + 24px gap).
+    // Stacked raw inputs never overlap (NODE_H tall + 24px gap).
     const raws = ["src1", "src2", "seed1"].map((id) => pos.get(id)!.y).sort((a, b) => a - b);
-    expect(raws[1] - raws[0]).toBeGreaterThanOrEqual(44 + 24);
-    expect(raws[2] - raws[1]).toBeGreaterThanOrEqual(44 + 24);
+    expect(raws[1] - raws[0]).toBeGreaterThanOrEqual(NODE_H + 24);
+    expect(raws[2] - raws[1]).toBeGreaterThanOrEqual(NODE_H + 24);
   });
 
   it("does NOT column-lock downstream layers: an int chain still steps right", () => {
@@ -245,13 +245,13 @@ describe("computeExportBounds", () => {
       h: 100 + NODE_H, // rightmost-in-y node's y + its (fallback) height, minus min y (0)
     });
     // Pin the actual numbers so a future NODE_W/NODE_H edit can't silently
-    // change what "byte-identical to 180x44" means without failing here.
+    // change what "byte-identical to 180x64" means without failing here.
     expect(NODE_W).toBe(180);
-    expect(NODE_H).toBe(44);
-    expect(computeExportBounds(shown)).toEqual({ x: 0, y: 0, w: 480, h: 144 });
+    expect(NODE_H).toBe(64);
+    expect(computeExportBounds(shown)).toEqual({ x: 0, y: 0, w: 480, h: 164 });
   });
 
-  it("a grown node's real size (nodeSizes, Task 4) widens the bounds beyond the 180x44 fallback", () => {
+  it("a grown node's real size (nodeSizes, Task 4) widens the bounds beyond the 180x64 fallback", () => {
     const fallback = computeExportBounds(shown);
     const nodeSizes = new Map([["b", { w: 500, h: 300 }]]);
     const grown = computeExportBounds(shown, nodeSizes);

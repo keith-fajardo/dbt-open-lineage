@@ -2,6 +2,8 @@ import { useContext, type CSSProperties } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ViewContext, type ViewState } from "./viewContext";
 import { endpointKey } from "./columnTrace";
+import { NODE_W, NODE_H } from "./layout";
+import { formatRuntime, formatCost } from "./runtimeCost";
 import type { RunDisplayStatus } from "./runStatus";
 
 export type DimView = Pick<ViewState, "selected" | "active" | "up" | "down" | "matched" | "spotlight" | "filtered" | "nodesOnTrace">;
@@ -80,6 +82,10 @@ export interface DagNodeData {
   /** Number of models directly downstream of this node — bottom-right corner
    * badge beside the test count (0 or unset hides it). */
   downstreamCount?: number;
+  /** Model run time in seconds / cost in USD (target/model_runtime_cost.json) —
+   * a pill row at the bottom of the node; each hides when unset. */
+  runtimeSeconds?: number;
+  costUsd?: number;
   /** Resolved colors of this node's labels (meta.labels), left-edge stripes. */
   labelColors?: string[];
   /** Column-lineage mode only. The node's full column catalog. PRESENT (even
@@ -160,6 +166,14 @@ function ExpandToggle({
 }
 
 /** Shared pill look for the bottom-right corner badges (downstream, tests). */
+/** Bottom badge rows inside the node box: row 2 (runtime · cost) hugs the
+ * bottom edge, row 1 (materialization left, downstream + tests right) sits
+ * above it. Fixed positions so a node's badges line up whether or not its
+ * neighbours have runtime data; the title is padded up out of their way. */
+const BADGE_ROW2_BOTTOM = 3;
+const BADGE_ROW1_BOTTOM = 17;
+const BADGE_ROWS_H = 28;
+
 const BADGE_STYLE: CSSProperties = {
   minWidth: 12, height: 11, padding: "0 3px", borderRadius: 6,
   background: "rgba(148, 163, 184, 0.22)", color: "#cbd5e1",
@@ -193,7 +207,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
         title={active ? `${data.label} (open)` : data.label}
         data-large-node="compact"
         style={{
-          width: 180, height: 44, borderRadius: 8,
+          width: NODE_W, height: NODE_H, borderRadius: 8,
           border: active ? "2px solid #e5e7eb" : `2px solid ${color}`,
           boxShadow: active
             ? `0 0 0 3px #e5e7eb, 0 0 18px 3px ${color}`
@@ -301,7 +315,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
         <span
           title={`materialized: ${data.materialized}`}
           style={{
-            position: "absolute", left: 5, bottom: 1,
+            position: "absolute", left: 5, bottom: BADGE_ROW1_BOTTOM + 1,
             fontSize: 8, lineHeight: 1, color: "#94a3b8", letterSpacing: 0.2,
           }}
         >
@@ -309,7 +323,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
         </span>
       )}
       {(data.testCount > 0 || downstream > 0) && (
-        <span style={{ position: "absolute", right: 4, bottom: 2, display: "flex", gap: 3 }}>
+        <span style={{ position: "absolute", right: 4, bottom: BADGE_ROW1_BOTTOM, display: "flex", gap: 3 }}>
           {downstream > 0 && (
             <span
               title={`${downstream} direct downstream model${downstream === 1 ? "" : "s"}`}
@@ -330,6 +344,33 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           )}
         </span>
       )}
+      {(data.runtimeSeconds !== undefined || data.costUsd !== undefined) && (
+        <span
+          style={{
+            position: "absolute", left: 4, right: 4, bottom: BADGE_ROW2_BOTTOM,
+            display: "flex", justifyContent: "center", gap: 4,
+          }}
+        >
+          {data.runtimeSeconds !== undefined && (
+            <span
+              title={`runtime: ${data.runtimeSeconds} seconds`}
+              aria-label={`runtime ${data.runtimeSeconds} seconds`}
+              style={BADGE_STYLE}
+            >
+              {formatRuntime(data.runtimeSeconds)}
+            </span>
+          )}
+          {data.costUsd !== undefined && (
+            <span
+              title={`cost: $${data.costUsd}`}
+              aria-label={`cost ${data.costUsd} US dollars`}
+              style={BADGE_STYLE}
+            >
+              {formatCost(data.costUsd)}
+            </span>
+          )}
+        </span>
+      )}
       <Handle type="source" position={Position.Right} />
     </>
   );
@@ -339,7 +380,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
       <div
         title={active ? `${data.label} (open)` : data.label}
         style={{
-          width: 180, height: 44, borderRadius: 8,
+          width: NODE_W, height: NODE_H, borderRadius: 8,
           border: active ? `2px solid #e5e7eb` : `2px solid ${color}`,
           boxShadow: active
             ? `0 0 0 3px #e5e7eb, 0 0 18px 3px ${color}` // open model: white ring + colored glow
@@ -354,7 +395,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
           opacity: dim ? 0.18 : 1,
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 12, lineHeight: 1.25, textAlign: "center",
-          padding: "2px 10px", boxSizing: "border-box",
+          padding: `2px 10px ${BADGE_ROWS_H}px`, boxSizing: "border-box",
           transition: "opacity 120ms",
           position: "relative",
         }}
@@ -364,7 +405,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
     );
   }
   // Column path: header chrome on top, an expand/collapse toggle, then one row
-  // per RENDERED column. Outer box is content-sized; the header stays 44px.
+  // per RENDERED column. Outer box is content-sized; the header stays NODE_H tall.
   const all = data.allColumns ?? [];
   const expanded = data.expanded ?? false;
   const selKey = view.selectedColumn ? endpointKey(view.selectedColumn.node, view.selectedColumn.column) : null;
@@ -386,7 +427,7 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
     <div
       title={active ? `${data.label} (open)` : data.label}
       style={{
-        width: data.width ?? 180, minHeight: data.height ?? 44, borderRadius: 8,
+        width: data.width ?? NODE_W, minHeight: data.height ?? NODE_H, borderRadius: 8,
         border: active ? `2px solid #e5e7eb` : `2px solid ${color}`,
         boxShadow: active
           ? `0 0 0 3px #e5e7eb, 0 0 18px 3px ${color}`
@@ -400,11 +441,11 @@ export function DagNode({ id, data }: { id: string; data: DagNodeData }) {
         boxSizing: "border-box", transition: "opacity 120ms", position: "relative",
       }}
     >
-      {/* 44px header — same chrome as normal mode, same relative positioning. */}
+      {/* NODE_H header — same chrome as normal mode, same relative positioning. */}
       <div style={{
-        height: 44, position: "relative", flex: "0 0 auto",
+        height: NODE_H, position: "relative", flex: "0 0 auto",
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 12, lineHeight: 1.25, textAlign: "center", padding: "2px 10px",
+        fontSize: 12, lineHeight: 1.25, textAlign: "center", padding: `2px 10px ${BADGE_ROWS_H}px`,
       }}>
         {header}
       </div>

@@ -7,7 +7,8 @@ import "@xyflow/react/dist/style.css";
 import { toPng, toSvg } from "html-to-image";
 import type { Graph, GraphNode } from "./graphTypes";
 import { invoke, onContext, onRunEvent, saveExport, openInIde, onManifestChanged } from "./bridge";
-import { layoutGraph, computeExportBounds } from "./layout";
+import { layoutGraph, computeExportBounds, NODE_H } from "./layout";
+import { parseRuntimeCost, RUNTIME_COST_PATH } from "./runtimeCost";
 import { resolveSelector, focalName, buildSelector, hasStateSelector } from "./selector";
 import { isLineageLocked, shouldConfirmSwitch } from "./lock";
 import { parseRunFlags } from "./runFlags";
@@ -296,7 +297,7 @@ export function computeSearchHits(searchQ: string, rfNodes: Node<DagNodeData>[])
   for (const n of rfNodes) {
     const pos = n.position;
     const w = n.data.width ?? 180;
-    const h = n.data.height ?? 44;
+    const h = n.data.height ?? NODE_H;
     if (n.data.label.toLowerCase().includes(searchQ)) {
       out.push({ key: n.id, cx: pos.x + w / 2, cy: pos.y + h / 2 });
     }
@@ -423,7 +424,10 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
 
   const load = async (cmd: "dbt.manifest" | "dbt.compile", opts?: { background?: boolean }) => {
     if (!opts?.background) setError(null);
-    try { setGraph(await invoke<Graph>(cmd, { projectPath })); }
+    try {
+      const [g] = await Promise.all([invoke<Graph>(cmd, { projectPath }), loadRuntimeCost()]);
+      setGraph(g);
+    }
     catch (e) {
       // A watcher refresh is advisory. Keep the last valid graph and avoid a
       // red error flash if dbt happened to be midway through replacing its
@@ -465,6 +469,21 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
 
   const areaStyles = useMemo(() => resolveStyles(annotations.areas, allAreas), [annotations, allAreas]);
   const labelStyles = useMemo(() => resolveStyles(annotations.labels, allLabels), [annotations, allLabels]);
+  // Optional per-model runtime/cost (target/model_runtime_cost.json), refreshed
+  // by load() alongside the graph (mount, manifest-changed push, compile).
+  // Absent, unreadable or off-shape ⇒ empty map ⇒ no badges.
+  const [runtimeCost, setRuntimeCost] = useState(() => parseRuntimeCost(null));
+  const costSeq = useRef(0);
+  const loadRuntimeCost = async () => {
+    const seq = ++costSeq.current; // a slower, older read must not clobber a newer one
+    let text: string | null = null;
+    try { text = await invoke<string | null>("fs.readText", { path: RUNTIME_COST_PATH }); }
+    catch { /* unreadable ⇒ no data */ }
+    if (seq !== costSeq.current) return;
+    const next = parseRuntimeCost(text);
+    // Keep the previous map when both are empty so "no file" never rebuilds nodes.
+    setRuntimeCost((prev) => (prev.size === 0 && next.size === 0 ? prev : next));
+  };
   const downstreamOf = useMemo(() => (graph ? downstreamCounts(graph) : new Map<string, number>()), [graph]);
 
   const [areaFilter, setAreaFilter] = useState<Set<string>>(new Set());
@@ -869,6 +888,8 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
           materialized: n.materialized ?? "",
           testCount: n.tests?.length ?? 0,
           downstreamCount: downstreamOf.get(n.id) ?? 0,
+          runtimeSeconds: runtimeCost.get(n.id)?.runtimeSeconds,
+          costUsd: runtimeCost.get(n.id)?.costUsd,
           compact: largeGraphMode,
           labelColors: nodeLabels(n)
             .map((l) => labelStyles.get(l)?.color)
@@ -893,8 +914,8 @@ export default function App({ projectPath, initialSelector = "", readOnly = fals
   // (label colors live in node data). A drag never changes either, so this
   // never rebuilds mid-drag — preserving node identity for React Flow.
   const nodeBuildKey = useMemo(
-    () => ({ positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes, largeGraphMode }),
-    [positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes, largeGraphMode],
+    () => ({ positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes, largeGraphMode, runtimeCost }),
+    [positioned, labelStyles, expandedNodes, columnLineageMode, columnLineage, tooManyNodes, largeGraphMode, runtimeCost],
   );
   const [nodeState, setNodeState] = useState<{ base: unknown; nodes: Node<DagNodeData>[] }>(
     { base: null, nodes: [] },
